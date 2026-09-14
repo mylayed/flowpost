@@ -12,6 +12,7 @@ from flowpost.bot.handlers.editor.view import open_editor, safe_delete
 from flowpost.bot.keyboards.common import add_channel_inline_kb
 from flowpost.bot.keyboards.editor import channels_pick_kb
 from flowpost.db.models import Channel, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
@@ -55,13 +56,13 @@ async def start_post(
     media: list[dict] | None = None,
 ) -> None:
     await state.clear()
-    channels = await channels_repo.list_channels(session, user.id)
+    channels = await channels_repo.list_channels(session, user.id, perm="posts")
     if not channels:
         await message.answer(t("post.no_channels"), reply_markup=add_channel_inline_kb())
         return
     if len(channels) == 1:
         post = await posts_repo.create_post(
-            session, user.id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
+            session, channels[0].owner_id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
             text=text, media=media,
         )
         note = t("post.ad_intro") if is_ad else None
@@ -83,10 +84,14 @@ async def cb_pick_channel(
 ) -> None:
     post = await posts_repo.get_post(session, user.id, callback_data.p)
     channel = await channels_repo.get_channel(session, user.id, callback_data.c)
-    if post is None or channel is None:
+    can_post = channel is not None and (
+        channel.owner_id == user.id or await channel_admins_repo.has_permission(session, channel.id, user.id, "posts")
+    )
+    if post is None or channel is None or not can_post:
         await cb.answer(t("err.post_not_found"), show_alert=True)
         return
     await cb.answer()
+    post.owner_id = channel.owner_id
     posts_repo.set_targets(post, [channel.id])
     post.options = {**initial_options(channel, post.is_ad), **(post.options or {})}
     await session.flush()

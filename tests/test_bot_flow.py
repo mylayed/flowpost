@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -12,11 +13,11 @@ from aiogram.client.session.base import BaseSession
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Cp, Cs, Ed, Ep, Pj, St
+from flowpost.bot.callbacks import Ca, Cp, Cs, Ed, Ep, Pj, St
 from flowpost.bot.setup import build_dispatcher
-from flowpost.db.models import Channel, Post, Publication, RepeatRule, Subscription, User
+from flowpost.db.models import Channel, ChannelAdmin, Post, Publication, RepeatRule, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.ai import AIService
 from flowpost.services.publisher import Publisher
@@ -25,6 +26,7 @@ from flowpost.services.worker import Worker
 
 BOT_ID = 123456
 USER_ID = 777
+ADMIN_ID = 888
 CHANNEL_CHAT = -1009876543210
 
 
@@ -95,31 +97,32 @@ class Harness:
         self._update_ids = itertools.count(1)
         self._msg_ids = itertools.count(1)
 
-    def _from(self):
-        return {"id": USER_ID, "is_bot": False, "first_name": "Олена", "language_code": "uk"}
+    def _from(self, uid: int = USER_ID):
+        name = "Олена" if uid == USER_ID else f"User{uid}"
+        return {"id": uid, "is_bot": False, "first_name": name, "language_code": "uk"}
 
     async def feed(self, **payload):
         update = Update.model_validate({"update_id": next(self._update_ids), **payload}, context={"bot": self.bot})
         result = await self.dp.feed_update(self.bot, update)
         return result
 
-    def _message(self, **fields) -> dict:
+    def _message(self, uid: int = USER_ID, **fields) -> dict:
         return {"message_id": next(self._msg_ids), "date": int(datetime.now().timestamp()),
-                "chat": {"id": USER_ID, "type": "private"}, "from": self._from(), **fields}
+                "chat": {"id": uid, "type": "private"}, "from": self._from(uid), **fields}
 
-    async def text(self, text: str):
-        await self.feed(message=self._message(text=text))
+    async def text(self, text: str, uid: int = USER_ID):
+        await self.feed(message=self._message(uid, text=text))
 
-    async def photo(self, file_id="user-photo"):
-        await self.feed(message=self._message(photo=[{"file_id": file_id, "file_unique_id": file_id, "width": 800, "height": 600}]))
+    async def photo(self, file_id="user-photo", uid: int = USER_ID):
+        await self.feed(message=self._message(uid, photo=[{"file_id": file_id, "file_unique_id": file_id, "width": 800, "height": 600}]))
 
-    async def click(self, data: CallbackData):
+    async def click(self, data: CallbackData, uid: int = USER_ID):
         """Press an inline button; fails the test if no handler picked the callback up."""
         before = len(self.session.calls)
         await self.feed(callback_query={
-            "id": str(next(self._update_ids)), "from": self._from(), "chat_instance": "ci", "data": data.pack(),
+            "id": str(next(self._update_ids)), "from": self._from(uid), "chat_instance": "ci", "data": data.pack(),
             "message": {"message_id": 999, "date": int(datetime.now().timestamp()),
-                        "chat": {"id": USER_ID, "type": "private"}, "text": "panel"},
+                        "chat": {"id": uid, "type": "private"}, "text": "panel"},
         })
         assert len(self.session.calls) > before, f"callback {data.pack()} was not handled"
 
@@ -310,6 +313,66 @@ async def test_full_editor_flow(h: Harness):
     h.session.clear()
     await h.click(Ed(a="save", p=p))
     assert {"EditMessageMedia", "EditMessageText"} & set(h.session.names())
+
+
+async def test_channel_admin_delegation(h: Harness):
+    """Owner invites an admin; the admin posts into the owner's channel under the owner's account/subscription."""
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    channel = await h.db(lambda s: s.scalar(select(Channel)))
+    c = channel.id
+    owner = await _user(h)
+
+    # Owner creates an invite: posting + settings, but not disconnect
+    await h.click(Pj(a="ch", c=c))
+    await h.click(Ca(a="list", c=c))
+    await h.click(Ca(a="new", c=c, v="100"))
+    await h.click(Ca(a="toggle", c=c, id=1, v="100"))  # settings on → "110"
+    h.session.clear()
+    await h.click(Ca(a="create", c=c, v="110"))
+    invite_text = h.session.calls[-1][1].text
+    token = re.search(r"adm_([0-9a-f]+)", invite_text).group(1)
+
+    # A different Telegram user redeems the invite via /start
+    await h.text(f"/start adm_{token}", uid=ADMIN_ID)
+    admin_user = await h.db(lambda s: s.scalar(select(User).where(User.tg_id == ADMIN_ID)))
+    grant = await h.db(lambda s: s.scalar(
+        select(ChannelAdmin).where(ChannelAdmin.channel_id == c, ChannelAdmin.user_id == admin_user.id)
+    ))
+    assert grant is not None and grant.can_posts and grant.can_settings and not grant.can_disconnect
+
+    # The admin's own trial is expired — publishing must still work off the owner's active access
+    async def expire_admin(s):
+        await s.execute(update(User).where(User.id == admin_user.id).values(trial_ends_at=utcnow() - timedelta(minutes=1)))
+        await s.commit()
+    await h.db(expire_admin)
+
+    # Admin creates and publishes a post into the delegated channel — it belongs to the real owner
+    await h.text("Пост від адміністратора", uid=ADMIN_ID)
+    post = await _post(h)
+    assert post.owner_id == owner.id
+    p = post.id
+    await h.click(Ed(a="pub", p=p), uid=ADMIN_ID)
+    await h.click(Ed(a="pubok", p=p), uid=ADMIN_ID)
+    pub = await h.db(lambda s: s.scalar(
+        select(Publication).where(Publication.post_id == p, Publication.status == "published")
+    ))
+    assert pub is not None
+
+    # No can_disconnect → the admin can't disconnect the channel
+    h.session.clear()
+    await h.click(Pj(a="off", c=c), uid=ADMIN_ID)
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+
+    # Owner revokes access; the ex-admin can no longer reach that post
+    await h.click(Pj(a="ch", c=c))
+    await h.click(Ca(a="list", c=c))
+    await h.click(Ca(a="remove", c=c, id=grant.id))
+    await h.click(Ca(a="removeok", c=c, id=grant.id))
+    assert await h.db(lambda s: s.get(ChannelAdmin, grant.id)) is None
+    h.session.clear()
+    await h.click(Ed(a="home", p=p), uid=ADMIN_ID)
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
 
 
 async def test_empty_post_blocks_schedule_and_publish(h: Harness):

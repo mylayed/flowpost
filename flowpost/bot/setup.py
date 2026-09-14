@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from flowpost.bot.handlers import (
     admin,
     billing,
+    channel_admins,
     channel_settings,
     channels,
     content_plan,
@@ -70,6 +71,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
         projects.router,
         settings_handlers.router,
         channel_settings.router,
+        channel_admins.router,
         content.router,
         buttons.router,
         media.router,

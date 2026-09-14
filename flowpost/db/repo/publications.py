@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.db.models import Post, Publication
+from flowpost.db.repo import channel_admins as channel_admins_repo
 
 ACTIVE_STATUSES = ("pending", "publishing", "paused")
 
@@ -44,11 +45,20 @@ async def cancel_pending(session: AsyncSession, post_id: int) -> None:
     )
 
 
+async def _accessible_condition(session: AsyncSession, owner_id: int):
+    """`owner_id`'s own publications, plus those in channels delegated to them for posting."""
+    admin_ids = await channel_admins_repo.administered_channel_ids(session, owner_id, perm="posts")
+    condition = Publication.owner_id == owner_id
+    if admin_ids:
+        condition = condition | Publication.channel_id.in_(admin_ids)
+    return condition
+
+
 async def pending_between(
     session: AsyncSession, owner_id: int, start: datetime, end: datetime, channel_ids: list[int] | None = None
 ) -> list[Publication]:
     stmt = select(Publication).where(
-        Publication.owner_id == owner_id,
+        await _accessible_condition(session, owner_id),
         Publication.status.in_(("pending", "paused")),
         Publication.run_at >= start,
         Publication.run_at < end,
@@ -71,7 +81,7 @@ async def published_between(
     session: AsyncSession, owner_id: int, start: datetime, end: datetime, channel_ids: list[int] | None = None
 ) -> list[Publication]:
     stmt = select(Publication).where(
-        Publication.owner_id == owner_id,
+        await _accessible_condition(session, owner_id),
         Publication.status == "published",
         Publication.deleted.is_(False),
         Publication.published_at >= start,

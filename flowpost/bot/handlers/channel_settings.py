@@ -10,11 +10,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.callbacks import Cs, Ed, Pj
+from flowpost.bot.callbacks import Ca, Cs, Ed, Pj
 from flowpost.bot.handlers.editor.view import render_editor
 from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.bot.states import ChannelInput
 from flowpost.db.models import Channel, Post, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
@@ -38,7 +39,7 @@ def back_button(channel: Channel, post_id: int):
     return btn(t("btn.back"), Ed(a="home", p=post_id) if post_id else Pj(a="ch", c=channel.id))
 
 
-def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
+def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: bool = True) -> tuple[str, InlineKeyboardMarkup]:
     wm = wm_settings(channel.watermark)
     kind = t("proj.kind_channel") if channel.kind == "channel" else t("proj.kind_group")
     recipients = channel.notify_recipients or "owner"
@@ -69,10 +70,18 @@ def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
         ])
     if channel.is_forum:
         rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
-    if channel.is_active:
+    if is_owner:
+        rows.append([btn(t("admins.manage_btn"), Ca(a="list", c=c))])
+    if channel.is_active and (is_owner or can_disconnect):
         rows.append([btn(t("proj.disconnect"), Pj(a="off", c=c))])
     rows.append([btn(t("btn.back"), Pj(a="list"))])
     return "\n".join(lines), markup(rows)
+
+
+async def card_kwargs(session: AsyncSession, channel: Channel, user: User) -> dict:
+    is_owner = channel.owner_id == user.id
+    can_disconnect = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "disconnect")
+    return {"is_owner": is_owner, "can_disconnect": can_disconnect}
 
 
 def wm_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMarkup]:
@@ -174,7 +183,7 @@ async def _return_after_input(
             await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
             return
     await state.set_state(None)
-    text, kb = channel_card(channel)
+    text, kb = channel_card(channel, **await card_kwargs(session, channel, user))
     await message.answer(note + "\n\n" + text, reply_markup=kb)
 
 
@@ -211,7 +220,7 @@ async def cs_card(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, u
     if channel is None:
         return
     await cb.answer()
-    await _edit(cb, *channel_card(channel))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"notify_def", "notify_rcpt"})))
@@ -225,7 +234,7 @@ async def cs_notify(cb: CallbackQuery, callback_data: Cs, session: AsyncSession,
         channel.notify_recipients = callback_data.v
     await session.flush()
     await cb.answer()
-    await _edit(cb, *channel_card(channel))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"wm", "wm_post", "wm_op", "wm_sc", "wm_def", "wm_pos"})))

@@ -392,6 +392,28 @@ TEXTS: dict[str, str] = {
     "proj.disconnect_confirm": "Disconnect <b>{title}</b>? Scheduled publications to this channel will be cancelled.",
     "proj.disconnect_yes": "🔌 Yes, disconnect",
     "proj.disconnected": "Channel disconnected",
+
+    # ---- Channel administrators -----------------------------------------------------------------
+    "admins.manage_btn": "👥 Administrators",
+    "admins.list_title": "👥 <b>Administrators of «{title}»</b>",
+    "admins.list_empty": "No administrators added yet.",
+    "admins.invite_btn": "➕ Invite an administrator",
+    "admins.remove_confirm": "Remove {name} from the administrators of «{title}»?",
+    "admins.remove_yes": "❌ Yes, remove",
+    "admins.removed": "Administrator removed",
+    "admins.perm_posts": "📝 Posts (create, edit, publish, schedule)",
+    "admins.perm_settings": "⚙️ Channel settings (signature, watermark, AI style)",
+    "admins.perm_disconnect": "🔌 Disconnect the channel",
+    "admins.new_title": "Choose what to allow the administrator to do in «{title}»:",
+    "admins.new_create": "🔗 Create invite link",
+    "admins.new_need_one": "Pick at least one permission.",
+    "admins.invite_created": (
+        "✅ Invite link created (one-time use):\n\n{link}\n\n"
+        "Permissions: {perms}\n\nSend this link to the person you want to make an administrator."
+    ),
+    "admins.invite_invalid": "This invite link is invalid or already used.",
+    "admins.invite_self": "That's your own channel — no invite needed.",
+    "admins.invite_accepted": "✅ You're now an administrator of «{title}».\nYour permissions: {perms}",
     "topic.prompt": "Send a link to the topic (e.g. <code>https://t.me/c/1234567890/15</code>) or its number.",
     "topic.saved": "✅ Posts will be published to topic #{topic}.",
     "topic.saved_general": "✅ Posts will be published to the general topic.",

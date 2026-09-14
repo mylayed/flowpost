@@ -10,9 +10,10 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Pj
-from flowpost.bot.handlers.channel_settings import channel_card
+from flowpost.bot.handlers.channel_settings import card_kwargs, channel_card
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.db.models import Publication, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 
@@ -20,10 +21,11 @@ router = Router(name="projects")
 
 
 async def projects_view(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
-    channels = await channels_repo.list_channels(session, user.id, active_only=False)
+    channels = await channels_repo.list_channels(session, user.id, active_only=False, perm="settings")
     rows = [
         [btn(
-            ("📢 " if c.kind == "channel" else "👥 ") + c.title + (" 🔊" if c.notify_published else " 🔇"),
+            ("🤝 " if c.owner_id != user.id else ("📢 " if c.kind == "channel" else "👥 "))
+            + c.title + (" 🔊" if c.notify_published else " 🔇"),
             Pj(a="ch", c=c.id),
         )]
         for c in channels
@@ -61,13 +63,17 @@ async def pj_channel(cb: CallbackQuery, callback_data: Pj, session: AsyncSession
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     await cb.answer()
-    await _edit(cb, *channel_card(channel))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
 
 
 @router.callback_query(Pj.filter(F.a.in_({"off", "offok"})))
 async def pj_disconnect(cb: CallbackQuery, callback_data: Pj, session: AsyncSession, user: User) -> None:
     channel = await channels_repo.get_channel(session, user.id, callback_data.c)
-    if channel is None:
+    can_disconnect = channel is not None and (
+        channel.owner_id == user.id
+        or await channel_admins_repo.has_permission(session, channel.id, user.id, "disconnect")
+    )
+    if channel is None or not can_disconnect:
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     if callback_data.a == "off":

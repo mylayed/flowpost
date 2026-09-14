@@ -170,3 +170,36 @@ class UsageEvent(Base):
     kind: Mapped[str] = mapped_column(String(32))
     meta: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ChannelAdmin(Base):
+    """Delegated access: `user_id` may act on `channel_id` on the owner's behalf, within these permissions."""
+
+    __tablename__ = "channel_admins"
+    __table_args__ = (UniqueConstraint("channel_id", "user_id", name="uq_channel_admins_channel_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    can_posts: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_settings: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_disconnect: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ChannelInvite(Base):
+    """A one-time invite link an owner generates to grant someone ChannelAdmin access."""
+
+    __tablename__ = "channel_invites"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    can_posts: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_settings: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_disconnect: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    used_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

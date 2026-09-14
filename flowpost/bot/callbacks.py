@@ -59,3 +59,12 @@ class Ep(CallbackData, prefix="ep"):
 
     a: str
     id: int = 0
+
+
+class Ca(CallbackData, prefix="ca"):
+    """Channel administrators. `c` — channel id, `id` — admin grant id, `v` — permission bits "posts,settings,disconnect"."""
+
+    a: str
+    c: int = 0
+    id: int = 0
+    v: str = ""

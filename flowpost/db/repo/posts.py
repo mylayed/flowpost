@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from flowpost.db.models import Post, PostPart, PostTarget
+from flowpost.db.repo import channel_admins as channel_admins_repo
 
 
 async def create_post(
@@ -29,11 +30,21 @@ async def create_post(
 async def get_post(session: AsyncSession, owner_id: int, post_id: int) -> Post | None:
     stmt = (
         select(Post)
-        .where(Post.id == post_id, Post.owner_id == owner_id)
+        .where(Post.id == post_id)
         .options(selectinload(Post.parts), selectinload(Post.targets), selectinload(Post.repeat))
         .execution_options(populate_existing=True)
     )
-    return await session.scalar(stmt)
+    post = await session.scalar(stmt)
+    if post is None:
+        return None
+    if post.owner_id == owner_id:
+        return post
+    if not post.channel_ids:
+        return None
+    admin_ids = await channel_admins_repo.administered_channel_ids(session, owner_id, perm="posts")
+    if all(cid in admin_ids for cid in post.channel_ids):
+        return post
+    return None
 
 
 def set_targets(post: Post, channel_ids: list[int]) -> None:

@@ -4,23 +4,42 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.db.models import Channel
+from flowpost.db.repo import channel_admins as channel_admins_repo
 
 
-async def list_channels(session: AsyncSession, owner_id: int, active_only: bool = True) -> list[Channel]:
-    stmt = select(Channel).where(Channel.owner_id == owner_id)
+async def list_channels(
+    session: AsyncSession, owner_id: int, active_only: bool = True, *, perm: str | None = None,
+) -> list[Channel]:
+    """Channels `owner_id` owns, plus (if `perm`) channels delegated to them with that admin permission."""
+    condition = Channel.owner_id == owner_id
+    if perm:
+        admin_ids = await channel_admins_repo.administered_channel_ids(session, owner_id, perm=perm)
+        if admin_ids:
+            condition = condition | Channel.id.in_(admin_ids)
+    stmt = select(Channel).where(condition)
     if active_only:
         stmt = stmt.where(Channel.is_active.is_(True))
     return list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
 
 
 async def get_channel(session: AsyncSession, owner_id: int, channel_id: int) -> Channel | None:
-    return await session.scalar(select(Channel).where(Channel.id == channel_id, Channel.owner_id == owner_id))
+    channel = await session.scalar(select(Channel).where(Channel.id == channel_id))
+    if channel is None:
+        return None
+    if channel.owner_id == owner_id:
+        return channel
+    if await channel_admins_repo.has_any_access(session, channel_id, owner_id):
+        return channel
+    return None
 
 
 async def get_by_ids(session: AsyncSession, owner_id: int, ids: list[int]) -> list[Channel]:
     if not ids:
         return []
-    rows = (await session.scalars(select(Channel).where(Channel.owner_id == owner_id, Channel.id.in_(ids)))).all()
+    admin_ids = await channel_admins_repo.administered_channel_ids(session, owner_id)
+    rows = (await session.scalars(
+        select(Channel).where(Channel.id.in_(ids), (Channel.owner_id == owner_id) | (Channel.id.in_(admin_ids)))
+    )).all()
     by_id = {c.id: c for c in rows}
     return [by_id[i] for i in ids if i in by_id]
 
