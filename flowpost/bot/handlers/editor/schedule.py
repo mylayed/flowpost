@@ -121,6 +121,9 @@ async def ed_schedule(
     post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
+    if post_is_empty(post):
+        await cb.answer(t("err.post_empty"), show_alert=True)
+        return
     await cb.answer()
     day, page, _ = _parse_day_value(callback_data.v)
     await show_schedule(bot, cb.from_user.id, session, state, user, post, day, page)

@@ -465,7 +465,7 @@ TEXTS: dict[str, str] = {
     # ---- Errors & warnings -------------------------------------------------------------------
     "err.bot_not_admin": "the bot is not an admin of the channel",
     "err.channel_inactive": "the channel is disconnected",
-    "err.post_empty": "The post is empty — add text or media.",
+    "err.post_empty": "📭 Nothing's been sent yet — the post is empty. Add some text, a photo, or a video, then try again.",
     "err.pub_missing": "the post or channel was deleted",
     "err.no_access": "no active subscription",
     "err.missed": "skipped",

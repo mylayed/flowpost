@@ -300,6 +300,30 @@ async def test_full_editor_flow(h: Harness):
     assert {"EditMessageMedia", "EditMessageText"} & set(h.session.names())
 
 
+async def test_empty_post_blocks_schedule_and_publish(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    await h.text("Тимчасовий текст")
+    p = (await _post(h)).id
+
+    async def empty_out(s):
+        post = await s.get(Post, p)
+        post.parts[0].text_html = ""
+        post.parts[0].media = []
+        await s.commit()
+    await h.db(empty_out)
+
+    h.session.clear()
+    await h.click(Ed(a="sch", p=p))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+    assert "SendMessage" not in h.session.names() and "EditMessageText" not in h.session.names()
+
+    h.session.clear()
+    await h.click(Ed(a="pub", p=p))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+    assert await h.db(lambda s: s.scalar(select(Publication))) is None
+
+
 async def test_cancel_settings_billing_and_paywall(h: Harness):
     await h.text("/start")
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
