@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ai_daily_limit_paid: int = 150
 
     # --- Billing ---
-    trial_days: int = 7
+    trial_days: int = 14
     sub_price_usd: float = 5.0
     liqpay_enabled: bool = True
     liqpay_public_key: str = ""

@@ -447,7 +447,7 @@ TEXTS: dict[str, str] = {
     "set.title": "⚙️ <b>Settings</b>",
     "set.lang": "🌐 Language: {lang}",
     "set.tz": "🕒 Time zone: {tz} (now {time})",
-    "set.sub_trial": "🎁 Free trial until {date} {time}",
+    "set.sub_trial": "🎁 Free trial until {date} {time} — {days} days left",
     "set.sub_paid": "💎 Subscription active until {date} ({provider}) — {days} days left",
     "set.sub_cancelled": "💎 Subscription valid until {date} ({provider}), auto-renewal off — {days} days left",
     "set.sub_none": "⛔ No active subscription",

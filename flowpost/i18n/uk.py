@@ -447,7 +447,7 @@ TEXTS: dict[str, str] = {
     "set.title": "⚙️ <b>Налаштування</b>",
     "set.lang": "🌐 Мова: {lang}",
     "set.tz": "🕒 Часовий пояс: {tz} (зараз {time})",
-    "set.sub_trial": "🎁 Пробний період до {date} {time}",
+    "set.sub_trial": "🎁 Пробний період до {date} {time} — ще {days} дн.",
     "set.sub_paid": "💎 Підписка активна до {date} ({provider}) — ще {days} дн.",
     "set.sub_cancelled": "💎 Підписка діє до {date} ({provider}), автопродовження вимкнено — ще {days} дн.",
     "set.sub_none": "⛔ Підписка неактивна",

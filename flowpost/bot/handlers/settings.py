@@ -37,7 +37,8 @@ def access_line(access: Access, user: User) -> str:
         )
     if access.kind == "trial" and access.until:
         local = access.until.astimezone(tz_of(user.tz))
-        return t("set.sub_trial", date=fmt_date(local.date(), user.lang), time=fmt_hm(local))
+        days_left = max(0, (access.until - utcnow()).days)
+        return t("set.sub_trial", date=fmt_date(local.date(), user.lang), time=fmt_hm(local), days=days_left)
     return t("set.sub_none")
 
 
