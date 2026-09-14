@@ -250,6 +250,13 @@ async def test_full_editor_flow(h: Harness):
     ordinal = tomorrow.toordinal()
     await h.click(Ed(a="sch", p=p))
     await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))
+    # Typing a time directly on the schedule screen (without pressing "Вибрати годину та хвилини")
+    # must be treated as a time, not as new post content.
+    h.session.clear()
+    await h.text("23:10")
+    assert "Запланувати" in h.session.texts()
+    assert (await _post(h)).parts[0].text_html != "23:10"
+    await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))
     await h.click(Ed(a="slot", p=p, v=f"{ordinal}_0930"))
     await h.click(Ed(a="schman", p=p, v=str(ordinal)))
     h.session.clear()

@@ -66,10 +66,11 @@ async def show_schedule(
     bot: Bot, chat_id: int, session: AsyncSession, state: FSMContext, user: User, post: Post,
     day: date | None = None, page: int = 0, *, resend: bool = False,
 ) -> None:
-    await state.set_state(Editor.content)
     now_local = local_now(user.tz)
     today = now_local.date()
     day = max(day or today, today)
+    await state.set_state(Editor.schedule)
+    await state.update_data(sch_day=day.toordinal())
     overview = await day_overview(session, user, day, post.id)
     slots, has_more = generate_slots(day, now_local, page)
     busy = {line.split(" ", 1)[0] for line in overview}
@@ -150,13 +151,13 @@ async def ed_schedule_manual(
     await cb.answer()
     day, _, _ = _parse_day_value(callback_data.v)
     day = day or local_now(user.tz).date()
-    await state.set_state(Editor.time)
+    await state.set_state(Editor.schedule)
     await state.update_data(sch_day=day.toordinal())
     back = markup([[btn(t("btn.back"), Ed(a="sch", p=post.id, v=f"{day.toordinal()}_0"))]])
     await show_panel(bot, cb.from_user.id, state, t("sch.manual_prompt", date=fmt_date(day, user.lang)), back)
 
 
-@router.message(Editor.time, F.text)
+@router.message(Editor.schedule, F.text)
 async def in_time(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User) -> None:
     post, _ = await load_editor_post(session, user, state)
     if post is None:
@@ -176,7 +177,7 @@ async def in_time(message: Message, bot: Bot, session: AsyncSession, state: FSMC
     await ask_confirmation(bot, message.chat.id, state, user, post, day, when.hour, when.minute, resend=True)
 
 
-@router.message(Editor.time)
+@router.message(Editor.schedule)
 async def in_time_wrong(message: Message) -> None:
     await message.answer(t("err.time_format"))
 

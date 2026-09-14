@@ -7,7 +7,7 @@ class Editor(StatesGroup):
     buttons = State()        # waiting for "Текст — посилання" lines
     ai_custom = State()      # free-form AI instruction
     ai_image = State()       # screenshot for AI vision
-    time = State()           # manual "ГГ:ХХ" input on the schedule screen
+    schedule = State()       # schedule screen: date/slot picker; also accepts typed "ГГ:ХХ" directly
     repeat_hours = State()   # custom auto-repeat interval
     delete_hours = State()   # custom auto-delete delay
     pin_hours = State()      # custom pin duration
