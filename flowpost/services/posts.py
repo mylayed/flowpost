@@ -96,6 +96,12 @@ def default_signature_template(channel: Channel) -> str:
     return '<a href="{link}">{title}</a>' if channel.username else "<b>{title}</b>"
 
 
+def channel_link_html(channel: Channel) -> str:
+    """Channel title, linked to it when it has a public @username."""
+    title = html.escape(channel.title or "")
+    return f'<a href="https://t.me/{channel.username}">{title}</a>' if channel.username else f"<b>{title}</b>"
+
+
 def render_signature(channel: Channel) -> str:
     template = channel.signature_template or default_signature_template(channel)
     link = f"https://t.me/{channel.username}" if channel.username else ""

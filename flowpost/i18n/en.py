@@ -299,7 +299,7 @@ TEXTS: dict[str, str] = {
     "sch.this_post": "this post",
     "sch.more_slots": "↓ More slots",
     "sch.past": "That time has already passed — choose a later one.",
-    "sch.confirm": "Schedule the post for <b>{date}</b> at <b>{time}</b>?\nChannels: {n}",
+    "sch.confirm": "Schedule the post for <b>{date}</b> at <b>{time}</b>?\n{channels}\nChannels: {n}",
     "sch.confirm_repeat": "🔁 Auto-repeat will kick in after publishing.",
     "sch.confirm_yes": "✅ Confirm",
     "sch.change": "✏️ Change",

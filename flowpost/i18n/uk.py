@@ -299,7 +299,7 @@ TEXTS: dict[str, str] = {
     "sch.this_post": "цей пост",
     "sch.more_slots": "↓ Ще слоти",
     "sch.past": "Цей час уже минув — оберіть пізніший.",
-    "sch.confirm": "Запланувати публікацію на <b>{date}</b> о <b>{time}</b>?\nКаналів: {n}",
+    "sch.confirm": "Запланувати публікацію на <b>{date}</b> о <b>{time}</b>?\n{channels}\nКаналів: {n}",
     "sch.confirm_repeat": "🔁 Після публікації спрацює автоповтор.",
     "sch.confirm_yes": "✅ Підтвердити",
     "sch.change": "✏️ Змінити",

@@ -15,6 +15,7 @@ from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.keyboards.editor import schedule_kb
 from flowpost.bot.states import Editor
 from flowpost.db.models import Post, User
+from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
@@ -22,7 +23,7 @@ from flowpost.i18n import t
 from flowpost.services import analytics
 from flowpost.services.html_sanitize import snippet
 from flowpost.services.parsing import ParseError, parse_time
-from flowpost.services.posts import part_icon, post_is_empty
+from flowpost.services.posts import channel_link_html, part_icon, post_is_empty
 from flowpost.services.slots import (
     day_bounds_utc,
     fmt_date,
@@ -94,11 +95,16 @@ def _parse_day_value(value: str) -> tuple[date | None, int, str]:
 
 
 async def ask_confirmation(
-    bot: Bot, chat_id: int, state: FSMContext, user: User, post: Post, day: date, hour: int, minute: int,
-    *, resend: bool = False,
+    bot: Bot, session: AsyncSession, chat_id: int, state: FSMContext, user: User, post: Post,
+    day: date, hour: int, minute: int, *, resend: bool = False,
 ) -> None:
     value = f"{day.toordinal()}_{hour:02d}{minute:02d}"
-    text = t("sch.confirm", date=fmt_date(day, user.lang), time=f"{hour:02d}:{minute:02d}", n=len(post.targets))
+    channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+    channels_line = ", ".join(channel_link_html(c) for c in channels)
+    text = t(
+        "sch.confirm", date=fmt_date(day, user.lang), time=f"{hour:02d}:{minute:02d}",
+        n=len(post.targets), channels=channels_line,
+    )
     if post.repeat and post.repeat.active:
         text += "\n" + t("sch.confirm_repeat")
     kb = markup([
@@ -138,7 +144,7 @@ async def ed_slot(
         await cb.answer(t("sch.past"), show_alert=True)
         return
     await cb.answer()
-    await ask_confirmation(bot, cb.from_user.id, state, user, post, day, hour, minute)
+    await ask_confirmation(bot, session, cb.from_user.id, state, user, post, day, hour, minute)
 
 
 @router.message(Editor.schedule, F.text)
@@ -158,7 +164,7 @@ async def in_time(message: Message, bot: Bot, session: AsyncSession, state: FSMC
     if not is_future(day, when, user.tz):
         await message.answer(t("sch.past"))
         return
-    await ask_confirmation(bot, message.chat.id, state, user, post, day, when.hour, when.minute, resend=True)
+    await ask_confirmation(bot, session, message.chat.id, state, user, post, day, when.hour, when.minute, resend=True)
 
 
 @router.message(Editor.schedule)
