@@ -101,7 +101,7 @@ async def cb_pick_channel(
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=note)
 
 
-@router.message(StateFilter(None), CONTENT)
+@router.message(F.chat.type == "private", StateFilter(None), CONTENT)
 async def content_starts_post(
     message: Message,
     bot: Bot,

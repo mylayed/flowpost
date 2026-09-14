@@ -17,6 +17,7 @@ from flowpost.bot.handlers import (
     channels,
     content_plan,
     create_post,
+    discussion,
     edit_post,
     menu,
     projects,
@@ -50,7 +51,9 @@ COMMANDS = ["start", "newpost", "addchannel", "plan", "ad", "edit", "projects", 
 
 def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, storage: BaseStorage) -> Dispatcher:
     dp = Dispatcher(storage=storage)
-    dp.message.filter(F.chat.type == "private")
+    # Private chats for all the bot's own flows, plus group/supergroup so `discussion.router`
+    # can watch a linked discussion group for its auto-forwarded channel posts.
+    dp.message.filter(F.chat.type.in_({"private", "group", "supergroup"}))
 
     dp.update.outer_middleware(DbSessionMiddleware(sessionmaker))
     dp.update.outer_middleware(UserMiddleware(settings))
@@ -64,6 +67,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
         admin.router,
         billing.router,
         start.router,
+        discussion.router,
         channels.router,
         menu.router,
         content_plan.router,

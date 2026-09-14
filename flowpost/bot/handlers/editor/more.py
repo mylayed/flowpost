@@ -19,7 +19,7 @@ from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_more")
 
-TOGGLES = {"silent", "protect", "link_preview", "ad_label"}
+TOGGLES = {"silent", "protect", "link_preview", "ad_label", "comments"}
 PIN_CYCLE: list[tuple[bool, int | None]] = [(False, None), (True, None), (True, 24), (True, 48)]
 DELETE_CYCLE: list[int | None] = [None, 1, 6, 12, 24, 48]
 MAX_HOURS = 720
@@ -43,6 +43,7 @@ def more_menu(post: Post, primary: Channel | None) -> tuple[str, object]:
         [btn(on(opts["silent"]) + t("more.silent"), Ed(a="mo_t", p=p, v="silent"))],
         [btn(on(opts["protect"]) + t("more.protect"), Ed(a="mo_t", p=p, v="protect"))],
         [btn(on(opts["link_preview"]) + t("more.link_preview"), Ed(a="mo_t", p=p, v="link_preview"))],
+        [btn(on(opts["comments"]) + t("more.comments"), Ed(a="mo_t", p=p, v="comments"))],
         [btn(_pin_label(opts), Ed(a="mo_pin", p=p)), btn(t("more.custom"), Ed(a="mo_pinc", p=p))],
         [btn(_delete_label(opts), Ed(a="mo_del", p=p)), btn(t("more.custom"), Ed(a="mo_delc", p=p))],
     ]

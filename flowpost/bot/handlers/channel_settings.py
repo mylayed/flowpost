@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flowpost.bot.callbacks import Ca, Cs, Ed, Pj
 from flowpost.bot.handlers.editor.view import render_editor
 from flowpost.bot.keyboards.common import btn, markup, on
+from flowpost.bot.keyboards.main_menu import link_discussion_kb
 from flowpost.bot.states import ChannelInput
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
@@ -53,13 +54,15 @@ def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: boo
         t("proj.ai_style_set") if channel.ai_style_prompt else t("proj.ai_style_none"),
         t("proj.notify_on", recipients=t(f"proj.notify_recipients_{recipients}")) if channel.notify_published
         else t("proj.notify_off"),
+        t("proj.comments_on", title=html.escape(channel.discussion_title or "")) if channel.discussion_chat_id
+        else t("proj.comments_off"),
     ]
     if channel.is_forum:
         lines.append(t("proj.topic", topic=channel.topic_id or t("proj.topic_general")))
     c = channel.id
     rows = [
         [btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))],
-        [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c))],
+        [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))],
         [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))],
     ]
     if channel.notify_published:
@@ -146,6 +149,22 @@ def sig_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMa
         rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
     rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
+    return "\n".join(lines), markup(rows)
+
+
+def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
+    c = channel.id
+    lines = [t("cm.title", title=html.escape(channel.title))]
+    if channel.discussion_chat_id:
+        lines += ["", t("cm.linked", title=html.escape(channel.discussion_title or ""))]
+    else:
+        lines += ["", t("cm.not_linked")]
+    lines += ["", t("cm.help")]
+    if channel.discussion_chat_id:
+        rows = [[btn(t("cm.relink"), Cs(a="cm_link", c=c)), btn(t("cm.unlink"), Cs(a="cm_unlink", c=c))]]
+    else:
+        rows = [[btn(t("cm.link"), Cs(a="cm_link", c=c))]]
+    rows.append([back_button(channel, 0)])
     return "\n".join(lines), markup(rows)
 
 
@@ -356,6 +375,31 @@ async def cs_topic(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, 
         return
     await cb.answer()
     await _ask_input(cb, state, ChannelInput.topic, channel, callback_data.p, t("topic.prompt"))
+
+
+@router.callback_query(Cs.filter(F.a.in_({"cm", "cm_unlink"})))
+async def cs_comments(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    if callback_data.a == "cm_unlink":
+        channel.discussion_chat_id = None
+        channel.discussion_title = None
+    await session.flush()
+    await cb.answer()
+    await _edit(cb, *cm_menu(channel))
+
+
+@router.callback_query(Cs.filter(F.a == "cm_link"))
+async def cs_comments_link(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    await cb.answer()
+    await state.set_state(ChannelInput.discussion_group)
+    await state.update_data(cs_channel=channel.id, cs_post=callback_data.p)
+    if cb.message:
+        await cb.message.answer(t("cm.link_prompt"), reply_markup=link_discussion_kb())
 
 
 # ---- text/file inputs ---------------------------------------------------------------------------

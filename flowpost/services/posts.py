@@ -23,6 +23,7 @@ DEFAULT_OPTIONS: dict = {
     "watermark": False,
     "signature": True,
     "ad_label": False,
+    "comments": True,
 }
 
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}

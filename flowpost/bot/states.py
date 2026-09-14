@@ -20,6 +20,7 @@ class ChannelInput(StatesGroup):
     wm_image = State()
     ai_style = State()
     topic = State()
+    discussion_group = State()
 
 
 class SettingsInput(StatesGroup):

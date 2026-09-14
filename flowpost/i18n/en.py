@@ -212,6 +212,23 @@ TEXTS: dict[str, str] = {
     "sig.invalid": "The signature came out empty. Try another template.",
     "sig.saved": "✅ Auto-signature saved",
 
+    # ---- Comments (discussion group) ----------------------------------------------------------
+    "cm.title": "💬 <b>Comments</b> · {title}",
+    "cm.linked": "Linked group: <b>{title}</b>",
+    "cm.not_linked": "No discussion group linked yet.",
+    "cm.help": (
+        "Comments under posts work through a discussion group linked to the channel in Telegram. "
+        "To be able to turn comments off for individual posts, enable «Topics» in that group "
+        "and add the bot as an administrator with the manage-topics right."
+    ),
+    "cm.link": "🔗 Link a group",
+    "cm.relink": "🔗 Change group",
+    "cm.unlink": "❌ Unlink",
+    "cm.link_prompt": "Pick the discussion group with the button below. The bot must already be an admin there.",
+    "cm.linked_done": "✅ Group «{title}» linked for comments.",
+    "cm.err_bot_not_admin": "The bot isn't an admin of that group. Add it as an administrator and try again.",
+    "btn.connect_discussion": "👥 Choose discussion group",
+
     # ---- AI assistant ------------------------------------------------------------------------
     "ai.title": "🤖 <b>AI assistant</b>",
     "ai.help": "Choose what to do with the text of the current message. I'll show the result before applying it.",
@@ -254,6 +271,7 @@ TEXTS: dict[str, str] = {
     "more.silent": "🔕 Silent publishing",
     "more.protect": "🛡 Protect from copying",
     "more.link_preview": "🔗 Link previews",
+    "more.comments": "💬 Comments on this post",
     "more.pin_off": "📌 Pin: no",
     "more.pin_forever": "📌 Pin: yes",
     "more.pin_hours": "📌 Pin for {hours} h",
@@ -388,6 +406,9 @@ TEXTS: dict[str, str] = {
     "proj.notify_rcpt_owner": "👤 Owner",
     "proj.notify_rcpt_admin": "👥 Admin",
     "proj.notify_rcpt_both": "👤👥 Both",
+    "proj.comments_btn": "💬 Comments",
+    "proj.comments_on": "💬 Comments: group «{title}»",
+    "proj.comments_off": "💬 Comments: no group linked",
     "proj.disconnect": "🔌 Disconnect",
     "proj.disconnect_confirm": "Disconnect <b>{title}</b>? Scheduled publications to this channel will be cancelled.",
     "proj.disconnect_yes": "🔌 Yes, disconnect",

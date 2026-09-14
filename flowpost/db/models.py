@@ -46,6 +46,8 @@ class Channel(Base):
     ai_style_prompt: Mapped[str | None] = mapped_column(Text)
     notify_published: Mapped[bool] = mapped_column(Boolean, default=False)
     notify_recipients: Mapped[str] = mapped_column(String(16), default="owner")  # owner | admin | both
+    discussion_chat_id: Mapped[int | None] = mapped_column(BigInteger)
+    discussion_title: Mapped[str | None] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
