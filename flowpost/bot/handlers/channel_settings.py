@@ -59,7 +59,7 @@ def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     rows = [
         [btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))],
         [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c))],
-        [btn(on(channel.notify_published) + t("proj.notify_toggle"), Cs(a="notify_def", c=c))],
+        [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))],
     ]
     if channel.notify_published:
         rows.append([

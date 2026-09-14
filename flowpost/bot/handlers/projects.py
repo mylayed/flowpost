@@ -22,7 +22,12 @@ router = Router(name="projects")
 async def projects_view(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
     channels = await channels_repo.list_channels(session, user.id, active_only=False)
     rows = [
-        [btn(("📢 " if c.kind == "channel" else "👥 ") + c.title + ("" if c.is_active else " ⛔"), Pj(a="ch", c=c.id))]
+        [btn(
+            ("📢 " if c.kind == "channel" else "👥 ") + c.title
+            + (" 🔊" if c.notify_published else " 🔇")
+            + ("" if c.is_active else " ⛔"),
+            Pj(a="ch", c=c.id),
+        )]
         for c in channels
     ]
     rows.append([btn(t("btn.add_channel"), Pj(a="add"))])
