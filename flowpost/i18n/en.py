@@ -487,7 +487,11 @@ TEXTS: dict[str, str] = {
     ),
     "pay.manual_wrong": "Please send a screenshot or a receipt file (photo or document).",
     "pay.manual_sent": "✅ Thanks! The receipt was sent to the owner. Your subscription will be activated manually soon.",
-    "pay.manual_admin_caption": "🧾 Payment receipt from {name} (id {tg_id}{username}).\nActivate: /grant {tg_id} 30",
+    "pay.manual_admin_caption": (
+        "🧾 Payment receipt from {name} (id {tg_id}{username}).\n"
+        "Tap to copy the command, paste it into the message field and send:\n"
+        "<code>/grant {tg_id} 30</code>"
+    ),
     "pay.cancel_btn": "❌ Turn off auto-renewal",
     "pay.cancel_confirm": "Turn off auto-renewal? You keep access until the end of the paid period.",
     "pay.cancel_yes": "❌ Yes, turn off",
