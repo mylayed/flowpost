@@ -131,6 +131,11 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
             db_user.is_blocked = status == "kicked"
         return
 
+    if await channels_repo.is_discussion_group(session, chat.id):
+        # This chat is designated as a comments group for some channel — never (re)register it
+        # as its own postable project, no matter what admin-status change Telegram just sent.
+        return
+
     kind = "channel" if chat.type == "channel" else "group"
     has_rights = status == "administrator" and (kind != "channel" or bool(getattr(new, "can_post_messages", False)))
 

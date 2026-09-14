@@ -56,6 +56,11 @@ async def channels_by_chat(session: AsyncSession, chat_id: int) -> list[Channel]
     return list((await session.scalars(select(Channel).where(Channel.chat_id == chat_id))).all())
 
 
+async def is_discussion_group(session: AsyncSession, chat_id: int) -> bool:
+    """Whether `chat_id` is designated (by any owner) as some channel's comments/discussion group."""
+    return bool(await session.scalar(select(Channel.id).where(Channel.discussion_chat_id == chat_id).limit(1)))
+
+
 async def upsert_channel(
     session: AsyncSession,
     owner_id: int,
