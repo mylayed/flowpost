@@ -88,7 +88,6 @@ def schedule_kb(
     rows += chunked(slot_buttons, 4)
     if has_more:
         rows.append([btn(t("sch.more_slots"), Ed(a="sch", p=p, v=f"{ordinal}_{page + 1}"))])
-    rows.append([btn(t("sch.manual"), Ed(a="schman", p=p, v=str(ordinal)))])
     rows.append([btn(t("btn.back"), Ed(a="home", p=p))])
     return markup(rows)
 

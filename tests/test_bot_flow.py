@@ -245,12 +245,12 @@ async def test_full_editor_flow(h: Harness):
     await h.click(Ed(a="mt", p=p, v=str(c)))
     assert (await _post(h)).channel_ids == [c]
 
-    # Відкласти: date switch, slots page, slot pick, manual input with a wrong format, confirmation
+    # Відкласти: date switch, slots page, slot pick, typed time (wrong then right format), confirmation
     tomorrow = local_now("Europe/Kyiv").date() + timedelta(days=1)
     ordinal = tomorrow.toordinal()
     await h.click(Ed(a="sch", p=p))
     await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))
-    # Typing a time directly on the schedule screen (without pressing "Вибрати годину та хвилини")
+    # Typing a time directly on the schedule screen (there's no separate "manual entry" button)
     # must be treated as a time, not as new post content.
     h.session.clear()
     await h.text("23:10")
@@ -258,7 +258,6 @@ async def test_full_editor_flow(h: Harness):
     assert (await _post(h)).parts[0].text_html != "23:10"
     await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))
     await h.click(Ed(a="slot", p=p, v=f"{ordinal}_0930"))
-    await h.click(Ed(a="schman", p=p, v=str(ordinal)))
     h.session.clear()
     await h.text("25:99")
     assert "Неправильний формат" in h.session.texts()

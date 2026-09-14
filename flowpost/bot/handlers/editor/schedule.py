@@ -1,4 +1,4 @@
-"""Editor → «Відкласти»: date switcher, 5-minute slots, manual time input, confirmation."""
+"""Editor → «Відкласти»: date switcher, 5-minute slots, typed "ГГ:ХХ" time, confirmation."""
 from __future__ import annotations
 
 import html
@@ -139,22 +139,6 @@ async def ed_slot(
         return
     await cb.answer()
     await ask_confirmation(bot, cb.from_user.id, state, user, post, day, hour, minute)
-
-
-@router.callback_query(Ed.filter(F.a == "schman"))
-async def ed_schedule_manual(
-    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
-) -> None:
-    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
-    if post is None:
-        return
-    await cb.answer()
-    day, _, _ = _parse_day_value(callback_data.v)
-    day = day or local_now(user.tz).date()
-    await state.set_state(Editor.schedule)
-    await state.update_data(sch_day=day.toordinal())
-    back = markup([[btn(t("btn.back"), Ed(a="sch", p=post.id, v=f"{day.toordinal()}_0"))]])
-    await show_panel(bot, cb.from_user.id, state, t("sch.manual_prompt", date=fmt_date(day, user.lang)), back)
 
 
 @router.message(Editor.schedule, F.text)

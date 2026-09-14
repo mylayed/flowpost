@@ -15,6 +15,7 @@ from aiogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
     LinkPreviewOptions,
+    Message,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -23,6 +24,7 @@ from flowpost.bot.callbacks import Ed
 from flowpost.bot.handlers.editor.view import close_editor, post_from_callback, show_panel
 from flowpost.bot.keyboards.editor import confirm_kb
 from flowpost.bot.keyboards.main_menu import main_menu_kb
+from flowpost.bot.states import Editor
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import publications as pubs_repo
@@ -87,6 +89,7 @@ async def ed_publish_ask(
     await cb.answer()
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
     names = ", ".join(html.escape(c.title) for c in channels)
+    await state.set_state(Editor.confirm)
     await show_panel(
         bot, cb.from_user.id, state, t("pub.confirm", n=len(channels), names=names),
         confirm_kb(post.id, "pubok", t("pub.confirm_yes")),
@@ -119,6 +122,7 @@ async def ed_cancel(
     is_draft = post.status == "draft"
     if callback_data.a == "cancel" and is_draft and not post_is_empty(post):
         await cb.answer()
+        await state.set_state(Editor.confirm)
         await show_panel(bot, cb.from_user.id, state, t("cancel.confirm"), confirm_kb(post.id, "cancelok", t("cancel.yes")))
         return
     await cb.answer()
@@ -168,6 +172,12 @@ async def _edit_published_part(bot: Bot, channel: Channel, rec: dict, part, text
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         ))
     rec["markup_msg"] = markup_host if markup else None
+
+
+@router.message(Editor.confirm)
+async def confirm_screen_input(message: Message) -> None:
+    """On a yes/no confirmation screen, text/media isn't editing — only the buttons act."""
+    await message.answer(t("err.expected_input"))
 
 
 @router.callback_query(Ed.filter(F.a == "save"))

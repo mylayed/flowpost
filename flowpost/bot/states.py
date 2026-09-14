@@ -11,6 +11,7 @@ class Editor(StatesGroup):
     repeat_hours = State()   # custom auto-repeat interval
     delete_hours = State()   # custom auto-delete delay
     pin_hours = State()      # custom pin duration
+    confirm = State()        # yes/no confirmation screen: text input is ignored, only buttons act
 
 
 class ChannelInput(StatesGroup):
