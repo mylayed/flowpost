@@ -46,8 +46,8 @@ async def plan_view(
             btn("▶️", Cp(a="day", d=ordinal + 1, m=mode)),
         ],
         [
-            btn(("✅ " if not published else "") + t("plan.tab_scheduled"), Cp(a="day", d=ordinal, m="s")),
-            btn(("✅ " if published else "") + t("plan.tab_published"), Cp(a="day", d=ordinal, m="p")),
+            btn(t("plan.tab_scheduled"), Cp(a="day", d=ordinal, m="s")),
+            btn(t("plan.tab_published"), Cp(a="day", d=ordinal, m="p")),
         ],
     ]
     lines = [t("plan.title"), t("sch.date", date=fmt_date(day, user.lang)), ""]
