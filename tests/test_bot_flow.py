@@ -487,3 +487,35 @@ async def test_manual_transfer_flow(sessionmaker):
     finally:
         for router in dp.sub_routers:
             router._parent_router = None
+
+
+async def test_grant_notifies_user_and_shows_days_left(sessionmaker):
+    settings = Settings(bot_token="123456:TEST", admin_ids=str(ADMIN_ID), liqpay_enabled=False, _env_file=None)
+    session = MockSession()
+    bot = Bot("123456:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
+    dp = build_dispatcher(settings, sessionmaker, MemoryStorage())
+    dp.workflow_data.update(settings=settings, publisher=Publisher(bot, None),
+                            worker=Worker(bot, sessionmaker, Publisher(bot, None), settings), ai=AIService(settings))
+    h = Harness(dp, bot, session, sessionmaker)
+    try:
+        await h.text("/start")
+
+        async def expire(s):
+            u = await s.scalar(select(User).where(User.tg_id == USER_ID))
+            u.trial_ends_at = utcnow() - timedelta(minutes=1)
+            await s.commit()
+        await h.db(expire)
+
+        h.session.clear()
+        await h.text(f"/grant {USER_ID} 30", uid=ADMIN_ID)
+        admin_reply = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)
+        assert "active" in admin_reply.text
+        user_notice = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == USER_ID)
+        assert "Підписку активовано" in user_notice.text
+
+        h.session.clear()
+        await h.text("/settings")
+        assert "ще 29 дн." in h.session.texts() or "ще 30 дн." in h.session.texts()
+    finally:
+        for router in dp.sub_routers:
+            router._parent_router = None

@@ -16,6 +16,7 @@ from flowpost.bot.keyboards.main_menu import main_menu_kb
 from flowpost.bot.states import SettingsInput
 from flowpost.config import Settings
 from flowpost.db.models import User
+from flowpost.db.types import utcnow
 from flowpost.i18n import LANG_TITLES, set_locale, t
 from flowpost.services.billing.subscriptions import Access, get_access
 from flowpost.services.slots import fmt_date, fmt_hm, local_now, tz_of
@@ -28,8 +29,12 @@ TIMEZONES = ["Europe/Kyiv", "Europe/Warsaw", "Europe/Berlin", "Europe/London", "
 def access_line(access: Access, user: User) -> str:
     if access.kind == "paid" and access.until:
         local = access.until.astimezone(tz_of(user.tz))
+        days_left = max(0, (access.until - utcnow()).days)
         key = "set.sub_cancelled" if access.sub and access.sub.status == "cancelled" else "set.sub_paid"
-        return t(key, date=fmt_date(local.date(), user.lang), provider=t("provider." + (access.sub.provider if access.sub else "manual")))
+        return t(
+            key, date=fmt_date(local.date(), user.lang), days=days_left,
+            provider=t("provider." + (access.sub.provider if access.sub else "manual")),
+        )
     if access.kind == "trial" and access.until:
         local = access.until.astimezone(tz_of(user.tz))
         return t("set.sub_trial", date=fmt_date(local.date(), user.lang), time=fmt_hm(local))
