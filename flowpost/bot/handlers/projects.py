@@ -23,9 +23,7 @@ async def projects_view(session: AsyncSession, user: User) -> tuple[str, InlineK
     channels = await channels_repo.list_channels(session, user.id, active_only=False)
     rows = [
         [btn(
-            ("📢 " if c.kind == "channel" else "👥 ") + c.title
-            + (" 🔊" if c.notify_published else " 🔇")
-            + ("" if c.is_active else " ⛔"),
+            ("📢 " if c.kind == "channel" else "👥 ") + c.title + (" 🔊" if c.notify_published else " 🔇"),
             Pj(a="ch", c=c.id),
         )]
         for c in channels
