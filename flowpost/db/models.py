@@ -44,6 +44,8 @@ class Channel(Base):
     signature_on: Mapped[bool] = mapped_column(Boolean, default=True)
     watermark: Mapped[dict] = mapped_column(JSONType, default=dict)
     ai_style_prompt: Mapped[str | None] = mapped_column(Text)
+    notify_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_recipients: Mapped[str] = mapped_column(String(16), default="owner")  # owner | admin | both
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

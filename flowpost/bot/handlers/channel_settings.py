@@ -41,6 +41,7 @@ def back_button(channel: Channel, post_id: int):
 def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     wm = wm_settings(channel.watermark)
     kind = t("proj.kind_channel") if channel.kind == "channel" else t("proj.kind_group")
+    recipients = channel.notify_recipients or "owner"
     lines = [
         f"{'📢' if channel.kind == 'channel' else '👥'} <b>{html.escape(channel.title)}</b>",
         t("proj.kind", kind=kind) + (f" · @{channel.username}" if channel.username else ""),
@@ -49,6 +50,8 @@ def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
         t("proj.signature", signature=render_signature(channel)) if channel.signature_on else t("proj.signature_off"),
         t("proj.watermark_on") if wm_configured(channel.watermark) and wm.get("enabled") else t("proj.watermark_off"),
         t("proj.ai_style_set") if channel.ai_style_prompt else t("proj.ai_style_none"),
+        t("proj.notify_on", recipients=t(f"proj.notify_recipients_{recipients}")) if channel.notify_published
+        else t("proj.notify_off"),
     ]
     if channel.is_forum:
         lines.append(t("proj.topic", topic=channel.topic_id or t("proj.topic_general")))
@@ -56,7 +59,14 @@ def channel_card(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     rows = [
         [btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))],
         [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c))],
+        [btn(on(channel.notify_published) + t("proj.notify_toggle"), Cs(a="notify_def", c=c))],
     ]
+    if channel.notify_published:
+        rows.append([
+            btn(on(recipients == "owner") + t("proj.notify_rcpt_owner"), Cs(a="notify_rcpt", c=c, v="owner")),
+            btn(on(recipients == "admin") + t("proj.notify_rcpt_admin"), Cs(a="notify_rcpt", c=c, v="admin")),
+            btn(on(recipients == "both") + t("proj.notify_rcpt_both"), Cs(a="notify_rcpt", c=c, v="both")),
+        ])
     if channel.is_forum:
         rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
     if channel.is_active:
@@ -200,6 +210,20 @@ async def cs_card(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, u
     channel, _ = await _context(cb, callback_data, session, user)
     if channel is None:
         return
+    await cb.answer()
+    await _edit(cb, *channel_card(channel))
+
+
+@router.callback_query(Cs.filter(F.a.in_({"notify_def", "notify_rcpt"})))
+async def cs_notify(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    if callback_data.a == "notify_def":
+        channel.notify_published = not channel.notify_published
+    elif callback_data.v in ("owner", "admin", "both"):
+        channel.notify_recipients = callback_data.v
+    await session.flush()
     await cb.answer()
     await _edit(cb, *channel_card(channel))
 

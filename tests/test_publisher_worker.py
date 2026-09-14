@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import select
 
-from flowpost.db.models import Post, Publication, RepeatRule, User
+from flowpost.db.models import Channel, Post, Publication, RepeatRule, User
 from flowpost.db.types import utcnow
 from flowpost.services.publisher import OutMedia, Publisher, SendOptions, send_part
 from flowpost.services.worker import Worker
@@ -64,6 +64,10 @@ def _worker(fake_bot, sessionmaker, settings) -> Worker:
 
 
 async def test_worker_publishes_due_post_and_notifies(fake_bot, sessionmaker, seeded, settings):
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, seeded.channel_id)
+        channel.notify_published = True
+        await session.commit()
     pub_id = await _pub(sessionmaker, seeded, utcnow() - timedelta(minutes=1))
     await _worker(fake_bot, sessionmaker, settings).tick()
     async with sessionmaker() as session:

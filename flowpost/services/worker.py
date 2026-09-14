@@ -135,7 +135,7 @@ class Worker:
             else:
                 try:
                     outcome = await deliver_publication(session, self.publisher, pub, now=now)
-                    notify_key = "notify.published" if pub.notify else None
+                    notify_key = "notify.published" if pub.notify and channel is not None and channel.notify_published else None
                 except TelegramRetryAfter as e:
                     pub.status = "pending"
                     pub.run_at = now + timedelta(seconds=e.retry_after + 1)
@@ -163,7 +163,9 @@ class Worker:
                 await refresh_post_status(session, post)
             await session.commit()
 
-        if notify_key and owner is not None and not owner.is_blocked:
+        if notify_key == "notify.published" and owner is not None and channel is not None:
+            await self._notify_published(channel, owner, outcome)
+        elif notify_key and owner is not None and not owner.is_blocked:
             await self._notify(owner, notify_key, outcome)
         return outcome
 
@@ -181,30 +183,69 @@ class Worker:
             return DeliveryOutcome(ok=False, channel_title=title, error="err.retry_later")
         return self._fail(pub, "err.network", detail, title)
 
-    async def _notify(self, owner: User, key: str, outcome: DeliveryOutcome) -> None:
-        markup = None
+    @staticmethod
+    def _notify_text(key: str, lang: str, outcome: DeliveryOutcome) -> str:
         params = {
             "title": html.escape(outcome.channel_title),
             "link": outcome.link or "",
-            "error": t(outcome.error or "err.unknown", locale=owner.lang),
+            "error": t(outcome.error or "err.unknown", locale=lang),
         }
+        text = t(key, locale=lang, **params)
+        for w in outcome.warnings:
+            text += "\n⚠️ " + t(w, locale=lang)
+        return text
+
+    async def _mark_blocked(self, owner: User) -> None:
+        async with self.sessionmaker() as session:
+            db_owner = await session.get(User, owner.id)
+            if db_owner:
+                db_owner.is_blocked = True
+                await session.commit()
+
+    async def _notify(self, owner: User, key: str, outcome: DeliveryOutcome) -> None:
+        markup = None
         if key == "notify.paused":
             markup = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=t("btn.pay", locale=owner.lang), callback_data=Bl(a="open").pack())
             ]])
-        text = t(key, locale=owner.lang, **params)
-        for w in outcome.warnings:
-            text += "\n⚠️ " + t(w, locale=owner.lang)
+        text = self._notify_text(key, owner.lang, outcome)
         try:
             await self.bot.send_message(owner.tg_id, text, reply_markup=markup)
         except TelegramForbiddenError:
-            async with self.sessionmaker() as session:
-                db_owner = await session.get(User, owner.id)
-                if db_owner:
-                    db_owner.is_blocked = True
-                    await session.commit()
+            await self._mark_blocked(owner)
         except TelegramAPIError as e:
             log.warning("notify failed: %s", e)
+
+    async def _resolve_publish_recipients(self, channel: Channel, owner: User) -> list[int]:
+        """Telegram user ids to notify about a publish, per the channel's notify_recipients setting."""
+        recipients = channel.notify_recipients or "owner"
+        ids: list[int] = []
+        if recipients in ("owner", "both") and not owner.is_blocked:
+            ids.append(owner.tg_id)
+        if recipients in ("admin", "both"):
+            try:
+                admins = await self.bot.get_chat_administrators(channel.chat_id)
+            except TelegramAPIError as e:
+                log.info("could not fetch admins for channel %s: %s", channel.id, e)
+                admins = []
+            for admin in admins:
+                if not admin.user.is_bot and admin.user.id not in ids:
+                    ids.append(admin.user.id)
+        return ids
+
+    async def _notify_published(self, channel: Channel, owner: User, outcome: DeliveryOutcome) -> None:
+        recipients = await self._resolve_publish_recipients(channel, owner)
+        if not recipients:
+            return
+        text = self._notify_text("notify.published", owner.lang, outcome)
+        for tg_id in recipients:
+            try:
+                await self.bot.send_message(tg_id, text)
+            except TelegramForbiddenError:
+                if tg_id == owner.tg_id:
+                    await self._mark_blocked(owner)
+            except TelegramAPIError as e:
+                log.warning("published notify failed for %s: %s", tg_id, e)
 
     # ---- maintenance ------------------------------------------------------------------------
 

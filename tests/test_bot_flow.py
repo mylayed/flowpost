@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
 from sqlalchemy import select
 
-from flowpost.bot.callbacks import Cp, Cs, Ed, Ep, St
+from flowpost.bot.callbacks import Cp, Cs, Ed, Ep, Pj, St
 from flowpost.bot.setup import build_dispatcher
 from flowpost.db.models import Channel, Post, Publication, RepeatRule, Subscription, User
 from flowpost.db.types import utcnow
@@ -208,6 +208,15 @@ async def test_full_editor_flow(h: Harness):
     assert channel.watermark["text"] == "@testchan" and channel.watermark["position"] == "tl"
     assert channel.watermark["opacity"] == 50
     assert (await _post(h)).options["watermark"] is True
+
+    # Сповіщення про публікацію: off by default, togglable, with a choice of recipients
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.notify_published is False and channel.notify_recipients == "owner"
+    await h.click(Pj(a="ch", c=c))
+    await h.click(Cs(a="notify_def", c=c))
+    await h.click(Cs(a="notify_rcpt", c=c, v="admin"))
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.notify_published is True and channel.notify_recipients == "admin"
 
     # ШІ-асистент without an API key: menu opens, a run reports that AI is not configured
     await h.click(Ed(a="ai", p=p))
