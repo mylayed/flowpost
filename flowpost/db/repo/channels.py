@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import logging
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.db.models import Channel
 from flowpost.db.repo import channel_admins as channel_admins_repo
-
-log = logging.getLogger(__name__)
 
 
 async def list_channels(
@@ -30,17 +26,17 @@ async def list_channels(
         stmt = stmt.where(Channel.is_active.is_(True))
     if exclude_discussion_groups:
         discussion_ids = select(Channel.discussion_chat_id).where(Channel.discussion_chat_id.is_not(None))
-        stmt = stmt.where(Channel.chat_id.not_in(discussion_ids))
-    result = list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
-    # TEMP DEBUG: tracing why a discussion group still shows for its owner but not for a delegated admin.
-    all_owned = list((await session.scalars(select(Channel).where(Channel.owner_id == owner_id))).all())
-    log.info(
-        "list_channels DEBUG owner=%s all=%s result_ids=%s",
-        owner_id,
-        [(c.id, c.chat_id, c.kind, c.title, c.discussion_chat_id, c.is_active) for c in all_owned],
-        [c.id for c in result],
-    )
-    return result
+        # A group's chat_id can drift from what's stored as `discussion_chat_id` (Telegram assigns a
+        # new one when a basic group migrates to a supergroup) — matching by title too catches the
+        # stale duplicate that leaves behind, without needing the link redone.
+        discussion_titles = select(Channel.discussion_title).where(
+            Channel.owner_id == owner_id, Channel.discussion_title.is_not(None), Channel.discussion_title != "",
+        )
+        stmt = stmt.where(
+            Channel.chat_id.not_in(discussion_ids)
+            & ~((Channel.kind == "group") & Channel.title.in_(discussion_titles))
+        )
+    return list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
 
 
 async def get_channel(session: AsyncSession, owner_id: int, channel_id: int) -> Channel | None:
