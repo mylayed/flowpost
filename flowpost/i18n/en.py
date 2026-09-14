@@ -214,18 +214,21 @@ TEXTS: dict[str, str] = {
 
     # ---- Comments (discussion group) ----------------------------------------------------------
     "cm.title": "💬 <b>Comments</b> · {title}",
-    "cm.linked": "Linked group: <b>{title}</b>",
-    "cm.not_linked": "No discussion group linked yet.",
+    "cm.linked": "Linked in the bot: <b>{title}</b>",
+    "cm.not_linked": "No discussion group linked in the bot yet.",
     "cm.help": (
-        "Comments under posts work through a discussion group linked to the channel in Telegram. "
-        "To be able to turn comments off for individual posts, enable «Topics» in that group "
-        "and add the bot as an administrator with the manage-topics right."
+        "⚠️ The «Comment» button under posts only appears once a discussion group is linked to "
+        "the channel in Telegram itself: <b>Channel settings → Discussion → pick a group</b>. "
+        "That's a one-time step in the Telegram app — the bot can't do it.\n\n"
+        "Linking a group here, in the bot, is for something else: turning comments off for "
+        "individual posts. Link the <b>same</b> group, enable «Topics» in it, and add the bot as "
+        "an administrator with the manage-topics right."
     ),
-    "cm.link": "🔗 Link a group",
+    "cm.link": "🔗 Link a group in the bot",
     "cm.relink": "🔗 Change group",
     "cm.unlink": "❌ Unlink",
-    "cm.link_prompt": "Pick the discussion group with the button below. The bot must already be an admin there.",
-    "cm.linked_done": "✅ Group «{title}» linked for comments.",
+    "cm.link_prompt": "Pick the same discussion group that's linked to the channel in Telegram. The bot must already be an admin there.",
+    "cm.linked_done": "✅ Group «{title}» linked in the bot. Remember: the «Comment» button only shows up if this same group is linked to the channel via Telegram (Channel settings → Discussion).",
     "cm.err_bot_not_admin": "The bot isn't an admin of that group. Add it as an administrator and try again.",
     "btn.connect_discussion": "👥 Choose discussion group",
 
