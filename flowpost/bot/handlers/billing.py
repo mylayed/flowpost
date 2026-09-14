@@ -79,15 +79,28 @@ async def bl_open(cb: CallbackQuery, bot: Bot, session: AsyncSession, user: User
     await bot.send_message(cb.from_user.id, text, reply_markup=kb)
 
 
+def _requisites_html(raw: str) -> str:
+    """Render each "Label: value" line with only the value in a tap-to-copy <code> span."""
+    lines = []
+    for line in raw.splitlines():
+        label, sep, value = line.partition(":")
+        if sep and value.strip():
+            lines.append(f"{html.escape(label.strip())}: <code>{html.escape(value.strip())}</code>")
+        else:
+            lines.append(html.escape(line))
+    return "\n".join(lines)
+
+
 @router.callback_query(Bl.filter(F.a == "manual"))
 async def bl_manual(cb: CallbackQuery, bot: Bot, state: FSMContext, settings: Settings) -> None:
     await cb.answer()
     if not settings.payment_requisites:
         return
     await state.set_state(Billing.manual_receipt)
-    requisites = f"<code>{html.escape(settings.payment_requisites)}</code>"
     kb = markup([[btn(t("btn.back"), Bl(a="open"))]])
-    await bot.send_message(cb.from_user.id, t("pay.manual_info", requisites=requisites), reply_markup=kb)
+    await bot.send_message(
+        cb.from_user.id, t("pay.manual_info", requisites=_requisites_html(settings.payment_requisites)), reply_markup=kb
+    )
 
 
 @router.message(Billing.manual_receipt, F.photo | F.document)

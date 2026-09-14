@@ -470,7 +470,7 @@ async def test_manual_transfer_flow(sessionmaker):
         h.session.clear()
         await h.text("/subscribe")
         await h.click(Bl(a="manual"))
-        assert "IBAN: UA000" in h.session.texts()
+        assert "IBAN: <code>UA000</code>" in h.session.texts()
 
         h.session.clear()
         await h.feed(message=h._message(photo=[{"file_id": "receipt", "file_unique_id": "receipt",

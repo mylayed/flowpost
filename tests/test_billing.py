@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from flowpost.bot.handlers.billing import _requisites_html
 from flowpost.db.models import Payment, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.billing.liqpay import (
@@ -13,6 +14,16 @@ from flowpost.services.billing.liqpay import (
 from flowpost.services.billing.subscriptions import extend_subscription, get_access, record_payment
 from flowpost.web import process_liqpay_payload
 from sqlalchemy import func, select
+
+
+def test_requisites_html_wraps_only_values():
+    raw = "Отримувач: Іван Іванов\nIBAN: UA000\nБез двокрапки"
+    html = _requisites_html(raw)
+    assert html == (
+        "Отримувач: <code>Іван Іванов</code>\n"
+        "IBAN: <code>UA000</code>\n"
+        "Без двокрапки"
+    )
 
 
 def test_liqpay_signature_roundtrip():
