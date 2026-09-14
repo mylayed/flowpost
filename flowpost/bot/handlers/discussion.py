@@ -51,6 +51,18 @@ async def on_discussion_group_shared(
         return
     channel.discussion_chat_id = chat.id
     channel.discussion_title = chat.title or ""
+    # This chat may already exist as its own postable project (e.g. the bot became its admin
+    # before it was designated a comments group, or the group got a new chat_id by migrating
+    # to a supergroup before we started tracking that) — it no longer belongs in that list.
+    stale = await session.scalars(
+        select(Channel).where(
+            Channel.owner_id == user.id, Channel.kind == "group", Channel.chat_id != chat.id,
+            (Channel.chat_id == shared.chat_id) | (Channel.title == (chat.title or "")),
+        )
+    )
+    for project in [*await channels_repo.channels_by_chat(session, chat.id), *stale.all()]:
+        if project.id != channel.id and project.owner_id == user.id:
+            project.is_active = False
     await session.flush()
     await message.answer(t("cm.linked_done", title=chat.title or ""), reply_markup=main_menu_kb())
     text, kb = cm_menu(channel)
