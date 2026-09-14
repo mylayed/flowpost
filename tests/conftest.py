@@ -18,7 +18,10 @@ from flowpost.db.types import utcnow  # noqa: E402
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(bot_token="123456:TEST", _env_file=None)
+    return Settings(
+        bot_token="123456:TEST", _env_file=None,
+        liqpay_enabled=True, liqpay_public_key="pub", liqpay_private_key="priv",
+    )
 
 
 @pytest.fixture

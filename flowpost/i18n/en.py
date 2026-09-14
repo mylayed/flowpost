@@ -475,18 +475,23 @@ TEXTS: dict[str, str] = {
         "• AI assistant and posts from screenshots\n"
         "• watermarks on photos and videos"
     ),
-    "pay.price": "Price: <b>${usd}/month</b> or <b>{stars} ⭐</b>",
-    "pay.stars_btn": "⭐ Pay {stars} Stars",
+    "pay.price": "Price: <b>${usd}/month</b>",
     "pay.card_btn": "💳 Card: {amount} {currency}",
-    "pay.stars_title": "FlowPost Pro — 1 month",
-    "pay.stars_desc": "FlowPost subscription for {days} days with auto-renewal: publishing, scheduling, AI and watermarks.",
     "pay.liqpay_desc": "FlowPost Pro subscription (monthly)",
+    "pay.manual_btn": "🧾 Pay by bank transfer",
+    "pay.manual_info": (
+        "🧾 <b>Bank transfer</b>\n\n"
+        "{requisites}\n\n"
+        "After paying, send a <b>screenshot or receipt</b> here — I'll forward it to the owner, "
+        "who will activate the subscription manually."
+    ),
+    "pay.manual_wrong": "Please send a screenshot or a receipt file (photo or document).",
+    "pay.manual_sent": "✅ Thanks! The receipt was sent to the owner. Your subscription will be activated manually soon.",
+    "pay.manual_admin_caption": "🧾 Payment receipt from {name} (id {tg_id}{username}).\nActivate: /grant {tg_id} 30",
     "pay.cancel_btn": "❌ Turn off auto-renewal",
-    "pay.resume_btn": "🔄 Turn on auto-renewal",
     "pay.cancel_confirm": "Turn off auto-renewal? You keep access until the end of the paid period.",
     "pay.cancel_yes": "❌ Yes, turn off",
     "pay.cancelled": "Auto-renewal is off. Access remains until {date}.",
-    "pay.resumed": "🔄 Auto-renewal is on. The subscription is valid until {date}.",
     "pay.change_failed": "Couldn't change the subscription. Try again later or contact support.",
     "pay.invalid": "This invoice is no longer valid. Open the payment again from the subscription menu.",
     "pay.success": "🎉 Thank you! Your subscription is active until {date}.",
@@ -495,7 +500,7 @@ TEXTS: dict[str, str] = {
     "pay.terms": (
         "📄 <b>FlowPost terms of use</b>\n\n"
         "• Free trial — {days} days.\n"
-        "• Then a ${usd}/month subscription (or {stars} ⭐) with auto-renewal; turn it off any time in settings.\n"
+        "• Then a ${usd}/month subscription with auto-renewal; turn it off any time in settings.\n"
         "• The bot only publishes to channels where you are an admin, and only content you created.\n"
         "• The channel owner is responsible for the content of posts.\n\n"
         "Payment questions — /paysupport"

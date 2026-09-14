@@ -15,14 +15,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
 from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Ca, Cp, Cs, Ed, Ep, Pj, St
+from flowpost.bot.callbacks import Bl, Ca, Cp, Cs, Ed, Ep, Pj, St
 from flowpost.bot.setup import build_dispatcher
+from flowpost.config import Settings
 from flowpost.db.models import Channel, ChannelAdmin, Post, Publication, RepeatRule, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.ai import AIService
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import local_now
 from flowpost.services.worker import Worker
+from flowpost.web import process_liqpay_payload
 
 BOT_ID = 123456
 USER_ID = 777
@@ -418,10 +420,12 @@ async def test_cancel_settings_billing_and_paywall(h: Harness):
     assert (user.lang, user.tz) == ("en", "Europe/Warsaw")
     await h.click(St(a="lang"))
 
-    # subscription screen builds a Stars invoice link
+    # subscription screen offers a LiqPay checkout link
     h.session.clear()
     await h.text("/subscribe")
-    assert "CreateInvoiceLink" in h.session.names()
+    sent = next(m for n, m in h.session.calls if n == "SendMessage")
+    urls = [b.url for row in sent.reply_markup.inline_keyboard for b in row if b.url]
+    assert any("liqpay.ua" in u for u in urls)
 
     # trial over → publishing is blocked by the paywall
     async def expire(s):
@@ -436,22 +440,50 @@ async def test_cancel_settings_billing_and_paywall(h: Harness):
     assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
     assert await h.db(lambda s: s.scalar(select(Publication))) is None
 
-    # Stars payment: pre-checkout approved, successful payment activates the subscription
+    # LiqPay payment: server-to-server callback activates the subscription
     user = await _user(h)
-    h.session.clear()
-    await h.feed(pre_checkout_query={"id": "pcq", "from": h._from(), "currency": "XTR", "total_amount": 350,
-                                     "invoice_payload": f"flowpost-sub:{user.id}"})
-    assert any(n == "AnswerPreCheckoutQuery" and m.ok for n, m in h.session.calls)
-    expires = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
-    await h.feed(message=h._message(successful_payment={
-        "currency": "XTR", "total_amount": 350, "invoice_payload": f"flowpost-sub:{user.id}",
-        "telegram_payment_charge_id": "charge-1", "provider_payment_charge_id": "",
-        "subscription_expiration_date": expires, "is_recurring": True, "is_first_recurring": True,
-    }))
+    payload = {"status": "success", "order_id": f"flowpost-{user.id}-abc", "payment_id": "charge-1",
+               "amount": 5, "currency": "USD"}
+    await process_liqpay_payload(payload, h.sm, None)
     sub = await h.db(lambda s: s.scalar(select(Subscription)))
-    assert sub.provider == "stars" and sub.provider_sub_id == "charge-1" and sub.current_period_end > utcnow()
+    assert sub.provider == "liqpay" and sub.current_period_end > utcnow()
 
     # now publishing works
     await h.click(Ed(a="pub", p=p))
     await h.click(Ed(a="pubok", p=p))
     assert await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
+
+
+async def test_manual_transfer_flow(sessionmaker):
+    settings = Settings(
+        bot_token="123456:TEST", admin_ids=str(ADMIN_ID), payment_requisites="IBAN: UA000",
+        liqpay_enabled=False, _env_file=None,
+    )
+    session = MockSession()
+    bot = Bot("123456:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
+    dp = build_dispatcher(settings, sessionmaker, MemoryStorage())
+    dp.workflow_data.update(settings=settings, publisher=Publisher(bot, None),
+                            worker=Worker(bot, sessionmaker, Publisher(bot, None), settings), ai=AIService(settings))
+    h = Harness(dp, bot, session, sessionmaker)
+    try:
+        await h.text("/start")
+        h.session.clear()
+        await h.text("/subscribe")
+        await h.click(Bl(a="manual"))
+        assert "IBAN: UA000" in h.session.texts()
+
+        h.session.clear()
+        await h.feed(message=h._message(photo=[{"file_id": "receipt", "file_unique_id": "receipt",
+                                                 "width": 100, "height": 100}]))
+        names = h.session.names()
+        assert names.count("ForwardMessage") == 1 and "SendMessage" in names
+        assert "id 777" in h.session.texts()
+        assert h.session.texts().count("Дякуємо") == 1
+
+        # a second message once the state is cleared is not treated as a receipt anymore
+        h.session.clear()
+        await h.text("дякую")
+        assert "ForwardMessage" not in h.session.names()
+    finally:
+        for router in dp.sub_routers:
+            router._parent_router = None

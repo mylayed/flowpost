@@ -29,3 +29,7 @@ class SettingsInput(StatesGroup):
 
 class EditPublished(StatesGroup):
     waiting_forward = State()
+
+
+class Billing(StatesGroup):
+    manual_receipt = State()  # waiting for a screenshot/receipt after showing bank transfer requisites

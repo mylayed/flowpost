@@ -39,14 +39,13 @@ class Settings(BaseSettings):
     # --- Billing ---
     trial_days: int = 7
     sub_price_usd: float = 5.0
-    stars_enabled: bool = True
-    stars_price: int = 350
-    liqpay_enabled: bool = False
+    liqpay_enabled: bool = True
     liqpay_public_key: str = ""
     liqpay_private_key: SecretStr = SecretStr("")
     liqpay_amount: float = 5.0
     liqpay_currency: str = "USD"
     liqpay_sandbox: bool = False
+    payment_requisites: str = ""  # bank transfer details shown to the user for manual payment; empty = option hidden
 
     # --- Media / worker ---
     ffmpeg_bin: str = "ffmpeg"

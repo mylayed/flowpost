@@ -21,7 +21,7 @@ async def test_health(settings, sessionmaker):
 
 
 async def test_liqpay_callback_disabled_and_bad_signature(sessionmaker):
-    disabled = Settings(bot_token="1:x", _env_file=None)
+    disabled = Settings(bot_token="1:x", liqpay_enabled=False, _env_file=None)
     client = await _client(disabled, sessionmaker)
     try:
         assert (await client.post("/pay/liqpay/callback", data={"data": "x", "signature": "y"})).status == 404

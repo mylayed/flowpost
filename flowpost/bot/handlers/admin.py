@@ -1,8 +1,7 @@
-"""Admin commands for the bot owner: /stats, /grant, /expire, /refund."""
+"""Admin commands for the bot owner: /stats, /grant, /expire."""
 from __future__ import annotations
 
-from aiogram import Bot, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram import Router
 from aiogram.filters import BaseFilter, Command, CommandObject
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,17 +76,3 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
         sub.current_period_end = now
         sub.status = "expired"
     await message.answer(f"⛔ Access of {args[0]} expired (trial and subscription).")
-
-
-@router.message(Command("refund"))
-async def cmd_refund(message: Message, command: CommandObject, bot: Bot) -> None:
-    args = _args(command, 2)
-    if not args or not args[0].isdigit():
-        await message.answer("Usage: /refund <tg_id> <telegram_payment_charge_id>")
-        return
-    try:
-        await bot.refund_star_payment(user_id=int(args[0]), telegram_payment_charge_id=args[1])
-    except TelegramAPIError as e:
-        await message.answer(f"Refund failed: {e}")
-        return
-    await message.answer("✅ Stars refunded.")

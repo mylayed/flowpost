@@ -141,7 +141,7 @@ class Subscription(Base):
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
-    provider: Mapped[str] = mapped_column(String(16))  # stars | liqpay | manual
+    provider: Mapped[str] = mapped_column(String(16))  # liqpay | manual (legacy rows may say "stars")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | cancelled | expired
     current_period_end: Mapped[datetime] = mapped_column(UTCDateTime)
     provider_sub_id: Mapped[str | None] = mapped_column(String(128))

@@ -10,7 +10,6 @@ from flowpost.services.billing.liqpay import (
     user_id_from_order,
     verify_signature,
 )
-from flowpost.services.billing.stars import make_payload, parse_payload
 from flowpost.services.billing.subscriptions import extend_subscription, get_access, record_payment
 from flowpost.web import process_liqpay_payload
 from sqlalchemy import func, select
@@ -37,18 +36,13 @@ def test_liqpay_checkout_url_contains_subscription_params():
     assert client.parse_callback(data, make_signature("priv", data)) == params
 
 
-def test_stars_payload():
-    assert parse_payload(make_payload(42)) == 42
-    assert parse_payload("other:42") is None
-
-
 async def test_access_trial_then_paid(sessionmaker, seeded):
     async with sessionmaker() as session:
         user = await session.get(User, seeded.user_id)
         assert (await get_access(session, user)).kind == "trial"
         user.trial_ends_at = utcnow() - timedelta(minutes=1)
         assert not (await get_access(session, user)).active
-        sub = await extend_subscription(session, user.id, "stars", days=30)
+        sub = await extend_subscription(session, user.id, "liqpay", days=30)
         assert sub.status == "active"
         access = await get_access(session, user)
         assert access.kind == "paid" and access.until > utcnow() + timedelta(days=29)
@@ -59,7 +53,7 @@ async def test_access_trial_then_paid(sessionmaker, seeded):
 
 async def test_record_payment_is_idempotent(sessionmaker, seeded):
     async with sessionmaker() as session:
-        kw = dict(user_id=seeded.user_id, provider="stars", amount=350, currency="XTR", provider_payment_id="stars:1",
+        kw = dict(user_id=seeded.user_id, provider="liqpay", amount=5, currency="USD", provider_payment_id="liqpay:1",
                   status="paid", raw={})
         assert await record_payment(session, **kw)
         assert not await record_payment(session, **kw)
