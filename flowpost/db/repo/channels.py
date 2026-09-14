@@ -8,9 +8,14 @@ from flowpost.db.repo import channel_admins as channel_admins_repo
 
 
 async def list_channels(
-    session: AsyncSession, owner_id: int, active_only: bool = True, *, perm: str | None = None,
+    session: AsyncSession, owner_id: int, active_only: bool = True, *,
+    perm: str | None = None, exclude_discussion_groups: bool = True,
 ) -> list[Channel]:
-    """Channels `owner_id` owns, plus (if `perm`) channels delegated to them with that admin permission."""
+    """Channels `owner_id` owns, plus (if `perm`) channels delegated to them with that admin permission.
+
+    A group linked to some channel purely as its comments/discussion group (`Channel.discussion_chat_id`)
+    isn't itself a postable project, so it's excluded by default.
+    """
     condition = Channel.owner_id == owner_id
     if perm:
         admin_ids = await channel_admins_repo.administered_channel_ids(session, owner_id, perm=perm)
@@ -19,6 +24,9 @@ async def list_channels(
     stmt = select(Channel).where(condition)
     if active_only:
         stmt = stmt.where(Channel.is_active.is_(True))
+    if exclude_discussion_groups:
+        discussion_ids = select(Channel.discussion_chat_id).where(Channel.discussion_chat_id.is_not(None))
+        stmt = stmt.where(Channel.chat_id.not_in(discussion_ids))
     return list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
 
 
