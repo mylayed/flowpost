@@ -67,6 +67,21 @@ async def next_run(session: AsyncSession, post_id: int) -> datetime | None:
     )
 
 
+async def published_between(
+    session: AsyncSession, owner_id: int, start: datetime, end: datetime, channel_ids: list[int] | None = None
+) -> list[Publication]:
+    stmt = select(Publication).where(
+        Publication.owner_id == owner_id,
+        Publication.status == "published",
+        Publication.deleted.is_(False),
+        Publication.published_at >= start,
+        Publication.published_at < end,
+    )
+    if channel_ids:
+        stmt = stmt.where(Publication.channel_id.in_(channel_ids))
+    return list((await session.scalars(stmt.order_by(Publication.published_at))).all())
+
+
 async def published_for_post(session: AsyncSession, post_id: int) -> list[Publication]:
     stmt = (
         select(Publication)

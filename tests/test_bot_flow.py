@@ -291,6 +291,18 @@ async def test_full_editor_flow(h: Harness):
     assert any(type(m).__name__ == "PinChatMessage" for m in channel_calls)
     assert (await _post(h)).status == "scheduled"  # auto-repeat queued the next run
 
+    # Контент-план → «Опубліковані» tab shows the delivered post, editable but not reschedulable
+    today_ordinal = local_now("Europe/Kyiv").date().toordinal()
+    h.session.clear()
+    await h.click(Cp(a="day", d=today_ordinal, m="p"))
+    assert "SendMessage" in h.session.names() or "EditMessageText" in h.session.names()
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Опубліковані" in kb_text
+    await h.click(Cp(a="post", d=today_ordinal, id=p, m="p"))
+    post_kb = str(h.session.calls[-1][1].reply_markup)
+    assert "Редагувати" in post_kb
+    assert "Перенести" not in post_kb and "Опублікувати зараз" not in post_kb and "Скасувати" not in post_kb
+
     # Редагувати пост → save changes into the channel
     await h.text("/edit")
     await h.click(Ep(a="open", id=p))

@@ -26,11 +26,12 @@ class Nc(CallbackData, prefix="nc"):
 
 
 class Cp(CallbackData, prefix="cp"):
-    """Content plan. `d` — date ordinal, `id` — post id."""
+    """Content plan. `d` — date ordinal, `id` — post id, `m` — tab: s(cheduled)|p(ublished)."""
 
     a: str
     d: int = 0
     id: int = 0
+    m: str = "s"
 
 
 class Pj(CallbackData, prefix="pj"):

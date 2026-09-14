@@ -334,10 +334,15 @@ TEXTS: dict[str, str] = {
 
     # ---- Content plan ------------------------------------------------------------------------
     "plan.title": "🗓 <b>Content plan</b>",
+    "plan.tab_scheduled": "🕒 Scheduled",
+    "plan.tab_published": "✅ Published",
     "plan.count": "Scheduled posts: {n}. Tap a post to manage it.",
     "plan.empty": "Nothing is scheduled for this day.",
+    "plan.count_published": "Published posts: {n}. Tap a post to edit it.",
+    "plan.empty_published": "Nothing was published on this day.",
     "plan.new_post": "✍️ Create post",
     "plan.post_title": "🗓 <b>Scheduled post</b>",
+    "plan.post_title_published": "✅ <b>Published post</b>",
     "plan.edit": "✏️ Edit",
     "plan.move": "🕒 Reschedule",
     "plan.now": "🚀 Publish now",
