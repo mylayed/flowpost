@@ -521,6 +521,7 @@ TEXTS: dict[str, str] = {
     "notify.missed": "⚠️ The publication in «{title}» was skipped: the bot was unavailable at the scheduled time. Open «Content plan» to reschedule.",
     "notify.paused": "⏸ Scheduled posts are paused: the trial or subscription has ended. Subscribe and they'll continue going out.",
     "notify.trial_ending": "⏳ Your FlowPost trial ends in less than a day. Subscribe to keep posts going out on schedule.",
+    "notify.sub_ending": "⏳ Your FlowPost subscription ends tomorrow — the last day. Renew it to keep posts going out on schedule.",
 
     # ---- Errors & warnings -------------------------------------------------------------------
     "err.bot_not_admin": "the bot is not an admin of the channel",

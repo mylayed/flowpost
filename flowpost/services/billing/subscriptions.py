@@ -67,6 +67,7 @@ async def extend_subscription(
     sub.provider = provider
     sub.status = "active" if new_end > now else "expired"
     sub.current_period_end = new_end
+    sub.renewal_reminded = False
     if provider_sub_id:
         sub.provider_sub_id = provider_sub_id
     await session.flush()

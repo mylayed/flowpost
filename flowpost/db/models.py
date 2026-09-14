@@ -144,6 +144,7 @@ class Subscription(Base):
     provider: Mapped[str] = mapped_column(String(16))  # liqpay | manual (legacy rows may say "stars")
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | cancelled | expired
     current_period_end: Mapped[datetime] = mapped_column(UTCDateTime)
+    renewal_reminded: Mapped[bool] = mapped_column(Boolean, default=False)
     provider_sub_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)

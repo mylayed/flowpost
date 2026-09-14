@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from flowpost.bot.callbacks import Bl
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Post, Publication, User
+from flowpost.db.models import Channel, Post, Publication, Subscription, User
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
@@ -73,6 +73,7 @@ class Worker:
         await self.process_unpins(now)
         await self.process_deletes(now)
         await self.trial_reminders(now)
+        await self.subscription_reminders(now)
 
     async def recover_stale(self) -> None:
         """Publications stuck in 'publishing' after a crash are marked failed instead of risking duplicates."""
@@ -310,3 +311,31 @@ class Worker:
                 await self.bot.send_message(tg_id, t("notify.trial_ending", locale=lang), reply_markup=markup)
             except TelegramAPIError as e:
                 log.info("trial reminder not delivered: %s", e)
+
+    async def subscription_reminders(self, now: datetime) -> None:
+        async with self.sessionmaker() as session:
+            rows = (await session.execute(
+                select(Subscription, User)
+                .join(User, User.id == Subscription.user_id)
+                .where(
+                    Subscription.status.in_(("active", "cancelled")),
+                    Subscription.renewal_reminded.is_(False),
+                    Subscription.current_period_end > now,
+                    Subscription.current_period_end <= now + timedelta(days=1),
+                    User.is_blocked.is_(False),
+                )
+                .limit(BATCH)
+            )).all()
+            to_notify = []
+            for sub, user in rows:
+                sub.renewal_reminded = True
+                to_notify.append((user.tg_id, user.lang))
+            await session.commit()
+        for tg_id, lang in to_notify:
+            markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t("btn.pay", locale=lang), callback_data=Bl(a="open").pack())
+            ]])
+            try:
+                await self.bot.send_message(tg_id, t("notify.sub_ending", locale=lang), reply_markup=markup)
+            except TelegramAPIError as e:
+                log.info("subscription reminder not delivered: %s", e)
