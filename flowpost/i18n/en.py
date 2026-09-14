@@ -303,7 +303,7 @@ TEXTS: dict[str, str] = {
     "sch.confirm_repeat": "🔁 Auto-repeat will kick in after publishing.",
     "sch.confirm_yes": "✅ Confirm",
     "sch.change": "✏️ Change",
-    "sch.done": "✅ Post scheduled for <b>{date}</b> at <b>{time}</b> (channels: {n}). You'll find it in «Content plan».",
+    "sch.done": "✅ Post scheduled for <b>{date}</b> at <b>{time}</b> (channels: {n})\n{channels}",
     "sch.done_short": "Scheduled!",
     "err.time_format": "❌ Wrong time format. Send it as Hours:Minutes, for example: <code>09:05</code> or <code>14:35</code>.",
 

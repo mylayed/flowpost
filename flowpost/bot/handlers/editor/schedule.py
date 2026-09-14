@@ -202,6 +202,10 @@ async def ed_schedule_confirm(
     analytics.track(session, user.id, "post_scheduled", post_id=post.id)
     await session.flush()
     await cb.answer(t("sch.done_short"))
-    text = t("sch.done", date=fmt_date(day, user.lang), time=fmt_hm(when), n=len(post.targets))
+    channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+    channels_line = ", ".join(channel_link_html(c) for c in channels)
+    text = t(
+        "sch.done", date=fmt_date(day, user.lang), time=fmt_hm(when), n=len(post.targets), channels=channels_line,
+    )
     await show_panel(bot, cb.from_user.id, state, text, None)
     await state.clear()

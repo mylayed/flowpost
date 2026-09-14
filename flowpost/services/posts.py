@@ -96,10 +96,20 @@ def default_signature_template(channel: Channel) -> str:
     return '<a href="{link}">{title}</a>' if channel.username else "<b>{title}</b>"
 
 
+def channel_link(channel: Channel) -> str:
+    """A t.me link that opens the channel — public @username, or the internal chat link for members."""
+    if channel.username:
+        return f"https://t.me/{channel.username}"
+    internal = str(channel.chat_id)
+    if internal.startswith("-100"):
+        internal = internal[4:]
+    return f"https://t.me/c/{internal.lstrip('-')}"
+
+
 def channel_link_html(channel: Channel) -> str:
-    """Channel title, linked to it when it has a public @username."""
+    """Channel title as a link to the channel."""
     title = html.escape(channel.title or "")
-    return f'<a href="https://t.me/{channel.username}">{title}</a>' if channel.username else f"<b>{title}</b>"
+    return f'<a href="{channel_link(channel)}">{title}</a>'
 
 
 def render_signature(channel: Channel) -> str:
@@ -152,9 +162,4 @@ def part_warnings(part: PostPart, opts: dict, channel: Channel | None, lang: str
 
 
 def message_link(channel: Channel, message_id: int) -> str:
-    if channel.username:
-        return f"https://t.me/{channel.username}/{message_id}"
-    internal = str(channel.chat_id)
-    if internal.startswith("-100"):
-        internal = internal[4:]
-    return f"https://t.me/c/{internal.lstrip('-')}/{message_id}"
+    return f"{channel_link(channel)}/{message_id}"
