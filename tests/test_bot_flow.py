@@ -506,6 +506,13 @@ async def test_grant_notifies_user_and_shows_days_left(sessionmaker):
             await s.commit()
         await h.db(expire)
 
+        # a bare /grant (e.g. from tapping the command in a forwarded receipt) must not crash:
+        # Telegram's HTML parser rejects "<...>" placeholders, so the usage text must avoid them.
+        h.session.clear()
+        await h.text("/grant", uid=ADMIN_ID)
+        usage_reply = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)
+        assert "Usage" in usage_reply.text and "<" not in usage_reply.text
+
         h.session.clear()
         await h.text(f"/grant {USER_ID} 30", uid=ADMIN_ID)
         admin_reply = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)

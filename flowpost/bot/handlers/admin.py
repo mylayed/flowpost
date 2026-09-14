@@ -52,7 +52,7 @@ def _args(command: CommandObject, count: int) -> list[str] | None:
 async def cmd_grant(message: Message, command: CommandObject, bot: Bot, session: AsyncSession) -> None:
     args = _args(command, 2)
     if not args or not args[0].isdigit() or not args[1].lstrip("-").isdigit():
-        await message.answer("Usage: /grant <tg_id> <days>")
+        await message.answer("Usage: /grant tg_id days")
         return
     user = await users_repo.get_by_tg(session, int(args[0]))
     if user is None:
@@ -72,7 +72,7 @@ async def cmd_grant(message: Message, command: CommandObject, bot: Bot, session:
 async def cmd_expire(message: Message, command: CommandObject, session: AsyncSession) -> None:
     args = _args(command, 1)
     if not args or not args[0].isdigit():
-        await message.answer("Usage: /expire <tg_id>")
+        await message.answer("Usage: /expire tg_id")
         return
     user = await users_repo.get_by_tg(session, int(args[0]))
     if user is None:
