@@ -82,6 +82,10 @@ class FakeBot:
                 result.append(self._msg(**{kind: SimpleNamespace(file_id="x")}))
         return result
 
+    async def send_poll(self, chat_id, question, options, **kw):
+        self.calls.append(("send_poll", chat_id, question, {"options": options, **kw}))
+        return self._msg(poll=SimpleNamespace(id="poll-1"))
+
     async def pin_chat_message(self, chat_id, message_id, **kw):
         self.calls.append(("pin_chat_message", chat_id, message_id, kw))
         return True

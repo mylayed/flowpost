@@ -40,14 +40,19 @@ TEXTS: dict[str, str] = {
     "help.text": (
         "ℹ️ <b>How to use FlowPost</b>\n\n"
         "1. /addchannel — connect a channel or group.\n"
-        "2. Send the bot a photo, video or text — the editor opens.\n"
+        "2. Send the bot a photo, video, text, or a poll — the editor opens.\n"
         "3. Add buttons, a watermark, an auto-signature or polish the text with AI.\n"
         "4. Tap «Publish» or «Schedule».\n\n"
         "/plan — content plan\n"
         "/edit — edit a post\n"
         "/projects — channel settings\n"
         "/subscribe — subscription\n"
-        "/paysupport — payment support"
+        "/paysupport — payment support\n\n"
+        "<b>Also included:</b>\n"
+        "🔁 duplicate protection — warns if similar text or media was already published\n"
+        "🎯 smart posting time — suggests the best slots based on subscriber activity\n"
+        "📊 polls & quizzes — a post type of their own (just send a poll like any other content)\n"
+        "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)"
     ),
     "btn.create_post": "✍️ Create post",
     "btn.content_plan": "🗓 Content plan",
@@ -96,14 +101,18 @@ TEXTS: dict[str, str] = {
     "ed.part_short": "{n}/{total}",
     "ed.scheduled_at": "🕒 Scheduled: {date} at {time}",
     "ed.hint": "<i>To replace media, send a new photo, video or animation. To fix the text, send a new one.</i>",
-    "ed.hint_empty": "<i>Send a photo, video, GIF or text — the post is built from it. Text sent separately becomes the media caption.</i>",
+    "ed.hint_empty": "<i>Send a photo, video, GIF, text, or a poll (📎 → Poll) — the post is built from it. Text sent separately becomes the media caption.</i>",
+    "ed.hint_poll": "<i>This is a poll. To replace it, send another one via 📎 → Poll.</i>",
     "ed.hint_published": "<i>Send new text or media, change buttons — then tap «Save in channel».</i>",
     "ed.updated_media": "✅ Media updated",
     "ed.updated_text": "✅ Text updated",
+    "ed.updated_poll": "✅ Poll added",
     "ed.deleted_text": "✅ Text deleted",
     "ed.delete_text": "🗑 Delete text",
     "ed.delete_source_signature": "🗑 Delete source signature",
     "ed.deleted_source_signature": "✅ Source signature deleted",
+    "ed.delete_poll": "🗑 Delete poll",
+    "ed.deleted_poll": "✅ Poll deleted",
     "ed.primary_channel_note": "ℹ️ Settings are shown for the first channel. Change them for other channels in «My projects».",
     "ed.watermark": "💧 Watermark",
     "ed.buttons": "🔘 Buttons",
@@ -225,8 +234,9 @@ TEXTS: dict[str, str] = {
         "the channel in Telegram itself: <b>Channel settings → Discussion → pick a group</b>. "
         "That's a one-time step in the Telegram app — the bot can't do it.\n\n"
         "Linking a group here, in the bot, is for something else: turning comments off for "
-        "individual posts. Link the <b>same</b> group, enable «Topics» in it, and add the bot as "
-        "an administrator with the manage-topics right."
+        "individual posts and enabling moderation (removing profanity and spam). Link the <b>same</b> "
+        "group, enable «Topics» in it, and add the bot as an administrator with the manage-topics and "
+        "delete-messages rights."
     ),
     "cm.link": "🔗 Link a group in the bot",
     "cm.relink": "🔗 Change group",
@@ -234,6 +244,21 @@ TEXTS: dict[str, str] = {
     "cm.link_prompt": "Pick the same discussion group that's linked to the channel in Telegram. The bot must already be an admin there.",
     "cm.linked_done": "✅ Group «{title}» linked in the bot. Remember: the «Comment» button only shows up if this same group is linked to the channel via Telegram (Channel settings → Discussion).",
     "cm.err_bot_not_admin": "The bot isn't an admin of that group. Add it as an administrator and try again.",
+
+    # ---- Comment moderation --------------------------------------------------------------------
+    "cm.moderation_on": "🛡 Comment moderation: on",
+    "cm.moderation_off": "🛡 Comment moderation: off",
+    "cm.moderation_toggle": "Moderation",
+    "cm.banned_words_count": "Custom banned words: {n}",
+    "cm.banned_words_btn": "✏️ Banned words",
+    "mod.words_prompt": (
+        "Send words or phrases to remove from comments — one per line or comma-separated "
+        "(up to {max}). They're added on top of the built-in profanity list.\n\n"
+        "Current: {current}"
+    ),
+    "mod.words_none": "none set",
+    "mod.words_saved": "✅ Saved ({n})",
+    "mod.words_too_many": "Too many words — {max} max.",
     "btn.connect_discussion": "👥 Choose discussion group",
 
     # ---- Channel analytics ---------------------------------------------------------------------
@@ -329,6 +354,7 @@ TEXTS: dict[str, str] = {
     "sch.date": "📅 {date}",
     "sch.planned": "Scheduled for this day:",
     "sch.none": "Nothing is scheduled for this day.",
+    "sch.smart_hint": "🎯 Best time based on subscriber activity: {slots}",
     "sch.pick": "Choose the publication time or send your own as <b>Hours:Minutes</b>, e.g. <code>14:35</code>.",
     "sch.no_slots": "No free slots left for this day — choose another day, or send your own time as <b>Hours:Minutes</b>.",
     "sch.this_post": "this post",
@@ -356,6 +382,12 @@ TEXTS: dict[str, str] = {
     "pub.result_title": "📬 <b>Publishing result</b>",
     "pub.ok_line": "✅ {title}: <a href=\"{link}\">open post</a>",
     "pub.fail_line": "❌ {title}: {error}",
+
+    # ---- Duplicate protection --------------------------------------------------------------------
+    "dup.warn_text": "⚠️ Similar text was already published in \"{channel}\" {date}.",
+    "dup.warn_media": "⚠️ This media was already published in \"{channel}\" {date}.",
+    "dup.warn_link": "(<a href=\"{link}\">that post</a>)",
+
     "cancel.confirm": "Cancel creating this post? The draft will be deleted.",
     "cancel.yes": "🗑 Yes, delete",
     "cancel.done": "Draft deleted. Main menu 👇",
@@ -364,6 +396,7 @@ TEXTS: dict[str, str] = {
     "save.working": "Saving…",
     "save.ok_line": "✅ {title}: updated",
     "save.media_count": "The number of media changed — Telegram doesn't allow adding or removing media in a published album. Only the text was updated.",
+    "save.poll_not_editable": "Polls can't be edited after publishing — Telegram doesn't allow it.",
     "save.buttons_album": "Buttons can't be added under a published album without a separate message.",
     "save.parts_added": "New series messages aren't published while editing — publish them as a separate post.",
 

@@ -13,11 +13,11 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import TEXT_LIMIT, group_error
+from flowpost.services.posts import TEXT_LIMIT, group_error, poll_from_message
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_content")
-CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text
+CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text | F.poll
 
 
 @router.callback_query(Ed.filter(F.a == "noop"))
@@ -82,6 +82,20 @@ async def ed_delete_source_signature(
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_source_signature"))
 
 
+@router.callback_query(Ed.filter(F.a == "del_poll"))
+async def ed_delete_poll(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
+) -> None:
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    post.parts[idx].poll = None
+    await session.flush()
+    await cb.answer()
+    await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_poll"))
+
+
 @router.message(Editor.content, CONTENT)
 async def ed_replace_content(
     message: Message,
@@ -101,10 +115,19 @@ async def ed_replace_content(
         await message.answer(t("err.post_not_found"))
         return
     part = post.parts[idx]
+    if message.poll:
+        part.poll = poll_from_message(message)
+        part.text_html = ""
+        part.media = []
+        part.source_signature = ""
+        await session.flush()
+        await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=t("ed.updated_poll"))
+        return
     text, media, source_signature = extract_content(album or [message])
     if visible_len(text) > TEXT_LIMIT:
         await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
         return
+    part.poll = None
     if media:
         error = group_error(media)
         if error:

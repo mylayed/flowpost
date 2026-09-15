@@ -131,6 +131,8 @@ async def panel_text(
     part = post.parts[part_idx]
     if published:
         lines.append(t("ed.hint_published"))
+    elif part.poll:
+        lines.append(t("ed.hint_poll"))
     else:
         lines.append(t("ed.hint_empty") if part_is_empty(part) else t("ed.hint"))
     for key in warnings:

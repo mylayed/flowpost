@@ -17,13 +17,13 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import TEXT_LIMIT, group_error, media_from_message, message_text
+from flowpost.services.posts import TEXT_LIMIT, group_error, media_from_message, message_text, poll_from_message
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import wm_configured, wm_settings
 
 router = Router(name="create_post")
 
-CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text
+CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text | F.poll
 
 
 def initial_options(channel: Channel, is_ad: bool) -> dict:
@@ -85,6 +85,7 @@ async def start_post(
     text: str = "",
     media: list[dict] | None = None,
     source_signature: str = "",
+    poll: dict | None = None,
 ) -> None:
     await state.clear()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
@@ -94,13 +95,13 @@ async def start_post(
     if len(channels) == 1:
         post = await posts_repo.create_post(
             session, channels[0].owner_id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
-            text=text, media=media, source_signature=source_signature,
+            text=text, media=media, source_signature=source_signature, poll=poll,
         )
         note = t("post.ad_intro") if is_ad else None
         await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
         return
     post = await posts_repo.create_post(session, user.id, [], is_ad=is_ad, text=text, media=media,
-                                         source_signature=source_signature)
+                                         source_signature=source_signature, poll=poll)
     await message.answer(t("post.choose_channel"), reply_markup=channels_pick_kb(channels, post.id))
 
 
@@ -145,6 +146,9 @@ async def content_starts_post(
 ) -> None:
     if message.text and message.text.startswith("/"):
         await message.answer(t("err.unknown_command"))
+        return
+    if message.poll:
+        await start_post(message, bot, session, state, user, publisher, poll=poll_from_message(message))
         return
     text, media, source_signature = extract_content(album or [message])
     error = group_error(media)

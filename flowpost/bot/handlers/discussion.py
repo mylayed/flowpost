@@ -19,10 +19,12 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
 from flowpost.services.delivery import publication_message_ids
+from flowpost.services.moderation import moderation_settings, violation
 from flowpost.services.posts import options_of
 
 log = logging.getLogger(__name__)
 router = Router(name="discussion")
+_flood_cache: dict[tuple[int, int], tuple[str, float]] = {}
 
 
 @router.message(StateFilter(ChannelInput.discussion_group), F.chat_shared)
@@ -114,13 +116,24 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
 @router.message(
     F.chat.type.in_({"group", "supergroup"}), F.message_thread_id, ~F.is_automatic_forward,
 )
-async def on_discussion_comment(message: Message, session: AsyncSession) -> None:
-    """Count a reply in a linked discussion thread as a comment on the post that opened it."""
+async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSession) -> None:
+    """Moderate and count a reply in a linked discussion thread as a comment on the post that opened it."""
     if message.from_user is None or message.from_user.is_bot:
         return
     channel = await session.scalar(select(Channel).where(Channel.discussion_chat_id == message.chat.id))
     if channel is None:
         return
+    mod = moderation_settings(channel.moderation)
+    if mod["enabled"]:
+        text = message.text or message.caption or ""
+        kind = violation(text, mod["banned_words"], _flood_cache, message.chat.id, message.from_user.id)
+        if kind is not None:
+            try:
+                await bot.delete_message(message.chat.id, message.message_id)
+                log.info("moderation deleted %s message in chat %s", kind, message.chat.id)
+            except TelegramAPIError as e:
+                log.info("moderation delete failed in chat %s: %s", message.chat.id, e)
+            return
     pub = await session.scalar(
         select(Publication).where(
             Publication.channel_id == channel.id,

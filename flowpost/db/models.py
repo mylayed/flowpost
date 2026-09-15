@@ -48,6 +48,7 @@ class Channel(Base):
     notify_recipients: Mapped[str] = mapped_column(String(16), default="owner")  # owner | admin | both
     discussion_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     discussion_title: Mapped[str | None] = mapped_column(String(256))
+    moderation: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -88,6 +89,7 @@ class PostPart(Base):
     source_signature: Mapped[str] = mapped_column(Text, default="")
     media: Mapped[list] = mapped_column(JSONType, default=list)
     buttons: Mapped[list] = mapped_column(JSONType, default=list)
+    poll: Mapped[dict | None] = mapped_column(JSONType, nullable=True, default=None)
 
     post: Mapped[Post] = relationship(back_populates="parts")
 

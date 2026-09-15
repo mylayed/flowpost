@@ -21,6 +21,7 @@ class ChannelInput(StatesGroup):
     ai_style = State()
     topic = State()
     discussion_group = State()
+    banned_words = State()
 
 
 class SettingsInput(StatesGroup):

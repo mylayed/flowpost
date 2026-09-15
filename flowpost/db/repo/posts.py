@@ -18,10 +18,11 @@ async def create_post(
     text: str = "",
     media: list[dict] | None = None,
     source_signature: str = "",
+    poll: dict | None = None,
 ) -> Post:
     post = Post(owner_id=owner_id, is_ad=is_ad, options=dict(options or {}), status="draft")
     post.parts = [PostPart(position=0, text_html=text or "", media=list(media or []), buttons=[],
-                            source_signature=source_signature or "")]
+                            source_signature=source_signature or "", poll=poll)]
     post.targets = [PostTarget(channel_id=cid, position=i) for i, cid in enumerate(channel_ids)]
     post.repeat = None
     session.add(post)

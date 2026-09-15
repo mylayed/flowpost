@@ -595,6 +595,37 @@ async def test_discussion_reply_counts_as_comment(h: Harness):
     assert pub.discussion_thread_id == 9001
 
 
+async def test_moderation_deletes_spam_comment_and_skips_the_count(h: Harness):
+    _, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "from": {"id": 999, "is_bot": False, "first_name": "Spammer"},
+        "text": "Заходь на t.me/some_scam, там круто!",
+    })
+    assert "DeleteMessage" in h.session.names()
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.comments_count == 0
+
+
+async def test_moderation_can_be_disabled_per_channel(h: Harness):
+    channel_id, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+
+    async def disable(s):
+        await s.execute(update(Channel).where(Channel.id == channel_id).values(moderation={"enabled": False}))
+        await s.commit()
+    await h.db(disable)
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "from": {"id": 999, "is_bot": False, "first_name": "Spammer"},
+        "text": "Заходь на t.me/some_scam, там круто!",
+    })
+    assert "DeleteMessage" not in h.session.names()
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.comments_count == 1
+
+
 async def test_stats_view_summarizes_engagement(h: Harness):
     channel_id, pub_id = await _seed_published(h, message_id=4242)
     async def add_engagement(session):

@@ -21,10 +21,12 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import analytics
+from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.html_sanitize import snippet
 from flowpost.services.parsing import ParseError, parse_time
-from flowpost.services.posts import channel_link_html, part_icon, post_is_empty
+from flowpost.services.posts import channel_link_html, part_icon, part_preview_text, post_is_empty
 from flowpost.services.slots import (
+    WEEKDAYS,
     day_bounds_utc,
     fmt_date,
     fmt_hm,
@@ -34,6 +36,7 @@ from flowpost.services.slots import (
     to_utc,
     tz_of,
 )
+from flowpost.services.smart_time import SlotSuggestion, best_slots
 
 router = Router(name="editor_schedule")
 
@@ -57,10 +60,14 @@ async def day_overview(session: AsyncSession, user: User, day: date, current_pos
         if post is None or not post.parts:
             continue
         first = post.parts[0]
-        text = html.escape(snippet(first.text_html, 32)) or t("parts.no_text")
+        text = html.escape(snippet(part_preview_text(first), 32)) or t("parts.no_text")
         mark = " ← " + t("sch.this_post") if pub.post_id == current_post_id else ""
         lines.append(f"{hm} {part_icon(first)} {text}{mark}")
     return lines
+
+
+def _format_suggestions(suggestions: list[SlotSuggestion], lang: str) -> str:
+    return " • ".join(f"{WEEKDAYS.get(lang, WEEKDAYS['uk'])[s.weekday]} {s.hour:02d}:00" for s in suggestions)
 
 
 async def show_schedule(
@@ -75,15 +82,20 @@ async def show_schedule(
     overview = await day_overview(session, user, day, post.id)
     slots, has_more = generate_slots(day, now_local, page)
     busy = {line.split(" ", 1)[0] for line in overview}
+    suggestions = await best_slots(session, user.id, post.channel_ids, user.tz)
+    recommended = {f"{s.hour:02d}:00" for s in suggestions if s.weekday == day.weekday()}
     lines = [t("sch.title"), t("sch.date", date=fmt_date(day, user.lang)), ""]
     if overview:
         lines.append(t("sch.planned"))
         lines += overview
     else:
         lines.append(t("sch.none"))
+    if suggestions:
+        lines.append("")
+        lines.append(t("sch.smart_hint", slots=_format_suggestions(suggestions, user.lang)))
     lines.append("")
     lines.append(t("sch.pick") if slots else t("sch.no_slots"))
-    kb = schedule_kb(post.id, day, today, slots, has_more, page, user.lang, busy)
+    kb = schedule_kb(post.id, day, today, slots, has_more, page, user.lang, busy, recommended)
     await show_panel(bot, chat_id, state, "\n".join(lines), kb, resend=resend)
 
 
@@ -107,6 +119,9 @@ async def ask_confirmation(
     )
     if post.repeat and post.repeat.active:
         text += "\n" + t("sch.confirm_repeat")
+    matches = await find_duplicates(session, user.id, post, {c.id: c for c in channels})
+    for line in warning_lines(matches, user.tz, user.lang):
+        text += "\n" + line
     kb = markup([
         [btn(t("sch.confirm_yes"), Ed(a="schok", p=post.id, v=value))],
         [btn(t("sch.change"), Ed(a="sch", p=post.id, v=f"{day.toordinal()}_0"))],

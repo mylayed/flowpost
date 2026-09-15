@@ -30,6 +30,7 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.posts import build_markup, final_text, options_of, part_warnings, post_is_empty
 from flowpost.services.worker import Worker
 
@@ -89,11 +90,12 @@ async def ed_publish_ask(
     await cb.answer()
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
     names = ", ".join(html.escape(c.title) for c in channels)
+    text = t("pub.confirm", n=len(channels), names=names)
+    matches = await find_duplicates(session, user.id, post, {c.id: c for c in channels})
+    for line in warning_lines(matches, user.tz, user.lang):
+        text += "\n" + line
     await state.set_state(Editor.confirm)
-    await show_panel(
-        bot, cb.from_user.id, state, t("pub.confirm", n=len(channels), names=names),
-        confirm_kb(post.id, "pubok", t("pub.confirm_yes")),
-    )
+    await show_panel(bot, cb.from_user.id, state, text, confirm_kb(post.id, "pubok", t("pub.confirm_yes")))
 
 
 @router.callback_query(Ed.filter(F.a == "pubok"), flags={"paid": True})
@@ -201,6 +203,9 @@ async def ed_save_published(
                 if i >= len(records):
                     warnings.append("save.parts_added")
                     break
+                if part.poll:
+                    warnings.append("save.poll_not_editable")
+                    continue
                 text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang)
                 await _edit_published_part(bot, channel, records[i], part, text, warnings)
             flag_modified(pub, "message_ids")

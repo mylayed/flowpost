@@ -13,7 +13,7 @@ from flowpost.db.models import User
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import snippet
-from flowpost.services.posts import part_icon
+from flowpost.services.posts import part_icon, part_preview_text
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_parts")
@@ -32,7 +32,7 @@ async def ed_parts_menu(
     lines = [t("parts.title", n=len(post.parts)), "", t("parts.help")]
     rows = []
     for i, part in enumerate(post.parts):
-        label = f"{'👉 ' if i == idx else ''}{i + 1}. {part_icon(part)} {snippet(part.text_html, 28) or t('parts.no_text')}"
+        label = f"{'👉 ' if i == idx else ''}{i + 1}. {part_icon(part)} {snippet(part_preview_text(part), 28) or t('parts.no_text')}"
         rows.append([btn(label, Ed(a="part", p=p, v=str(i)))])
     if len(post.parts) < MAX_PARTS:
         rows.append([btn(t("parts.add"), Ed(a="pt_add", p=p))])

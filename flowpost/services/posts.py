@@ -65,6 +65,27 @@ def message_text(m: Message) -> str:
     return m.html_text
 
 
+def poll_from_message(m: Message) -> dict | None:
+    """A native Telegram poll the admin composed and sent to the bot, as storable part data."""
+    p = m.poll
+    if p is None:
+        return None
+    data: dict = {
+        "question": p.question,
+        "options": [o.text for o in p.options],
+        "is_anonymous": p.is_anonymous,
+        "type": p.type,
+        "allows_multiple_answers": p.allows_multiple_answers,
+    }
+    if p.type == "quiz" and p.correct_option_id is not None:
+        data["correct_option_id"] = p.correct_option_id
+    if p.explanation:
+        data["explanation"] = p.explanation
+    if p.open_period:  # relative duration in seconds; `close_date` is an absolute timestamp fixed at
+        data["open_period"] = p.open_period  # compose time, so it's dropped — it would be stale by send time
+    return data
+
+
 def group_error(media: list[dict]) -> str | None:
     """Return an i18n key if these media items can't be sent together."""
     if len(media) > MAX_MEDIA:
@@ -86,11 +107,20 @@ def media_icon(item: dict) -> str:
 
 
 def part_icon(part: PostPart) -> str:
+    if part.poll:
+        return "🎯" if part.poll.get("type") == "quiz" else "📊"
     if not part.media:
         return "📝"
     if len(part.media) > 1:
         return "🗂"
     return media_icon(part.media[0])
+
+
+def part_preview_text(part: PostPart) -> str:
+    """Plain-ish text to show in lists/previews — the poll question when this part is a poll."""
+    if part.poll:
+        return html.escape(part.poll.get("question", ""))
+    return part.text_html
 
 
 def default_signature_template(channel: Channel) -> str:
@@ -143,7 +173,7 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
 
 
 def part_is_empty(part: PostPart) -> bool:
-    return not (part.media or (part.text_html or "").strip())
+    return not (part.media or (part.text_html or "").strip() or part.poll)
 
 
 def post_is_empty(post: Post) -> bool:
@@ -151,6 +181,8 @@ def post_is_empty(post: Post) -> bool:
 
 
 def part_warnings(part: PostPart, opts: dict, channel: Channel | None, lang: str, *, is_last: bool) -> list[str]:
+    if part.poll:
+        return []
     keys: list[str] = []
     text_len = visible_len(final_text(part.text_html, opts, channel, is_last=is_last, lang=lang))
     if len(part.media) > 1 and part.buttons:

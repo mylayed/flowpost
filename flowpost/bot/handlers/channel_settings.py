@@ -25,8 +25,9 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.delivery import engagement_score, publication_message_ids, reactions_total
 from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
+from flowpost.services.moderation import MAX_BANNED_WORDS, moderation_settings
 from flowpost.services.parsing import ParseError, parse_topic
-from flowpost.services.posts import default_signature_template, message_link, options_of, render_signature
+from flowpost.services.posts import default_signature_template, message_link, options_of, part_preview_text, render_signature
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import POSITIONS, wm_configured, wm_settings
 
@@ -162,16 +163,25 @@ def sig_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMa
 
 def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     c = channel.id
+    mod = moderation_settings(channel.moderation)
     lines = [t("cm.title", title=html.escape(channel.title))]
     if channel.discussion_chat_id:
         lines += ["", t("cm.linked", title=html.escape(channel.discussion_title or ""))]
     else:
         lines += ["", t("cm.not_linked")]
+    lines += [
+        "", t("cm.moderation_on") if mod["enabled"] else t("cm.moderation_off"),
+        t("cm.banned_words_count", n=len(mod["banned_words"])),
+    ]
     lines += ["", t("cm.help")]
     if channel.discussion_chat_id:
         rows = [[btn(t("cm.relink"), Cs(a="cm_link", c=c)), btn(t("cm.unlink"), Cs(a="cm_unlink", c=c))]]
     else:
         rows = [[btn(t("cm.link"), Cs(a="cm_link", c=c))]]
+    rows.append([
+        btn(on(mod["enabled"]) + t("cm.moderation_toggle"), Cs(a="mod_t", c=c)),
+        btn(t("cm.banned_words_btn"), Cs(a="mod_words", c=c)),
+    ])
     rows.append([back_button(channel, 0)])
     return "\n".join(lines), markup(rows)
 
@@ -190,7 +200,7 @@ async def stats_view(session: AsyncSession, channel: Channel, user: User, days: 
         lines.append(t("stats.empty"))
     for i, pub in enumerate(top, 1):
         post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
-        title = snippet(post.parts[0].text_html, 40) if post and post.parts else ""
+        title = snippet(part_preview_text(post.parts[0]), 40) if post and post.parts else ""
         title = html.escape(title) if title else t("stats.no_text")
         ids = publication_message_ids(pub)
         row = t("stats.row", n=i, title=title, reactions=reactions_total(pub), comments=pub.comments_count or 0)
@@ -446,6 +456,32 @@ async def cs_comments_link(cb: CallbackQuery, callback_data: Cs, session: AsyncS
         await cb.message.answer(t("cm.link_prompt"), reply_markup=link_discussion_kb())
 
 
+@router.callback_query(Cs.filter(F.a == "mod_t"))
+async def cs_moderation_toggle(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    mod = moderation_settings(channel.moderation)
+    channel.moderation = {**mod, "enabled": not mod["enabled"]}
+    await session.flush()
+    await cb.answer()
+    await _edit(cb, *cm_menu(channel))
+
+
+@router.callback_query(Cs.filter(F.a == "mod_words"))
+async def cs_moderation_words(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    await cb.answer()
+    mod = moderation_settings(channel.moderation)
+    current = ", ".join(mod["banned_words"]) if mod["banned_words"] else t("mod.words_none")
+    await state.set_state(ChannelInput.banned_words)
+    await state.update_data(cs_channel=channel.id, cs_post=callback_data.p)
+    rows = [[btn(t("btn.back"), Cs(a="cm", c=channel.id, p=callback_data.p))]]
+    await _edit(cb, t("mod.words_prompt", current=html.escape(current), max=MAX_BANNED_WORDS), markup(rows))
+
+
 # ---- text/file inputs ---------------------------------------------------------------------------
 
 @router.message(ChannelInput.wm_text, F.text)
@@ -543,6 +579,21 @@ async def in_topic(message: Message, bot: Bot, session: AsyncSession, state: FSM
     channel.topic_id = ref.topic_id
     await session.flush()
     await _return_after_input(message, bot, session, state, user, publisher, channel, t("topic.saved", topic=ref.topic_id))
+
+
+@router.message(ChannelInput.banned_words, F.text)
+async def in_banned_words(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+    channel = await _input_channel(message, session, state, user)
+    if channel is None:
+        return
+    words = [w.strip() for w in re.split(r"[,\n]", message.text or "") if w.strip()]
+    if len(words) > MAX_BANNED_WORDS:
+        await message.answer(t("mod.words_too_many", max=MAX_BANNED_WORDS))
+        return
+    mod = moderation_settings(channel.moderation)
+    channel.moderation = {**mod, "banned_words": words}
+    await session.flush()
+    await _return_after_input(message, bot, session, state, user, publisher, channel, t("mod.words_saved", n=len(words)))
 
 
 @router.message(ChannelInput.wm_image)

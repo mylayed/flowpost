@@ -106,6 +106,29 @@ async def _send_single(bot: Bot, chat_id: int, item: OutMedia, **kw) -> Message:
     raise ValueError(f"unsupported media type {item.type}")
 
 
+async def send_poll_part(bot: Bot, chat_id: int, poll: dict, buttons: list[list[dict]] | None, opts: SendOptions) -> SentPart:
+    markup = build_markup(buttons)
+    m = await bot.send_poll(
+        chat_id,
+        question=poll["question"],
+        options=poll["options"],
+        is_anonymous=poll.get("is_anonymous", True),
+        type=poll.get("type", "regular"),
+        allows_multiple_answers=poll.get("allows_multiple_answers", False),
+        correct_option_id=poll.get("correct_option_id"),
+        explanation=poll.get("explanation"),
+        open_period=poll.get("open_period"),
+        reply_markup=markup,
+        disable_notification=opts.silent,
+        protect_content=opts.protect,
+        message_thread_id=opts.thread_id,
+    )
+    sent = SentPart()
+    sent.ids = [m.message_id]
+    sent.markup_msg = m.message_id if markup else None
+    return sent
+
+
 async def send_part(
     bot: Bot,
     chat_id: int,
@@ -229,6 +252,10 @@ class Publisher:
         last_index = len(post.parts) - 1
         for idx in indexes:
             part = post.parts[idx]
+            if part.poll:
+                sent = await send_poll_part(self.bot, target, part.poll, part.buttons, send_opts)
+                result.parts.append(sent)
+                continue
             text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)
             media, warnings = await self.resolve_media(part.media, channel, opts)
             sent = await send_part(self.bot, target, text, media, part.buttons, send_opts)

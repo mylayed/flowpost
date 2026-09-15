@@ -17,6 +17,7 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
     opts = options_of(post)
     part = post.parts[part_idx]
     n = len(post.parts)
+    is_poll = bool(part.poll)
     rows = []
     if n > 1:
         rows.append([
@@ -32,9 +33,14 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
             rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
         if part.source_signature.strip():
             rows.append([btn(t("ed.delete_source_signature"), Ed(a="del_sig", p=p))])
+        if is_poll:
+            rows.append([btn(buttons_label, Ed(a="btn", p=p))])
+        else:
+            rows += [
+                [btn(buttons_label, Ed(a="btn", p=p)), btn(media_label, Ed(a="media", p=p))],
+                [btn(t("ed.ai"), Ed(a="ai", p=p))],
+            ]
         rows += [
-            [btn(buttons_label, Ed(a="btn", p=p)), btn(media_label, Ed(a="media", p=p))],
-            [btn(t("ed.ai"), Ed(a="ai", p=p))],
             [btn(t("ed.save_published"), Ed(a="save", p=p))],
             [btn(t("ed.exit"), Ed(a="exit", p=p))],
         ]
@@ -46,10 +52,16 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
         rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
     if part.source_signature.strip():
         rows.append([btn(t("ed.delete_source_signature"), Ed(a="del_sig", p=p))])
+    if is_poll:
+        rows.append([btn(t("ed.delete_poll"), Ed(a="del_poll", p=p))])
+        rows.append([btn(buttons_label, Ed(a="btn", p=p)), btn(t("ed.more"), Ed(a="more", p=p))])
+    else:
+        rows += [
+            [btn(on(opts["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p)), btn(buttons_label, Ed(a="btn", p=p))],
+            [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],
+            [btn(t("ed.ai"), Ed(a="ai", p=p)), btn(t("ed.more"), Ed(a="more", p=p))],
+        ]
     rows += [
-        [btn(on(opts["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p)), btn(buttons_label, Ed(a="btn", p=p))],
-        [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],
-        [btn(t("ed.ai"), Ed(a="ai", p=p)), btn(t("ed.more"), Ed(a="more", p=p))],
         [btn(t("ed.messages") + (f" ({n})" if n > 1 else ""), Ed(a="parts", p=p)),
          btn(on(repeat_on) + t("ed.repeat"), Ed(a="rep", p=p))],
         [btn(t("ed.schedule"), Ed(a="sch", p=p)), btn(multi_label, Ed(a="multi", p=p))],
@@ -79,6 +91,7 @@ def schedule_kb(
     page: int,
     lang: str,
     busy: set[str],
+    recommended: set[str] = frozenset(),
 ) -> InlineKeyboardMarkup:
     p = post_id
     ordinal = day.toordinal()
@@ -89,8 +102,14 @@ def schedule_kb(
         btn("▶️", Ed(a="sch", p=p, v=f"{ordinal + 1}_0")) if (day - today).days < 365 else btn("·", Ed(a="noop", p=p)),
     ]
     rows = [nav]
+
+    def _mark(s) -> str:
+        if fmt_hm(s) in busy:
+            return "🔸"
+        return "⭐" if fmt_hm(s) in recommended else ""
+
     slot_buttons = [
-        btn(("🔸" if fmt_hm(s) in busy else "") + fmt_hm(s), Ed(a="slot", p=p, v=f"{ordinal}_{s.hour:02d}{s.minute:02d}"))
+        btn(_mark(s) + fmt_hm(s), Ed(a="slot", p=p, v=f"{ordinal}_{s.hour:02d}{s.minute:02d}"))
         for s in slots
     ]
     rows += chunked(slot_buttons, 4)
