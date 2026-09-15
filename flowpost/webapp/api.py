@@ -110,6 +110,30 @@ async def me(request: web.Request, session: AsyncSession, user: User) -> web.Res
     })
 
 
+_bot_avatar_cache: bytes | None = None
+
+
+async def bot_avatar(request: web.Request) -> web.Response:
+    """The bot's own profile photo, proxied so the frontend never needs the bot token."""
+    global _bot_avatar_cache
+    if _bot_avatar_cache is None:
+        bot = request.app[BOT_KEY]
+        bot_user = await bot.me()
+        photos = await bot.get_user_profile_photos(bot_user.id, limit=1)
+        if not photos.photos:
+            _bot_avatar_cache = b""
+        else:
+            file = await bot.get_file(photos.photos[0][-1].file_id)
+            buf = await bot.download_file(file.file_path)
+            _bot_avatar_cache = buf.read()
+    if not _bot_avatar_cache:
+        return web.Response(status=404)
+    return web.Response(
+        body=_bot_avatar_cache, content_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 async def owned_channel(session: AsyncSession, user: User, channel_id: int) -> Channel | None:
     channel = await session.get(Channel, channel_id)
     if channel is None or channel.owner_id != user.id or not channel.is_active:
@@ -283,6 +307,7 @@ def setup_webapp(app: web.Application) -> None:
     app.router.add_get("/app", to_index)
     app.router.add_get("/app/", index)
     app.router.add_static("/app/static/", STATIC)
+    app.router.add_get("/api/bot-avatar", bot_avatar)
     app.router.add_get("/api/me", authed(me))
     app.router.add_post("/api/topup", authed(topup))
     app.router.add_post("/api/lang", authed(set_lang))

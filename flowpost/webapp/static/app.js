@@ -4,6 +4,8 @@ const tg = window.Telegram && window.Telegram.WebApp;
 const view = document.getElementById("view");
 const langSelect = document.getElementById("lang");
 const currencyButtons = document.querySelectorAll("[data-currency]");
+const homeLink = document.getElementById("home-link");
+const brandLogo = document.getElementById("brand-logo");
 
 const I18N = {
   uk: {
@@ -1503,6 +1505,11 @@ async function init() {
   tg.setHeaderColor?.("#151b26");
   tg.setBackgroundColor?.("#151b26");
   tg.BackButton.onClick(goBack);
+
+  homeLink.addEventListener("click", () => go(""));
+  const avatar = new Image();
+  avatar.onload = () => brandLogo.replaceChildren(avatar);
+  avatar.src = "/api/bot-avatar";
 
   currencyButtons.forEach((b) => b.addEventListener("click", () => {
     state.currency = b.dataset.currency;
