@@ -236,6 +236,16 @@ TEXTS: dict[str, str] = {
     "cm.err_bot_not_admin": "The bot isn't an admin of that group. Add it as an administrator and try again.",
     "btn.connect_discussion": "👥 Choose discussion group",
 
+    # ---- Channel analytics ---------------------------------------------------------------------
+    "stats.title": "📊 <b>Analytics</b> · {title}",
+    "stats.summary": "Posts: {count} · Reactions: {reactions} · Comments: {comments}",
+    "stats.top_title": "<b>Top posts:</b>",
+    "stats.row": "{n}. {title} — ❤️ {reactions} · 💬 {comments}",
+    "stats.no_text": "(no text)",
+    "stats.empty": "No posts published in this period yet.",
+    "stats.period_7": "7 days",
+    "stats.period_30": "30 days",
+
     # ---- AI assistant ------------------------------------------------------------------------
     "ai.title": "🤖 <b>AI assistant</b>",
     "ai.help": "Choose what to do with the text of the current message. I'll show the result before applying it.",
@@ -416,6 +426,7 @@ TEXTS: dict[str, str] = {
     "proj.comments_btn": "💬 Comments",
     "proj.comments_on": "💬 Comments: group «{title}»",
     "proj.comments_off": "💬 Comments: no group linked",
+    "proj.stats_btn": "📊 Analytics",
     "proj.disconnect": "🔌 Disconnect",
     "proj.disconnect_confirm": "Disconnect <b>{title}</b>? Scheduled publications to this channel will be cancelled.",
     "proj.disconnect_yes": "🔌 Yes, disconnect",

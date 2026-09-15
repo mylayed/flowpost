@@ -21,6 +21,7 @@ from flowpost.bot.handlers import (
     edit_post,
     menu,
     projects,
+    reactions,
     settings as settings_handlers,
     start,
 )
@@ -68,6 +69,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
         billing.router,
         start.router,
         discussion.router,
+        reactions.router,
         channels.router,
         menu.router,
         content_plan.router,

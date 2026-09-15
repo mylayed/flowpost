@@ -16,9 +16,11 @@ from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Vide
 from sqlalchemy import select, update
 
 from flowpost.bot.callbacks import Bl, Ca, Cp, Cs, Ed, Ep, Pj, St
+from flowpost.bot.handlers.channel_settings import stats_view
 from flowpost.bot.setup import build_dispatcher
 from flowpost.config import Settings
-from flowpost.db.models import Channel, ChannelAdmin, Post, Publication, RepeatRule, Subscription, User
+from flowpost.db.models import Channel, ChannelAdmin, Post, PostPart, PostTarget, Publication, RepeatRule, \
+    Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.ai import AIService
 from flowpost.services.publisher import Publisher
@@ -30,6 +32,7 @@ BOT_ID = 123456
 USER_ID = 777
 ADMIN_ID = 888
 CHANNEL_CHAT = -1009876543210
+DISCUSSION_CHAT = -1005551234567
 
 
 class MockSession(BaseSession):
@@ -526,3 +529,84 @@ async def test_grant_notifies_user_and_shows_days_left(sessionmaker):
     finally:
         for router in dp.sub_routers:
             router._parent_router = None
+
+
+async def _seed_published(h: Harness, *, message_id: int, discussion_thread_id: int | None = None) -> tuple[int, int]:
+    """A channel with a post already published as one message; returns (channel_id, publication_id)."""
+    async def create(session):
+        user = User(tg_id=USER_ID, lang="uk", tz="Europe/Kyiv", trial_ends_at=utcnow() + timedelta(days=7))
+        session.add(user)
+        await session.flush()
+        channel = Channel(owner_id=user.id, chat_id=CHANNEL_CHAT, kind="channel", title="Test Channel",
+                          username="testchan", watermark={}, discussion_chat_id=DISCUSSION_CHAT)
+        session.add(channel)
+        await session.flush()
+        post = Post(owner_id=user.id, status="published")
+        post.parts = [PostPart(position=0, text_html="Новина дня", media=[], buttons=[])]
+        post.targets = [PostTarget(channel_id=channel.id, position=0)]
+        session.add(post)
+        await session.flush()
+        pub = Publication(post_id=post.id, channel_id=channel.id, owner_id=user.id, run_at=utcnow(),
+                          status="published", published_at=utcnow(), notify=False,
+                          message_ids={"parts": [{"ids": [message_id]}]}, discussion_thread_id=discussion_thread_id)
+        session.add(pub)
+        await session.commit()
+        return channel.id, pub.id
+    return await h.db(create)
+
+
+async def test_reaction_count_updates_publication(h: Harness):
+    _, pub_id = await _seed_published(h, message_id=4242)
+    await h.feed(message_reaction_count={
+        "chat": {"id": CHANNEL_CHAT, "type": "channel", "title": "Test Channel"},
+        "message_id": 4242,
+        "date": int(datetime.now().timestamp()),
+        "old_reaction": [],
+        "new_reaction": [],
+        "reactions": [{"type": {"type": "emoji", "emoji": "👍"}, "total_count": 3}],
+    })
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.reactions == {"4242": {"👍": 3}}
+
+
+async def test_discussion_reply_counts_as_comment(h: Harness):
+    _, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "from": {"id": 999, "is_bot": False, "first_name": "Reader"},
+        "text": "Класно!",
+    })
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.comments_count == 1
+
+    # the automatic-forward copy that opens the thread must never be counted as a comment on itself
+    await h.feed(message={
+        "message_id": 9001, "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "is_automatic_forward": True,
+        "from": {"id": BOT_ID, "is_bot": True, "first_name": "Test Channel"},
+        "forward_origin": {"type": "channel", "chat": {"id": CHANNEL_CHAT, "type": "channel", "title": "Test Channel"},
+                           "message_id": 4242, "date": int(datetime.now().timestamp())},
+        "text": "Новина дня", "is_topic_message": True,
+    })
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.comments_count == 1
+    assert pub.discussion_thread_id == 9001
+
+
+async def test_stats_view_summarizes_engagement(h: Harness):
+    channel_id, pub_id = await _seed_published(h, message_id=4242)
+    async def add_engagement(session):
+        pub = await session.get(Publication, pub_id)
+        pub.reactions = {"4242": {"👍": 3, "❤️": 2}}
+        pub.comments_count = 4
+        await session.commit()
+    await h.db(add_engagement)
+
+    async def render(session):
+        channel = await session.get(Channel, channel_id)
+        user = await session.scalar(select(User).where(User.tg_id == USER_ID))
+        return await stats_view(session, channel, user, 7)
+    text, _ = await h.db(render)
+    assert "Реакції: 5" in text and "Коментарі: 4" in text and "Новина дня" in text

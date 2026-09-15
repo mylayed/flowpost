@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -19,12 +20,18 @@ from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
+from flowpost.db.repo import publications as pubs_repo
+from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services.html_sanitize import sanitize_html, visible_len
+from flowpost.services.delivery import engagement_score, publication_message_ids, reactions_total
+from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
 from flowpost.services.parsing import ParseError, parse_topic
-from flowpost.services.posts import default_signature_template, options_of, render_signature
+from flowpost.services.posts import default_signature_template, message_link, options_of, render_signature
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import POSITIONS, wm_configured, wm_settings
+
+STATS_PERIODS = (7, 30)
+STATS_TOP_N = 10
 
 router = Router(name="channel_settings")
 
@@ -63,6 +70,7 @@ def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: boo
     rows = [
         [btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))],
         [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))],
+        [btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))],
         [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))],
     ]
     if channel.notify_published:
@@ -165,6 +173,32 @@ def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     else:
         rows = [[btn(t("cm.link"), Cs(a="cm_link", c=c))]]
     rows.append([back_button(channel, 0)])
+    return "\n".join(lines), markup(rows)
+
+
+async def stats_view(session: AsyncSession, channel: Channel, user: User, days: int) -> tuple[str, InlineKeyboardMarkup]:
+    now = utcnow()
+    since = now - timedelta(days=days)
+    # +1s guards against a post published this same instant: `published_between`'s upper bound is exclusive.
+    pubs = await pubs_repo.published_between(session, user.id, since, now + timedelta(seconds=1), channel_ids=[channel.id])
+    lines = [t("stats.title", title=html.escape(channel.title)), "", t("stats.summary",
+              count=len(pubs), reactions=sum(reactions_total(p) for p in pubs),
+              comments=sum(p.comments_count or 0 for p in pubs))]
+    top = sorted(pubs, key=engagement_score, reverse=True)[:STATS_TOP_N]
+    lines += ["", t("stats.top_title")]
+    if not top:
+        lines.append(t("stats.empty"))
+    for i, pub in enumerate(top, 1):
+        post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
+        title = snippet(post.parts[0].text_html, 40) if post and post.parts else ""
+        title = html.escape(title) if title else t("stats.no_text")
+        ids = publication_message_ids(pub)
+        row = t("stats.row", n=i, title=title, reactions=reactions_total(pub), comments=pub.comments_count or 0)
+        lines.append(f'<a href="{message_link(channel, ids[0])}">{row}</a>' if ids else row)
+    rows = [[
+        btn(("✅ " if days == d else "") + t(f"stats.period_{d}"), Cs(a="stats", c=channel.id, v=str(d)))
+        for d in STATS_PERIODS
+    ], [back_button(channel, 0)]]
     return "\n".join(lines), markup(rows)
 
 
@@ -375,6 +409,16 @@ async def cs_topic(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, 
         return
     await cb.answer()
     await _ask_input(cb, state, ChannelInput.topic, channel, callback_data.p, t("topic.prompt"))
+
+
+@router.callback_query(Cs.filter(F.a == "stats"))
+async def cs_stats(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    days = int(callback_data.v) if callback_data.v.isdigit() and int(callback_data.v) in STATS_PERIODS else STATS_PERIODS[0]
+    await cb.answer()
+    await _edit(cb, *await stats_view(session, channel, user, days))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"cm", "cm_unlink"})))

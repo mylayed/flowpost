@@ -40,6 +40,14 @@ def publication_message_ids(pub: Publication) -> list[int]:
     return [i for part in (pub.message_ids or {}).get("parts", []) for i in part.get("ids", [])]
 
 
+def reactions_total(pub: Publication) -> int:
+    return sum(count for per_message in (pub.reactions or {}).values() for count in per_message.values())
+
+
+def engagement_score(pub: Publication) -> int:
+    return reactions_total(pub) + (pub.comments_count or 0)
+
+
 async def delete_publication_messages(bot: Bot, channel: Channel, pub: Publication) -> None:
     ids = publication_message_ids(pub)
     for start in range(0, len(ids), 100):

@@ -128,6 +128,9 @@ class Publication(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     message_ids: Mapped[dict] = mapped_column(JSONType, default=dict)
+    reactions: Mapped[dict] = mapped_column(JSONType, default=dict)  # {"<message_id>": {"emoji": count}}
+    comments_count: Mapped[int] = mapped_column(Integer, default=0)
+    discussion_thread_id: Mapped[int | None] = mapped_column(Integer)
     repeat_index: Mapped[int] = mapped_column(Integer, default=0)  # 0 = original, 1.. = auto-repeats
     notify: Mapped[bool] = mapped_column(Boolean, default=True)
     published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

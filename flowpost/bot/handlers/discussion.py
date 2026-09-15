@@ -101,6 +101,7 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
     pub = next((p for p in pubs if origin.message_id in publication_message_ids(p)), None)
     if pub is None:
         return
+    pub.discussion_thread_id = message.message_thread_id
     post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
     if post is None or options_of(post).get("comments", True):
         return
@@ -108,3 +109,25 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
         await bot.close_forum_topic(message.chat.id, message.message_thread_id)
     except TelegramAPIError as e:
         log.info("close_forum_topic failed for channel %s: %s", channel.id, e)
+
+
+@router.message(
+    F.chat.type.in_({"group", "supergroup"}), F.message_thread_id, ~F.is_automatic_forward,
+)
+async def on_discussion_comment(message: Message, session: AsyncSession) -> None:
+    """Count a reply in a linked discussion thread as a comment on the post that opened it."""
+    if message.from_user is None or message.from_user.is_bot:
+        return
+    channel = await session.scalar(select(Channel).where(Channel.discussion_chat_id == message.chat.id))
+    if channel is None:
+        return
+    pub = await session.scalar(
+        select(Publication).where(
+            Publication.channel_id == channel.id,
+            Publication.discussion_thread_id == message.message_thread_id,
+            Publication.status == "published",
+        )
+    )
+    if pub is None:
+        return
+    pub.comments_count = (pub.comments_count or 0) + 1
