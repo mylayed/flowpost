@@ -58,7 +58,10 @@ async def publish_now(session: AsyncSession, worker: Worker, post: Post) -> str:
         if outcome.ok:
             lines.append(t("pub.ok_line", title=html.escape(outcome.channel_title), link=outcome.link or ""))
         else:
-            lines.append(t("pub.fail_line", title=html.escape(outcome.channel_title), error=t(outcome.error or "err.unknown")))
+            error_text = t(outcome.error or "err.unknown")
+            if outcome.detail:
+                error_text += f" — {html.escape(outcome.detail)}"
+            lines.append(t("pub.fail_line", title=html.escape(outcome.channel_title), error=error_text))
         lines += ["⚠️ " + t(w) for w in outcome.warnings]
     return "\n".join(lines)
 

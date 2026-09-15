@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from flowpost.db.models import Post, PostPart, PostTarget
+from flowpost.db.models import Channel, Post, PostPart, PostTarget
 from flowpost.services.posts import part_icon, part_is_empty, part_preview_text, poll_from_message
 from flowpost.services.publisher import Publisher, send_poll_part
 from flowpost.services.publisher import SendOptions
@@ -69,6 +69,32 @@ async def test_send_poll_part_calls_bot_send_poll(fake_bot):
     assert kw["reply_markup"] is not None
     assert len(sent.ids) == 1
     assert sent.markup_msg == sent.ids[0]
+
+
+async def test_publish_post_forces_anonymous_poll_for_channels(fake_bot):
+    # Telegram rejects non-anonymous polls in channels outright, so a poll composed as
+    # non-anonymous must still be sent anonymous when the target is a channel.
+    channel = Channel(id=1, owner_id=1, chat_id=-100123, kind="channel", title="Test")
+    post = Post(owner_id=1, options={})
+    post.parts = [PostPart(position=0, text_html="", media=[], buttons=[],
+                            poll={"question": "?", "options": ["A", "B"], "is_anonymous": False})]
+    await Publisher(fake_bot).publish_post(post, channel, "uk")
+    _, _, _, kw = fake_bot.calls[0]
+    assert kw["is_anonymous"] is True
+
+
+async def test_publish_post_keeps_anonymity_choice_for_groups_and_previews(fake_bot):
+    group = Channel(id=1, owner_id=1, chat_id=-100123, kind="group", title="Test Group")
+    post = Post(owner_id=1, options={})
+    post.parts = [PostPart(position=0, text_html="", media=[], buttons=[],
+                            poll={"question": "?", "options": ["A", "B"], "is_anonymous": False})]
+    await Publisher(fake_bot).publish_post(post, group, "uk")
+    assert fake_bot.calls[0][3]["is_anonymous"] is False
+
+    fake_bot.calls.clear()
+    channel = Channel(id=1, owner_id=1, chat_id=-100123, kind="channel", title="Test")
+    await Publisher(fake_bot).publish_post(post, channel, "uk", chat_id=999, preview=True)
+    assert fake_bot.calls[0][3]["is_anonymous"] is False
 
 
 async def test_publish_post_sends_poll_and_text_parts(fake_bot):

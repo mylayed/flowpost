@@ -174,7 +174,7 @@ class Worker:
     def _fail(pub: Publication, key: str, detail: str, title: str) -> DeliveryOutcome:
         pub.status = "failed"
         pub.last_error = detail[:1000]
-        return DeliveryOutcome(ok=False, channel_title=title, error=key)
+        return DeliveryOutcome(ok=False, channel_title=title, error=key, detail=detail[:200])
 
     def _retry_or_fail(self, pub: Publication, now: datetime, detail: str, title: str) -> DeliveryOutcome:
         if pub.attempts < MAX_ATTEMPTS:
@@ -186,10 +186,13 @@ class Worker:
 
     @staticmethod
     def _notify_text(key: str, lang: str, outcome: DeliveryOutcome) -> str:
+        error_text = t(outcome.error or "err.unknown", locale=lang)
+        if outcome.detail:
+            error_text += f" — {html.escape(outcome.detail)}"
         params = {
             "title": html.escape(outcome.channel_title),
             "link": outcome.link or "",
-            "error": t(outcome.error or "err.unknown", locale=lang),
+            "error": error_text,
         }
         text = t(key, locale=lang, **params)
         for w in outcome.warnings:

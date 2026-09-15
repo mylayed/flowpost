@@ -106,13 +106,19 @@ async def _send_single(bot: Bot, chat_id: int, item: OutMedia, **kw) -> Message:
     raise ValueError(f"unsupported media type {item.type}")
 
 
-async def send_poll_part(bot: Bot, chat_id: int, poll: dict, buttons: list[list[dict]] | None, opts: SendOptions) -> SentPart:
+async def send_poll_part(
+    bot: Bot, chat_id: int, poll: dict, buttons: list[list[dict]] | None, opts: SendOptions,
+    *, force_anonymous: bool = False,
+) -> SentPart:
     markup = build_markup(buttons)
+    # Telegram rejects non-anonymous polls in channels outright, regardless of what the
+    # admin picked when composing the poll — so override it rather than fail the whole post.
+    is_anonymous = True if force_anonymous else poll.get("is_anonymous", True)
     m = await bot.send_poll(
         chat_id,
         question=poll["question"],
         options=poll["options"],
-        is_anonymous=poll.get("is_anonymous", True),
+        is_anonymous=is_anonymous,
         type=poll.get("type", "regular"),
         allows_multiple_answers=poll.get("allows_multiple_answers", False),
         correct_option_id=poll.get("correct_option_id"),
@@ -253,7 +259,10 @@ class Publisher:
         for idx in indexes:
             part = post.parts[idx]
             if part.poll:
-                sent = await send_poll_part(self.bot, target, part.poll, part.buttons, send_opts)
+                force_anonymous = not preview and channel is not None and channel.kind == "channel"
+                sent = await send_poll_part(
+                    self.bot, target, part.poll, part.buttons, send_opts, force_anonymous=force_anonymous,
+                )
                 result.parts.append(sent)
                 continue
             text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)

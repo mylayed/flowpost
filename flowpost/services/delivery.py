@@ -33,6 +33,7 @@ class DeliveryOutcome:
     channel_title: str = ""
     link: str | None = None
     error: str | None = None
+    detail: str | None = None
     warnings: list[str] = field(default_factory=list)
 
 
