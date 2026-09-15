@@ -76,11 +76,12 @@ def remove_part(post: Post, index: int) -> None:
         part.position = i
 
 
-async def recent_posts(session: AsyncSession, owner_id: int, statuses: tuple[str, ...], limit: int = 10) -> list[Post]:
-    stmt = (
-        select(Post)
-        .where(Post.owner_id == owner_id, Post.status.in_(statuses))
-        .order_by(Post.updated_at.desc())
-        .limit(limit)
-    )
+async def recent_posts(
+    session: AsyncSession, owner_id: int, statuses: tuple[str, ...], limit: int = 10, *,
+    channel_ids: list[int] | None = None,
+) -> list[Post]:
+    stmt = select(Post).where(Post.owner_id == owner_id, Post.status.in_(statuses))
+    if channel_ids:
+        stmt = stmt.where(Post.id.in_(select(PostTarget.post_id).where(PostTarget.channel_id.in_(channel_ids))))
+    stmt = stmt.order_by(Post.updated_at.desc()).limit(limit)
     return list((await session.scalars(stmt)).all())

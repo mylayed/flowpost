@@ -401,6 +401,9 @@ TEXTS: dict[str, str] = {
     "save.parts_added": "New series messages aren't published while editing — publish them as a separate post.",
 
     # ---- Content plan ------------------------------------------------------------------------
+    "plan.pick_channel": "🗓 <b>Content plan</b>\n\nChoose a channel:",
+    "plan.all_channels": "🔀 All channels",
+    "plan.channels_btn": "🔀 Another channel",
     "plan.title": "🗓 <b>Content plan</b>",
     "plan.tab_scheduled": "🕒 Scheduled",
     "plan.tab_published": "✅ Published",
@@ -420,6 +423,7 @@ TEXTS: dict[str, str] = {
     "plan.dropped": "Publication cancelled",
 
     # ---- Edit post ---------------------------------------------------------------------------
+    "editp.pick_channel": "✏️ <b>Edit a post</b>\n\nChoose a channel:",
     "editp.title": "✏️ <b>Edit a post</b>",
     "editp.help": "Pick a post from the list or forward a post from your channel here.",
     "editp.empty": "No published or scheduled posts yet. Forward a post from your channel if it was published via FlowPost.",

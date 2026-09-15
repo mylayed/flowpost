@@ -26,12 +26,13 @@ class Nc(CallbackData, prefix="nc"):
 
 
 class Cp(CallbackData, prefix="cp"):
-    """Content plan. `d` — date ordinal, `id` — post id, `m` — tab: s(cheduled)|p(ublished)."""
+    """Content plan. `d` — date ordinal, `id` — post id, `m` — tab: s(cheduled)|p(ublished), `c` — channel filter (0 = all)."""
 
     a: str
     d: int = 0
     id: int = 0
     m: str = "s"
+    c: int = 0
 
 
 class Pj(CallbackData, prefix="pj"):
@@ -55,10 +56,11 @@ class Bl(CallbackData, prefix="bl"):
 
 
 class Ep(CallbackData, prefix="ep"):
-    """Editing already-published or scheduled posts."""
+    """Editing already-published or scheduled posts. `c` — channel filter (0 = all/not chosen yet)."""
 
     a: str
     id: int = 0
+    c: int = 0
 
 
 class Ca(CallbackData, prefix="ca"):

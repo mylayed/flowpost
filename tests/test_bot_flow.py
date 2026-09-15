@@ -626,6 +626,48 @@ async def test_moderation_can_be_disabled_per_channel(h: Harness):
     assert pub.comments_count == 1
 
 
+async def _seed_second_channel(h: Harness, owner_id: int) -> int:
+    async def create(session):
+        channel = Channel(owner_id=owner_id, chat_id=CHANNEL_CHAT - 1, kind="channel", title="Другий канал",
+                          username="testchan2", watermark={})
+        session.add(channel)
+        await session.commit()
+        return channel.id
+    return await h.db(create)
+
+
+async def test_content_plan_and_edit_post_ask_for_channel_when_more_than_one(h: Harness):
+    channel_id, _ = await _seed_published(h, message_id=4242)
+    user = await _user(h)
+    channel2_id = await _seed_second_channel(h, user.id)
+
+    h.session.clear()
+    await h.text("🗓 Контент-план")
+    assert "Оберіть канал" in h.session.texts()
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Test Channel" in kb_text and "Другий канал" in kb_text
+
+    h.session.clear()
+    await h.click(Cp(a="day", c=channel_id))
+    assert "Оберіть канал" not in h.session.texts()
+    assert "Заплановано" in h.session.texts() or "нічого не заплановано" in h.session.texts()
+    # the plan for channel 1 offers a way back to the channel picker
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Інший канал" in kb_text
+
+    h.session.clear()
+    await h.text("/edit")
+    assert "Оберіть канал" in h.session.texts()
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Test Channel" in kb_text and "Другий канал" in kb_text
+
+    h.session.clear()
+    await h.click(Ep(a="pick", c=channel2_id))
+    assert "Оберіть канал" not in h.session.texts()
+    # channel 2 has no posts of its own
+    assert "ще немає" in h.session.texts()
+
+
 async def test_stats_view_summarizes_engagement(h: Harness):
     channel_id, pub_id = await _seed_published(h, message_id=4242)
     async def add_engagement(session):
