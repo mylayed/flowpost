@@ -381,7 +381,7 @@ function word(key, n) {
 }
 
 function money(stars) {
-  return state.currency === "usd" ? usd(stars) : [`${number(stars)} `, starIcon()];
+  return state.currency === "usd" ? usd(stars) : starAmount(number(stars));
 }
 
 function h(tag, attrs = {}, ...children) {
@@ -425,6 +425,13 @@ function starIcon() {
   const span = document.createElement("span");
   span.className = "star-icon";
   span.innerHTML = STAR_SVG;
+  return span;
+}
+
+function starAmount(text) {
+  const span = document.createElement("span");
+  span.className = "star-amount";
+  span.append(...[text].flat().map((part) => (part instanceof Node ? part : document.createTextNode(String(part)))), starIcon());
   return span;
 }
 
@@ -575,7 +582,7 @@ function renderCheckout() {
   ];
   const due = [
     h("div", { class: "due-label" }, t("to_pay")),
-    h("div", { class: "due-amount" }, `${number(checkout.stars)} `, starIcon()),
+    h("div", { class: "due-amount" }, starAmount(number(checkout.stars))),
     h("div", { class: "due-usd" }, `≈ ${usd(checkout.stars)}`),
   ];
 
@@ -651,7 +658,7 @@ function renderTerms() {
 }
 
 function starsUsd(stars) {
-  return [`${number(stars)} `, starIcon(), ` (≈${usd(stars)})`];
+  return [starAmount(number(stars)), ` (≈${usd(stars)})`];
 }
 
 function limitKinds() {
@@ -725,10 +732,10 @@ function renderLimits() {
       remainingBox,
       groups,
       h("div", { class: "summary" },
-        h("div", { class: "summary-row" }, h("span", {}, t("quotas")), h("span", {}, `${number(total)} `, starIcon())),
+        h("div", { class: "summary-row" }, h("span", {}, t("quotas")), starAmount(number(total))),
         h("div", { class: "summary-row total" },
           h("span", {}, t("total_due")),
-          h("span", {}, `${number(total)} `, starIcon(), h("small", {}, ` (≈${usd(total)})`)))),
+          h("span", {}, starAmount(number(total)), h("small", {}, ` (≈${usd(total)})`)))),
       h("button", {
         class: "btn btn-primary btn-quiet-disabled",
         type: "button",
@@ -906,7 +913,8 @@ function renderCalculator(p) {
     h("div", { class: "calc-total" },
       h("span", { class: "calc-total-label" }, t("calc_total")),
       h("div", { class: "calc-total-value" },
-        h("div", { class: "calc-total-stars" }, out.perMonth, " ", starIcon(), " ", h("small", {}, t("per_month"))),
+        h("div", { class: "calc-total-stars" },
+          h("span", { class: "star-amount" }, out.perMonth, starIcon()), " ", h("small", {}, t("per_month"))),
         out.sub)));
 }
 
@@ -925,7 +933,7 @@ function renderPlans() {
         h("div", { class: "plan-name" }, planName(plan.posts_per_day)),
         h("div", { class: "plan-sub" }, t("wm_line", { photo: number(plan.wm_photo), video: number(plan.wm_video) }))),
       h("div", { class: "plan-price" },
-        h("div", { class: "plan-stars" }, `${number(plan.stars)} `, starIcon()),
+        h("div", { class: "plan-stars" }, starAmount(number(plan.stars))),
         h("div", { class: "plan-usd" }, `≈ ${usd(plan.stars)}`))));
   const posting = h("section", { class: "card plans-card" },
     h("div", { class: "card-label" }, t("posting_header")),
@@ -996,7 +1004,7 @@ function renderPlans() {
         h("tbody", {}, kinds.map((kind) =>
           h("tr", {},
             h("th", {}, t(`pack_${kind}`)),
-            sizes.map((size) => h("td", {}, prices[kind][size] == null ? "—" : [`${number(prices[kind][size])} `, starIcon()]))))))),
+            sizes.map((size) => h("td", {}, prices[kind][size] == null ? "—" : starAmount(number(prices[kind][size]))))))))),
     h("p", { class: "fineprint" }, splitStars(t("rate_note", { stars: number(Math.round(1 / state.me.usd_rate)) }))));
 
   return [h("h1", { class: "title" }, t("plans_title")), posting, free, discounts, packs, calculator];
@@ -1296,7 +1304,7 @@ function renderRenew() {
       h("div", {},
         h("div", { class: "info-box-title" }, t("pack_extend", { days: number(quote.offer.days) })),
         h("div", { class: "pack-offer-sub" },
-          `${number(quote.stars)} `, starIcon(), ` → ${number(quote.offer.stars)} `, starIcon()),
+          starAmount(number(quote.stars)), " → ", starAmount(number(quote.offer.stars))),
         h("div", { class: "pack-offer-sub" }, splitStars(t("pack_hint", { pack: number(quote.offer.stars) })))));
   }
 
@@ -1314,7 +1322,7 @@ function renderRenew() {
       h("div", { class: "renew-due" },
         h("span", {}, t("total_due")),
         h("div", { class: "renew-due-value" },
-          h("div", { class: "renew-due-stars" }, `${number(stars)} `, starIcon()),
+          h("div", { class: "renew-due-stars" }, starAmount(number(stars))),
           h("div", { class: "due-usd" }, `≈ ${usd(stars)}`))),
       h("div", { class: "summary" },
         h("div", { class: "remaining-title" }, t("includes")),
@@ -1329,7 +1337,7 @@ function renderRenew() {
         class: "btn btn-primary",
         type: "button",
         onclick: () => startRenewCheckout(channels, stars, rounded),
-      }, `${t("go_to_payment")} · ${number(stars)} `, starIcon())),
+      }, `${t("go_to_payment")} · `, starAmount(number(stars)))),
   ];
 }
 
