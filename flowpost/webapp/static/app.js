@@ -2,7 +2,9 @@
 
 const tg = window.Telegram && window.Telegram.WebApp;
 const view = document.getElementById("view");
-const langSelect = document.getElementById("lang");
+const langSlot = document.getElementById("lang");
+let langDropdown = null;
+let openDropdown = null;
 const currencyButtons = document.querySelectorAll("[data-currency]");
 const homeLink = document.getElementById("home-link");
 const brandLogo = document.getElementById("brand-logo");
@@ -423,6 +425,66 @@ const STAR_SVG =
   "14.2076C10.8642 14.2506 10.676 14.2208 10.5195 14.1249L7.36128 12.1902C7.13956 12.0544 6.8604 12.0544 6.63869 " +
   '12.1902Z"/></svg>';
 
+function closeDropdown() {
+  if (!openDropdown) return;
+  openDropdown.classList.remove("open");
+  openDropdown.querySelector(".dd-trigger").setAttribute("aria-expanded", "false");
+  openDropdown = null;
+}
+
+document.addEventListener("click", (event) => {
+  if (openDropdown && !openDropdown.contains(event.target)) closeDropdown();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeDropdown();
+});
+
+function dropdown({ id, label, options, value, onChange, compact = false }) {
+  const valueLabel = h("span", { class: "dd-value" });
+  const trigger = h("button", {
+    id, class: "dd-trigger", type: "button", "aria-haspopup": "listbox", "aria-expanded": "false", "aria-label": label,
+  }, valueLabel, icon("chevron", "dd-chev"));
+  const menu = h("div", { class: "dd-menu", role: "listbox" });
+  const root = h("div", { class: compact ? "dd dd-compact" : "dd" }, trigger, menu);
+  let current = value;
+
+  const paint = () => {
+    const selected = options.find((o) => String(o.value) === String(current));
+    valueLabel.textContent = selected ? selected.label : "";
+    menu.replaceChildren(...options.map((o) => {
+      const active = String(o.value) === String(current);
+      return h("button", {
+        class: active ? "dd-option active" : "dd-option",
+        type: "button",
+        role: "option",
+        "aria-selected": String(active),
+        onclick: () => {
+          closeDropdown();
+          if (active) return;
+          current = o.value;
+          paint();
+          onChange(o.value);
+        },
+      }, h("span", { class: "dd-option-label" }, o.label), active ? icon("check", "dd-check") : null);
+    }));
+  };
+
+  trigger.addEventListener("click", () => {
+    const wasOpen = openDropdown === root;
+    closeDropdown();
+    if (wasOpen) return;
+    root.classList.add("open");
+    trigger.setAttribute("aria-expanded", "true");
+    openDropdown = root;
+  });
+  root.setValue = (next) => {
+    current = next;
+    paint();
+  };
+  paint();
+  return root;
+}
+
 function starIcon() {
   const span = document.createElement("span");
   span.className = "star-icon";
@@ -691,12 +753,14 @@ function renderLimits() {
   if (!state.me.channels.some((c) => c.id === lim.channelId)) lim.channelId = state.me.channels[0]?.id ?? null;
   if (lim.channelId == null) return [...header, h("section", { class: "card" }, h("p", { class: "hint" }, t("no_channels")))];
 
-  const select = h("select", { id: "project", class: "select" },
-    state.me.channels.map((c) => h("option", { value: c.id }, c.title)));
-  select.value = String(lim.channelId);
-  select.addEventListener("change", () => {
-    lim.channelId = Number(select.value);
-    render();
+  const select = dropdown({
+    id: "project",
+    options: state.me.channels.map((c) => ({ value: c.id, label: c.title })),
+    value: lim.channelId,
+    onChange: (channelId) => {
+      lim.channelId = channelId;
+      render();
+    },
   });
 
   const remainingRows = (remaining) => limitKinds().map((kind) =>
@@ -1020,10 +1084,8 @@ function renderPlans() {
 }
 
 function channelSelect(id, channels, selected, onChange) {
-  const select = h("select", { id, class: "select" }, channels.map((c) => h("option", { value: c.id }, c.title)));
-  select.value = String(selected);
-  select.addEventListener("change", () => onChange(Number(select.value)));
-  return h("div", { class: "select-wrap" }, select);
+  return h("div", { class: "select-wrap" },
+    dropdown({ id, options: channels.map((c) => ({ value: c.id, label: c.title })), value: selected, onChange }));
 }
 
 function fillTransfer(card, data) {
@@ -1489,7 +1551,7 @@ function goBack() {
 function render() {
   const [name, param] = currentRoute();
   document.documentElement.lang = state.lang;
-  langSelect.value = state.lang;
+  langDropdown?.setValue(state.lang);
   currencyButtons.forEach((b) => b.classList.toggle("active", b.dataset.currency === state.currency));
   view.replaceChildren(...ROUTES[name](param).flat(Infinity).filter(Boolean));
   if (name) tg.BackButton.show();
@@ -1503,6 +1565,22 @@ function notice(text) {
 }
 
 async function init() {
+  langDropdown = dropdown({
+    id: "lang-trigger",
+    label: "Language",
+    compact: true,
+    options: [{ value: "uk", label: "UK" }, { value: "en", label: "EN" }],
+    value: state.lang,
+    onChange: (lang) => {
+      state.lang = lang;
+      if (!state.me) return;
+      render();
+      api("lang", { lang: state.lang })
+        .then(() => { if (route() === "terms") render(); })
+        .catch(() => {});
+    },
+  });
+  langSlot.replaceChildren(langDropdown);
   if (!tg || !tg.initData) {
     notice(I18N.uk.open_in_telegram);
     return;
@@ -1523,13 +1601,6 @@ async function init() {
     savePref("currency", state.currency);
     render();
   }));
-  langSelect.addEventListener("change", () => {
-    state.lang = langSelect.value;
-    render();
-    api("lang", { lang: state.lang })
-      .then(() => { if (route() === "terms") render(); })
-      .catch(() => {});
-  });
 
   try {
     await loadMe();

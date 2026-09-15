@@ -96,33 +96,6 @@ button, select, input { font: inherit; }
 
 .lang { position: relative; display: inline-flex; align-items: center; }
 
-.lang::after {
-  content: "";
-  position: absolute;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  margin-top: -3px;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  transform: rotate(45deg);
-  pointer-events: none;
-}
-
-.lang select {
-  appearance: none;
-  -webkit-appearance: none;
-  height: 32px;
-  padding: 0 20px 0 6px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.lang option { color: #111; }
-
 main { flex: 1; padding-bottom: 24px; }
 
 .title { margin: 28px 0 16px; font-size: 22px; font-weight: 800; }
@@ -444,37 +417,114 @@ main { flex: 1; padding-bottom: 24px; }
 
 .card.pick-card .btn-primary { margin-top: 0; }
 
-.select-wrap { position: relative; margin: 8px 0 14px; }
+.select-wrap { margin: 8px 0 14px; }
 
-.select-wrap::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  width: 7px;
-  height: 7px;
-  margin-top: -5px;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  transform: rotate(45deg);
-  pointer-events: none;
-}
+.dd { position: relative; }
 
-.select {
-  appearance: none;
-  -webkit-appearance: none;
+.dd-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  height: 46px;
-  padding: 0 40px 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--field);
+  height: 48px;
+  padding: 0 14px 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   font-size: 15px;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
-.select option { color: #111; }
+.dd-trigger:hover { background: rgba(255, 255, 255, 0.06); }
+
+.dd-trigger:focus-visible { box-shadow: 0 0 0 3px rgba(139, 141, 216, 0.35); }
+
+.dd.open .dd-trigger {
+  border-color: rgba(139, 141, 216, 0.6);
+  background: rgba(139, 141, 216, 0.08);
+  box-shadow: 0 0 0 3px rgba(139, 141, 216, 0.16);
+}
+
+.dd-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dd-chev { width: 16px; height: 16px; color: var(--muted); transform: rotate(90deg); transition: transform 0.2s, color 0.2s; }
+
+.dd.open .dd-chev { transform: rotate(-90deg); color: var(--accent-2); }
+
+.dd-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  max-height: 264px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(22, 28, 40, 0.86);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+
+.dd.open .dd-menu { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+
+.dd-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.dd-option:hover, .dd-option:focus-visible { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+
+.dd-option.active { background: rgba(139, 141, 216, 0.2); color: var(--accent-2); }
+
+.dd-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dd-check { width: 16px; height: 16px; }
+
+.dd-compact .dd-trigger {
+  width: auto;
+  height: 32px;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.dd-compact .dd-chev { width: 14px; height: 14px; }
+
+.dd-compact.open .dd-trigger { background: rgba(139, 141, 216, 0.14); box-shadow: none; }
+
+.dd-compact .dd-menu { top: calc(100% + 12px); left: auto; right: -6px; min-width: 96px; }
 
 .remaining {
   display: grid;
