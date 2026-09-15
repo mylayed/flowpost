@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from flowpost.bot.callbacks import Bl, Pj
+from flowpost.config import Settings
 from flowpost.i18n import t
 
 
@@ -27,8 +28,16 @@ def chunked(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
-def paywall_kb() -> InlineKeyboardMarkup:
-    return markup([[btn(t("btn.pay"), Bl(a="open"))]])
+def pay_btn(settings: Settings, text: str | None = None) -> InlineKeyboardButton:
+    """Opens the billing Mini App; without a public HTTPS URL it falls back to the /subscribe screen."""
+    label = text or t("btn.pay")
+    if settings.webapp_url:
+        return InlineKeyboardButton(text=label, web_app=WebAppInfo(url=settings.webapp_url))
+    return btn(label, Bl(a="open"))
+
+
+def paywall_kb(settings: Settings) -> InlineKeyboardMarkup:
+    return markup([[pay_btn(settings)]])
 
 
 def add_channel_inline_kb() -> InlineKeyboardMarkup:

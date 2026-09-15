@@ -21,6 +21,7 @@ def settings() -> Settings:
     return Settings(
         bot_token="123456:TEST", _env_file=None,
         liqpay_enabled=True, liqpay_public_key="pub", liqpay_private_key="priv",
+        webapp_url_override="https://flowpost.test/app/",
     )
 
 
@@ -116,7 +117,7 @@ async def seeded(sessionmaker):
         session.add(user)
         await session.flush()
         channel = Channel(owner_id=user.id, chat_id=-1001234567890, kind="channel", title="Наше місто",
-                          username="nashe_misto", watermark={})
+                          username="nashe_misto", watermark={}, trial_ends_at=utcnow() + timedelta(days=7))
         session.add(channel)
         await session.flush()
         post = Post(owner_id=user.id, options={"signature": True})

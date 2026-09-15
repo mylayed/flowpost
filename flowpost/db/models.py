@@ -21,6 +21,8 @@ class User(Base):
     trial_ends_at: Mapped[datetime] = mapped_column(UTCDateTime)
     trial_reminded: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    balance: Mapped[int] = mapped_column(Integer, default=0)  # Stars
+    cashback: Mapped[int] = mapped_column(Integer, default=0)  # Stars
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -49,6 +51,7 @@ class Channel(Base):
     discussion_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     discussion_title: Mapped[str | None] = mapped_column(String(256))
     moderation: Mapped[dict] = mapped_column(JSONType, default=dict)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -168,6 +171,47 @@ class Payment(Base):
     status: Mapped[str] = mapped_column(String(32))
     raw: Mapped[dict] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class BalanceEntry(Base):
+    """Append-only wallet movement; User.balance / User.cashback are the running totals of these rows."""
+
+    __tablename__ = "balance_ledger"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    bucket: Mapped[str] = mapped_column(String(16))  # main | cashback
+    delta: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(16))  # topup | cashback | spend | refund | admin
+    ref: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ChannelSubscription(Base):
+    """Paid posting plan of one channel; can be moved to another channel of the same owner."""
+
+    __tablename__ = "channel_subscriptions"
+    __table_args__ = (UniqueConstraint("channel_id", name="uq_channel_subscriptions_channel_id"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"))
+    posts_per_day: Mapped[int] = mapped_column(Integer)
+    paid_until: Mapped[datetime] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class ChannelQuota(Base):
+    """Extra usage bought for a channel on top of its plan (watermarks, AI texts)."""
+
+    __tablename__ = "channel_quotas"
+    __table_args__ = (UniqueConstraint("channel_id", "kind", name="uq_channel_quotas_channel_kind"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # wm_photo | wm_video | ai_text
+    remaining: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
 class UsageEvent(Base):

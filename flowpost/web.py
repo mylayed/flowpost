@@ -1,4 +1,4 @@
-"""aiohttp app: health check and the LiqPay server-to-server callback."""
+"""aiohttp app: health check, the LiqPay server-to-server callback and the billing Mini App."""
 from __future__ import annotations
 
 import logging
@@ -21,12 +21,10 @@ from flowpost.services.billing.liqpay import (
 )
 from flowpost.services.billing.subscriptions import extend_subscription, get_subscription, record_payment
 from flowpost.services.slots import fmt_date, tz_of
+from flowpost.webapp import BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
+from flowpost.webapp.api import setup_webapp
 
 log = logging.getLogger(__name__)
-
-SETTINGS_KEY = web.AppKey("settings", Settings)
-BOT_KEY = web.AppKey("bot", Bot)
-SESSIONMAKER_KEY = web.AppKey("sessionmaker", async_sessionmaker)
 
 
 async def health(_request: web.Request) -> web.Response:
@@ -114,4 +112,6 @@ def build_web_app(settings: Settings, bot: Bot, sessionmaker: async_sessionmaker
     app[SESSIONMAKER_KEY] = sessionmaker
     app.router.add_get("/health", health)
     app.router.add_post("/pay/liqpay/callback", liqpay_callback)
+    if settings.webapp_enabled:
+        setup_webapp(app)
     return app

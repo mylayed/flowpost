@@ -101,13 +101,35 @@ async def test_worker_pauses_without_access_and_marks_missed(fake_bot, sessionma
     await _worker(fake_bot, sessionmaker, settings).tick()
     async with sessionmaker() as session:
         assert (await session.get(Publication, old_id)).status == "missed"
-        user = await session.get(User, seeded.user_id)
-        user.trial_ends_at = utcnow() - timedelta(days=1)
+        channel = await session.get(Channel, seeded.channel_id)
+        channel.trial_ends_at = utcnow() - timedelta(days=1)
         await session.commit()
     new_id = await _pub(sessionmaker, seeded, utcnow() - timedelta(minutes=1))
-    await _worker(fake_bot, sessionmaker, settings).tick()
+    no_free_plan = settings.model_copy(update={"free_posts_per_day": 0})
+    await _worker(fake_bot, sessionmaker, no_free_plan).tick()
     async with sessionmaker() as session:
         assert (await session.get(Publication, new_id)).status == "paused"
+
+
+async def test_worker_postpones_to_next_day_when_post_limit_is_used_up(fake_bot, sessionmaker, seeded, settings):
+    limited = settings.model_copy(update={"trial_posts": 1})
+    now = utcnow()
+    async with sessionmaker() as session:
+        session.add(Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                                run_at=now, status="published", published_at=now, message_ids={}))
+        await session.commit()
+    run_at = now - timedelta(minutes=1)
+    first = await _pub(sessionmaker, seeded, run_at)
+    second = await _pub(sessionmaker, seeded, run_at)
+    await _worker(fake_bot, sessionmaker, limited).tick()
+    async with sessionmaker() as session:
+        for pub_id in (first, second):
+            pub = await session.get(Publication, pub_id)
+            assert pub.status == "pending" and pub.attempts == 0
+            assert pub.run_at > utcnow() + timedelta(hours=23)
+    assert not any(call[1] == seeded.chat_id for call in fake_bot.calls)
+    notices = [call for call in fake_bot.calls if call[0] == "send_message" and call[1] == seeded.tg_id]
+    assert len(notices) == 1 and "ліміт постів" in notices[0][2]
 
 
 async def test_pin_and_auto_delete(fake_bot, sessionmaker, seeded, settings):

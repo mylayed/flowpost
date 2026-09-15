@@ -1,17 +1,14 @@
-"""LiqPay (API v3) monthly subscription: checkout link, callback verification, unsubscribe."""
+"""LiqPay (API v3) for legacy monthly subscriptions: callback verification and unsubscribe."""
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
 import json
-import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 import aiohttp
 
-CHECKOUT_URL = "https://www.liqpay.ua/api/3/checkout"
 REQUEST_URL = "https://www.liqpay.ua/api/request"
 
 # Statuses that mean money was received (or a sandbox imitation of it).
@@ -37,10 +34,6 @@ def decode_data(data: str) -> dict:
     return json.loads(base64.b64decode(data).decode("utf-8"))
 
 
-def make_order_id(user_id: int) -> str:
-    return f"flowpost-{user_id}-{uuid.uuid4().hex[:12]}"
-
-
 def user_id_from_order(order_id: str) -> int | None:
     parts = (order_id or "").split("-")
     if len(parts) >= 3 and parts[0] == "flowpost" and parts[1].isdigit():
@@ -53,42 +46,6 @@ class LiqPayClient:
     public_key: str
     private_key: str
     sandbox: bool = False
-
-    def checkout_url(
-        self,
-        *,
-        user_id: int,
-        amount: float,
-        currency: str,
-        description: str,
-        language: str,
-        server_url: str | None,
-        result_url: str | None,
-        now: datetime | None = None,
-    ) -> str:
-        now = now or datetime.now(timezone.utc)
-        params = {
-            "version": 3,
-            "public_key": self.public_key,
-            "action": "subscribe",
-            "subscribe": "1",
-            "subscribe_date_start": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "subscribe_periodicity": "month",
-            "amount": f"{amount:.2f}",
-            "currency": currency,
-            "description": description,
-            "order_id": make_order_id(user_id),
-            "language": "uk" if language == "uk" else "en",
-        }
-        if server_url:
-            params["server_url"] = server_url
-        if result_url:
-            params["result_url"] = result_url
-        if self.sandbox:
-            params["sandbox"] = "1"
-        data = encode_data(params)
-        signature = make_signature(self.private_key, data)
-        return f"{CHECKOUT_URL}?data={data}&signature={signature}"
 
     def parse_callback(self, data: str, signature: str) -> dict | None:
         if not verify_signature(self.private_key, data, signature):

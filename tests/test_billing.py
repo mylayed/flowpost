@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from flowpost.bot.handlers.billing import _requisites_html
 from flowpost.db.models import Payment, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.billing.liqpay import (
@@ -16,16 +15,6 @@ from flowpost.web import process_liqpay_payload
 from sqlalchemy import func, select
 
 
-def test_requisites_html_wraps_only_values():
-    raw = "Отримувач: Іван Іванов\nIBAN: UA000\nБез двокрапки"
-    html = _requisites_html(raw)
-    assert html == (
-        "Отримувач: <code>Іван Іванов</code>\n"
-        "IBAN: <code>UA000</code>\n"
-        "Без двокрапки"
-    )
-
-
 def test_liqpay_signature_roundtrip():
     data = encode_data({"order_id": "flowpost-7-abc", "status": "success"})
     sig = make_signature("private", data)
@@ -36,15 +25,11 @@ def test_liqpay_signature_roundtrip():
     assert user_id_from_order("something-else") is None
 
 
-def test_liqpay_checkout_url_contains_subscription_params():
+def test_liqpay_client_parses_only_signed_callbacks():
     client = LiqPayClient("pub", "priv", sandbox=True)
-    url = client.checkout_url(user_id=3, amount=5, currency="USD", description="FlowPost", language="uk",
-                              server_url="https://x/cb", result_url="https://t.me/bot")
-    data = url.split("data=")[1].split("&")[0]
-    params = decode_data(data)
-    assert params["action"] == "subscribe" and params["subscribe_periodicity"] == "month"
-    assert params["sandbox"] == "1" and params["server_url"] == "https://x/cb"
-    assert client.parse_callback(data, make_signature("priv", data)) == params
+    data = encode_data({"order_id": "flowpost-3-abc", "status": "subscribed"})
+    assert client.parse_callback(data, make_signature("priv", data)) == decode_data(data)
+    assert client.parse_callback(data, "forged") is None
 
 
 async def test_access_trial_then_paid(sessionmaker, seeded):

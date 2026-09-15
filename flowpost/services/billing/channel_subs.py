@@ -1,0 +1,62 @@
+"""Per-channel paid posting subscriptions and moving one to another channel of the same owner."""
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from flowpost.db.models import ChannelQuota, ChannelSubscription
+from flowpost.db.types import utcnow
+from flowpost.services import analytics
+
+
+async def get(session: AsyncSession, channel_id: int) -> ChannelSubscription | None:
+    return await session.scalar(select(ChannelSubscription).where(ChannelSubscription.channel_id == channel_id))
+
+
+async def by_channel(session: AsyncSession, channel_ids: list[int]) -> dict[int, ChannelSubscription]:
+    if not channel_ids:
+        return {}
+    subs = await session.scalars(select(ChannelSubscription).where(ChannelSubscription.channel_id.in_(channel_ids)))
+    return {sub.channel_id: sub for sub in subs}
+
+
+async def transfer(
+    session: AsyncSession, source_id: int, target_id: int, user_id: int, now: datetime | None = None
+) -> str | None:
+    """Move the source channel's active subscription and extra packs to the target; returns an error code or None."""
+    now = now or utcnow()
+    sub = await session.scalar(
+        select(ChannelSubscription).where(ChannelSubscription.channel_id == source_id).with_for_update()
+    )
+    if sub is None or sub.paid_until <= now:
+        return "not_transferable"
+    existing = await session.scalar(
+        select(ChannelSubscription).where(ChannelSubscription.channel_id == target_id).with_for_update()
+    )
+    if existing is not None:
+        if existing.paid_until > now:
+            return "target_subscribed"
+        await session.delete(existing)
+        await session.flush()
+    sub.channel_id = target_id
+
+    target_quotas = {
+        quota.kind: quota
+        for quota in await session.scalars(
+            select(ChannelQuota).where(ChannelQuota.channel_id == target_id).with_for_update()
+        )
+    }
+    source_quotas = (await session.scalars(
+        select(ChannelQuota).where(ChannelQuota.channel_id == source_id).with_for_update()
+    )).all()
+    for quota in source_quotas:
+        if quota.kind in target_quotas:
+            target_quotas[quota.kind].remaining += quota.remaining
+            await session.delete(quota)
+        else:
+            quota.channel_id = target_id
+    await session.flush()
+    analytics.track(session, user_id, "sub_transfer", source=source_id, target=target_id)
+    return None

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.db.models import Channel
 from flowpost.db.repo import channel_admins as channel_admins_repo
+from flowpost.db.types import utcnow
 
 
 async def list_channels(
@@ -79,11 +82,15 @@ async def upsert_channel(
     title: str,
     username: str | None,
     is_forum: bool,
+    trial_days: int,
 ) -> tuple[Channel, bool]:
     channel = await session.scalar(select(Channel).where(Channel.owner_id == owner_id, Channel.chat_id == chat_id))
     created = channel is None
     if channel is None:
-        channel = Channel(owner_id=owner_id, chat_id=chat_id, watermark={})
+        # The trial starts on the first connection only; reconnecting the same channel keeps it.
+        channel = Channel(
+            owner_id=owner_id, chat_id=chat_id, watermark={}, trial_ends_at=utcnow() + timedelta(days=trial_days)
+        )
         session.add(channel)
     channel.kind = kind
     channel.title = title or str(chat_id)

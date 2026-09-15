@@ -16,6 +16,7 @@ from flowpost.bot.callbacks import Cs, Pj
 from flowpost.bot.handlers.start import ASSETS
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.keyboards.main_menu import REQUEST_CHANNEL, add_channel_kb, main_menu_kb
+from flowpost.config import Settings
 from flowpost.db.models import User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import users as users_repo
@@ -87,7 +88,7 @@ async def after_connected(message: Message, channel, *, notify: bool) -> None:
 
 
 @router.message(F.chat_shared)
-async def on_chat_shared(message: Message, bot: Bot, session: AsyncSession, user: User) -> None:
+async def on_chat_shared(message: Message, bot: Bot, session: AsyncSession, user: User, settings: Settings) -> None:
     shared = message.chat_shared
     kind = "channel" if shared.request_id == REQUEST_CHANNEL else "group"
     try:
@@ -111,6 +112,7 @@ async def on_chat_shared(message: Message, bot: Bot, session: AsyncSession, user
         title=chat.title or "",
         username=chat.username,
         is_forum=bool(chat.is_forum),
+        trial_days=settings.trial_days,
     )
     analytics.track(session, user.id, "channel_connected", chat_id=chat.id)
     notify = _first_notice(user.id, chat.id)
@@ -120,7 +122,7 @@ async def on_chat_shared(message: Message, bot: Bot, session: AsyncSession, user
 
 
 @router.my_chat_member()
-async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSession) -> None:
+async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSession, settings: Settings) -> None:
     chat = event.chat
     new = event.new_chat_member
     status = str(new.status)
@@ -166,6 +168,7 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
         title=chat.title or "",
         username=chat.username,
         is_forum=bool(getattr(chat, "is_forum", False)),
+        trial_days=settings.trial_days,
     )
     if _first_notice(adder.id, chat.id):
         try:

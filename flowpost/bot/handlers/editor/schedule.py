@@ -195,7 +195,7 @@ async def in_time_wrong(message: Message) -> None:
     await message.answer(t("err.time_format"))
 
 
-@router.callback_query(Ed.filter(F.a == "schok"), flags={"paid": True})
+@router.callback_query(Ed.filter(F.a == "schok"), flags={"publish": True})
 async def ed_schedule_confirm(
     cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
 ) -> None:

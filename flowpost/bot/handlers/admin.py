@@ -34,7 +34,6 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
         f"👤 Users: {s['users_total']} (+{s['users_new_7d']} / 7d, active 7d: {s['active_7d']})\n"
         f"🧪 Active trials: {s['trials_active']}\n"
         f"💳 Active subscriptions: {s['subs_active']} ({providers})\n"
-        f"💵 MRR ≈ ${s['mrr_usd']}\n"
         f"📈 Conversion to paid: {s['conversion_pct']}%\n\n"
         f"📡 Active channels: {s['channels_active']}\n"
         f"🚀 Published: {s['published_24h']} / 24h, {s['published_7d']} / 7d\n"

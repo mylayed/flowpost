@@ -20,6 +20,7 @@ from flowpost.bot.handlers import (
     discussion,
     edit_post,
     menu,
+    payments,
     projects,
     reactions,
     settings as settings_handlers,
@@ -66,6 +67,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
     # and the "send content to start a post" catch-all last.
     dp.include_routers(
         admin.router,
+        payments.router,
         billing.router,
         start.router,
         discussion.router,

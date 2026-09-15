@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -15,16 +15,18 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from flowpost.bot.callbacks import Bl
+from flowpost.bot.keyboards.common import pay_btn
 from flowpost.config import Settings
 from flowpost.db.models import Channel, Post, Publication, Subscription, User
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services import analytics
+from flowpost.services.billing import entitlements
 from flowpost.services.billing.subscriptions import get_access
 from flowpost.services.delivery import (
     DeliveryError,
@@ -34,11 +36,19 @@ from flowpost.services.delivery import (
     publication_message_ids,
 )
 from flowpost.services.publisher import EmptyPostError, Publisher
+from flowpost.services.slots import day_bounds_utc, tz_of
 
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 BATCH = 20
+
+
+def next_day_same_time(run_at: datetime, tz_name: str, now: datetime) -> datetime:
+    """The publication's local time of day, on the owner's next calendar day."""
+    tz = tz_of(tz_name)
+    day = now.astimezone(tz).date() + timedelta(days=1)
+    return datetime.combine(day, run_at.astimezone(tz).time(), tzinfo=tz).astimezone(timezone.utc)
 
 
 class Worker:
@@ -121,8 +131,12 @@ class Worker:
             outcome: DeliveryOutcome
             notify_key: str | None = None
 
-            access = await get_access(session, owner, now) if owner else None
-            if access is None or not access.active:
+            entitlement = (
+                await entitlements.for_channel(session, self.settings, channel, owner, now)
+                if owner is not None and channel is not None
+                else None
+            )
+            if entitlement is None or entitlement.plan == "none":
                 pub.status = "paused"
                 outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.no_access")
                 if owner and pub.notify and (paywalled is None or owner.id not in paywalled):
@@ -133,6 +147,16 @@ class Worker:
                 pub.status = "missed"
                 outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.missed")
                 notify_key = "notify.missed" if pub.notify else None
+            elif await entitlements.posts_left(session, self.settings, channel, owner, entitlement, now) == 0:
+                pub.status = "pending"
+                pub.attempts = 0
+                pub.run_at = next_day_same_time(pub.run_at, owner.tz, now)
+                local_run = pub.run_at.astimezone(tz_of(owner.tz))
+                outcome = DeliveryOutcome(
+                    ok=False, channel_title=title, error="err.post_limit", detail=local_run.strftime("%d.%m %H:%M")
+                )
+                if pub.notify and await self._limit_notice_due(session, owner, now):
+                    notify_key = "notify.limit"
             else:
                 try:
                     outcome = await deliver_publication(session, self.publisher, pub, now=now)
@@ -185,6 +209,15 @@ class Worker:
         return self._fail(pub, "err.network", detail, title)
 
     @staticmethod
+    async def _limit_notice_due(session, owner: User, now: datetime) -> bool:
+        """At most one «post limit reached» message per owner per local day."""
+        day_start, _ = day_bounds_utc(now.astimezone(tz_of(owner.tz)).date(), owner.tz)
+        if await analytics.count_since(session, owner.id, "post_limit_notice", day_start):
+            return False
+        analytics.track(session, owner.id, "post_limit_notice")
+        return True
+
+    @staticmethod
     def _notify_text(key: str, lang: str, outcome: DeliveryOutcome) -> str:
         error_text = t(outcome.error or "err.unknown", locale=lang)
         if outcome.detail:
@@ -208,9 +241,9 @@ class Worker:
 
     async def _notify(self, owner: User, key: str, outcome: DeliveryOutcome) -> None:
         markup = None
-        if key == "notify.paused":
+        if key in ("notify.paused", "notify.limit"):
             markup = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=t("btn.pay", locale=owner.lang), callback_data=Bl(a="open").pack())
+                pay_btn(self.settings, t("btn.pay", locale=owner.lang))
             ]])
         text = self._notify_text(key, owner.lang, outcome)
         try:
@@ -308,7 +341,7 @@ class Worker:
             await session.commit()
         for tg_id, lang in to_notify:
             markup = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=t("btn.pay", locale=lang), callback_data=Bl(a="open").pack())
+                pay_btn(self.settings, t("btn.pay", locale=lang))
             ]])
             try:
                 await self.bot.send_message(tg_id, t("notify.trial_ending", locale=lang), reply_markup=markup)
@@ -336,7 +369,7 @@ class Worker:
             await session.commit()
         for tg_id, lang in to_notify:
             markup = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=t("btn.pay", locale=lang), callback_data=Bl(a="open").pack())
+                pay_btn(self.settings, t("btn.pay", locale=lang))
             ]])
             try:
                 await self.bot.send_message(tg_id, t("notify.sub_ending", locale=lang), reply_markup=markup)

@@ -83,7 +83,7 @@ async def _validate(cb: CallbackQuery, session: AsyncSession, user: User, post: 
     return True
 
 
-@router.callback_query(Ed.filter(F.a == "pub"), flags={"paid": True})
+@router.callback_query(Ed.filter(F.a == "pub"), flags={"publish": True})
 async def ed_publish_ask(
     cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
 ) -> None:
@@ -101,7 +101,7 @@ async def ed_publish_ask(
     await show_panel(bot, cb.from_user.id, state, text, confirm_kb(post.id, "pubok", t("pub.confirm_yes")))
 
 
-@router.callback_query(Ed.filter(F.a == "pubok"), flags={"paid": True})
+@router.callback_query(Ed.filter(F.a == "pubok"), flags={"publish": True})
 async def ed_publish(
     cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
     worker: Worker,

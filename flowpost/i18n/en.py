@@ -519,31 +519,12 @@ TEXTS: dict[str, str] = {
     "provider.manual": "manual",
 
     # ---- Billing -----------------------------------------------------------------------------
-    "pay.title": "💎 <b>FlowPost subscription</b>",
-    "pay.features": (
-        "Everything, unlimited:\n"
-        "• publishing and scheduled posting\n"
-        "• auto-repeat, multiposting, series\n"
-        "• AI assistant and posts from screenshots\n"
-        "• watermarks on photos and videos"
+    "pay.open": (
+        "💎 <b>FlowPost subscription</b>\n\n"
+        "Plans, Telegram Stars top-ups and channel subscriptions live in the «FlowPost Billing» app. "
+        "Tap the button below."
     ),
-    "pay.price": "Price: <b>${usd}/month</b>",
-    "pay.card_btn": "💳 Card: {amount} {currency}",
-    "pay.liqpay_desc": "FlowPost Pro subscription (monthly)",
-    "pay.manual_btn": "🧾 Pay by bank transfer",
-    "pay.manual_info": (
-        "🧾 <b>Bank transfer</b>\n\n"
-        "{requisites}\n\n"
-        "After paying, send a <b>screenshot or receipt</b> here — I'll forward it to the owner, "
-        "who will activate the subscription manually."
-    ),
-    "pay.manual_wrong": "Please send a screenshot or a receipt file (photo or document).",
-    "pay.manual_sent": "✅ Thanks! The receipt was sent to the owner. Your subscription will be activated manually soon.",
-    "pay.manual_admin_caption": (
-        "🧾 Payment receipt from {name} (id {tg_id}{username}).\n"
-        "Tap to copy the command, paste it into the message field and send:\n"
-        "<code>/grant {tg_id} 30</code>"
-    ),
+    "pay.unavailable": "Payments are unavailable right now. Please contact support: {contact}",
     "pay.cancel_btn": "❌ Turn off auto-renewal",
     "pay.cancel_confirm": "Turn off auto-renewal? You keep access until the end of the paid period.",
     "pay.cancel_yes": "❌ Yes, turn off",
@@ -552,11 +533,16 @@ TEXTS: dict[str, str] = {
     "pay.invalid": "This invoice is no longer valid. Open the payment again from the subscription menu.",
     "pay.success": "🎉 Thank you! Your subscription is active until {date}.",
     "pay.failed": "⚠️ The payment didn't go through. Try again or choose another payment method.",
+    "pay.topup_title": "FlowPost balance top-up",
+    "pay.topup_desc": "Adds {stars} ⭐ to your FlowPost balance for paying channel subscriptions.",
+    "pay.topup_done": "✅ Balance topped up with {stars} ⭐\nTotal balance: {balance} ⭐",
+    "pay.topup_done_cashback": "✅ Balance topped up with {stars} ⭐ (+{cashback} ⭐ cashback)\nTotal balance: {balance} ⭐",
     "pay.support": "🆘 <b>Payment support</b>\n\nIf something went wrong with a payment, write to {contact}: describe the problem and include the payment date.",
     "pay.terms": (
         "📄 <b>FlowPost terms of use</b>\n\n"
-        "• Free trial — {days} days.\n"
-        "• Then a ${usd}/month subscription with auto-renewal; turn it off any time in settings.\n"
+        "• Every connected channel gets a free trial: {days} days and up to {posts} posts.\n"
+        "• After that the channel runs on the free plan ({free} posts a day) or on a paid subscription "
+        "paid with Telegram Stars via the «Subscribe» button.\n"
         "• The bot only publishes to channels where you are an admin, and only content you created.\n"
         "• The channel owner is responsible for the content of posts.\n\n"
         "Payment questions — /paysupport"
@@ -572,11 +558,13 @@ TEXTS: dict[str, str] = {
     "notify.failed": "❌ Couldn't publish the post in «{title}»: {error}",
     "notify.missed": "⚠️ The publication in «{title}» was skipped: the bot was unavailable at the scheduled time. Open «Content plan» to reschedule.",
     "notify.paused": "⏸ Scheduled posts are paused: the trial or subscription has ended. Subscribe and they'll continue going out.",
-    "notify.trial_ending": "⏳ Your FlowPost trial ends in less than a day. Subscribe to keep posts going out on schedule.",
+    "notify.limit": "⏸ The post in «{title}» didn't go out: {error}.\nTo publish more, subscribe or upgrade your plan.",
+    "notify.trial_ending":"⏳ Your FlowPost trial ends in less than a day. Subscribe to keep posts going out on schedule.",
     "notify.sub_ending": "⏳ Your FlowPost subscription ends tomorrow — the last day. Renew it to keep posts going out on schedule.",
 
     # ---- Errors & warnings -------------------------------------------------------------------
-    "err.bot_not_admin": "the bot is not an admin of the channel",
+    "err.post_limit": "the plan's post limit is used up; new publication time",
+    "err.bot_not_admin":"the bot is not an admin of the channel",
     "err.channel_inactive": "the channel is disconnected",
     "err.post_empty": "📭 Nothing's been sent yet — the post is empty. Add some text, a photo, or a video, then try again.",
     "err.pub_missing": "the post or channel was deleted",

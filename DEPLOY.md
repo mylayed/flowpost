@@ -61,7 +61,7 @@ nano .env
 ```
 
 Заповніть реальними значеннями з Railway (Project → Variables): `BOT_TOKEN`, `ADMIN_IDS`,
-`SUPPORT_CONTACT`, `ANTHROPIC_API_KEY`, `LIQPAY_*`, `PAYMENT_REQUISITES` і т.д.
+`SUPPORT_CONTACT`, `ANTHROPIC_API_KEY`, `WEBAPP_ENABLED`, `LIQPAY_*` (лише для старих LiqPay-підписок) і т.д.
 
 Важливо для цього способу деплою:
 

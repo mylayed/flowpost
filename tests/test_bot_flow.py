@@ -23,6 +23,7 @@ from flowpost.db.models import Channel, ChannelAdmin, Post, PostPart, PostTarget
     Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.ai import AIService
+from flowpost.services.billing.stars import make_payload
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import local_now
 from flowpost.services.worker import Worker
@@ -169,7 +170,7 @@ async def test_full_editor_flow(h: Harness):
     # connect a channel through the native chat picker
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
     channel = await h.db(lambda s: s.scalar(select(Channel)))
-    assert channel.chat_id == CHANNEL_CHAT and channel.is_active
+    assert channel.chat_id == CHANNEL_CHAT and channel.is_active and channel.trial_ends_at > utcnow()
     c = channel.id
 
     # sending a photo starts a post; a following text becomes its caption
@@ -423,25 +424,26 @@ async def test_cancel_settings_billing_and_paywall(h: Harness):
     assert (user.lang, user.tz) == ("en", "Europe/Warsaw")
     await h.click(St(a="lang"))
 
-    # subscription screen offers a LiqPay checkout link
+    # the subscription screen opens the billing Mini App instead of old card/bank-transfer checkouts
     h.session.clear()
     await h.text("/subscribe")
     sent = next(m for n, m in h.session.calls if n == "SendMessage")
-    urls = [b.url for row in sent.reply_markup.inline_keyboard for b in row if b.url]
-    assert any("liqpay.ua" in u for u in urls)
+    buttons = [b for row in sent.reply_markup.inline_keyboard for b in row]
+    assert [b.web_app.url for b in buttons if b.web_app] == ["https://flowpost.test/app/"]
+    assert not any(b.url for b in buttons)
 
-    # trial over → publishing is blocked by the paywall
+    # trials over → the channel falls back to the free plan, so publishing keeps working
     async def expire(s):
         u = await s.scalar(select(User).where(User.tg_id == USER_ID))
         u.trial_ends_at = utcnow() - timedelta(minutes=1)
+        await s.execute(update(Channel).values(trial_ends_at=utcnow() - timedelta(minutes=1)))
         await s.commit()
     await h.db(expire)
-    await h.text("Пост без підписки")
+    await h.text("Пост на безкоштовному тарифі")
     p = (await _post(h)).id
-    h.session.clear()
+    await h.click(Ed(a="pub", p=p))
     await h.click(Ed(a="pubok", p=p))
-    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
-    assert await h.db(lambda s: s.scalar(select(Publication))) is None
+    assert await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
 
     # LiqPay payment: server-to-server callback activates the subscription
     user = await _user(h)
@@ -451,17 +453,34 @@ async def test_cancel_settings_billing_and_paywall(h: Harness):
     sub = await h.db(lambda s: s.scalar(select(Subscription)))
     assert sub.provider == "liqpay" and sub.current_period_end > utcnow()
 
-    # now publishing works
-    await h.click(Ed(a="pub", p=p))
-    await h.click(Ed(a="pubok", p=p))
-    assert await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
+
+async def test_stars_topup_pre_checkout_and_payment(h: Harness):
+    await h.text("/start")
+    user = await _user(h)
+    payload = make_payload(user.id, 34)
+
+    async def pre_checkout(amount: int, uid: int = USER_ID):
+        h.session.clear()
+        await h.feed(pre_checkout_query={"id": "pcq", "from": h._from(uid), "currency": "XTR",
+                                         "total_amount": amount, "invoice_payload": payload})
+        return next(m for n, m in h.session.calls if n == "AnswerPreCheckoutQuery")
+
+    assert (await pre_checkout(34)).ok is True
+    assert (await pre_checkout(35)).ok is False
+    assert (await pre_checkout(34, uid=ADMIN_ID)).ok is False
+
+    paid = {"currency": "XTR", "total_amount": 34, "invoice_payload": payload,
+            "telegram_payment_charge_id": "tg-charge-1", "provider_payment_charge_id": ""}
+    h.session.clear()
+    await h.feed(message=h._message(successful_payment=paid))
+    await h.feed(message=h._message(successful_payment=paid))
+    user = await _user(h)
+    assert (user.balance, user.cashback) == (34, 1)
+    assert h.session.names().count("SendMessage") == 1 and "34 ⭐" in h.session.texts()
 
 
-async def test_manual_transfer_flow(sessionmaker):
-    settings = Settings(
-        bot_token="123456:TEST", admin_ids=str(ADMIN_ID), payment_requisites="IBAN: UA000",
-        liqpay_enabled=False, _env_file=None,
-    )
+async def test_publish_is_paywalled_when_a_channel_has_no_plan(sessionmaker):
+    settings = Settings(bot_token="123456:TEST", liqpay_enabled=False, free_posts_per_day=0, _env_file=None)
     session = MockSession()
     bot = Bot("123456:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
     dp = build_dispatcher(settings, sessionmaker, MemoryStorage())
@@ -470,26 +489,36 @@ async def test_manual_transfer_flow(sessionmaker):
     h = Harness(dp, bot, session, sessionmaker)
     try:
         await h.text("/start")
-        h.session.clear()
-        await h.text("/subscribe")
-        await h.click(Bl(a="manual"))
-        assert "IBAN: <code>UA000</code>" in h.session.texts()
+        await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
 
+        async def expire_channel_trial(s):
+            await s.execute(update(Channel).values(trial_ends_at=utcnow() - timedelta(minutes=1)))
+            await s.commit()
+        await h.db(expire_channel_trial)
+        await h.text("Пост без тарифу")
+        p = (await _post(h)).id
         h.session.clear()
-        await h.feed(message=h._message(photo=[{"file_id": "receipt", "file_unique_id": "receipt",
-                                                 "width": 100, "height": 100}]))
-        names = h.session.names()
-        assert names.count("ForwardMessage") == 1 and "SendMessage" in names
-        assert "id 777" in h.session.texts()
-        assert h.session.texts().count("Дякуємо") == 1
-
-        # a second message once the state is cleared is not treated as a receipt anymore
-        h.session.clear()
-        await h.text("дякую")
-        assert "ForwardMessage" not in h.session.names()
+        await h.click(Ed(a="pubok", p=p))
+        assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+        assert await h.db(lambda s: s.scalar(select(Publication))) is None
     finally:
         for router in dp.sub_routers:
             router._parent_router = None
+
+
+async def test_settings_pay_button_opens_billing_mini_app(h: Harness):
+    await h.text("/start")
+    h.session.clear()
+    await h.text("/settings")
+    sent = next(m for n, m in h.session.calls if n == "SendMessage")
+    web_apps = [b.web_app.url for row in sent.reply_markup.inline_keyboard for b in row if b.web_app]
+    assert web_apps == ["https://flowpost.test/app/"]
+
+    # a legacy «Оплатити підписку» callback from an old message points to the Mini App as well
+    h.session.clear()
+    await h.click(Bl(a="open"))
+    sent = next(m for n, m in h.session.calls if n == "SendMessage")
+    assert sent.reply_markup.inline_keyboard[0][0].web_app.url == "https://flowpost.test/app/"
 
 
 async def test_grant_notifies_user_and_shows_days_left(sessionmaker):

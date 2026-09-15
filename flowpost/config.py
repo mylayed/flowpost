@@ -38,14 +38,42 @@ class Settings(BaseSettings):
 
     # --- Billing ---
     trial_days: int = 14
-    sub_price_usd: float = 5.0
+    # LiqPay only processes renewals and cancellations of subscriptions bought before the Stars Mini App.
     liqpay_enabled: bool = True
     liqpay_public_key: str = ""
     liqpay_private_key: SecretStr = SecretStr("")
-    liqpay_amount: float = 5.0
-    liqpay_currency: str = "USD"
     liqpay_sandbox: bool = False
-    payment_requisites: str = ""  # bank transfer details shown to the user for manual payment; empty = option hidden
+
+    # --- Billing Mini App (Telegram Stars wallet) ---
+    webapp_enabled: bool = True
+    webapp_url_override: str | None = Field(None, validation_alias=AliasChoices("WEBAPP_URL", "WEBAPP_URL_OVERRIDE"))
+    stars_topup_min: int = 1
+    stars_topup_max: int = 25000
+    stars_usd_rate: float = 0.02
+    cashback_percent: float = 5.0
+    renew_soon_days: int = 7  # channels expiring within this many days are listed under «Час продовжити»
+    # Extra per-channel packs: kind -> {pack size: price in Stars}. Env: LIMIT_PRICES='{"wm_photo": {"10": 5}, ...}'
+    limit_prices: dict[str, dict[int, int]] = {
+        "wm_photo": {10: 5, 100: 15, 500: 49, 1000: 75},
+        "wm_video": {10: 10, 100: 75, 500: 325, 1000: 599},
+        "ai_text": {10: 10, 100: 29, 500: 129, 1000: 229},
+    }
+    # Posting plans: posts per day -> Stars and included watermarks per channel per 30 days
+    posting_plans: dict[int, dict[str, int]] = {
+        1: {"stars": 75, "wm_photo": 30, "wm_video": 6},
+        15: {"stars": 124, "wm_photo": 450, "wm_video": 75},
+        50: {"stars": 199, "wm_photo": 1500, "wm_video": 250},
+        150: {"stars": 349, "wm_photo": 4500, "wm_video": 750},
+        500: {"stars": 499, "wm_photo": 15000, "wm_video": 2500},
+    }
+    channel_discounts: dict[int, int] = {3: 2, 5: 5, 10: 10, 20: 15, 30: 20, 50: 25, 100: 30}  # from N channels -> %
+    term_discounts: dict[int, int] = {30: 0, 90: 10, 180: 15, 365: 20}  # days -> %
+    trial_posts: int = 50
+    trial_quotas: dict[str, int] = {"wm_photo": 5, "wm_video": 5, "ai_text": 5}
+    free_posts_per_day: int = 10  # 0 = no free plan
+    calc_max_channels: int = 100
+    terms_url: str = ""  # empty = the built-in terms page (the /terms text)
+    privacy_url: str = "https://telegram.org/privacy-tpa"
 
     # --- Media / worker ---
     ffmpeg_bin: str = "ffmpeg"
@@ -79,10 +107,14 @@ class Settings(BaseSettings):
         return self.webhook_base_url.rstrip("/") + "/tg/webhook"
 
     @property
-    def liqpay_callback_url(self) -> str | None:
+    def webapp_url(self) -> str | None:
+        if not self.webapp_enabled:
+            return None
+        if self.webapp_url_override:
+            return self.webapp_url_override
         if not self.webhook_base_url:
             return None
-        return self.webhook_base_url.rstrip("/") + "/pay/liqpay/callback"
+        return self.webhook_base_url.rstrip("/") + "/app/"
 
 
 @lru_cache

@@ -185,7 +185,7 @@ async def cp_edit(
         await show_schedule(bot, cb.from_user.id, session, state, user, post, date.fromordinal(callback_data.d))
 
 
-@router.callback_query(Cp.filter(F.a == "now"), flags={"paid": True})
+@router.callback_query(Cp.filter(F.a == "now"), flags={"publish": True})
 async def cp_publish_now(
     cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User, worker: Worker
 ) -> None:

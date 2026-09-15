@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FlowPost Billing</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="static/styles.css?v=__V__">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="pill brand"><span class="brand-logo">F</span>FlowPost</div>
+    <div class="pill switches">
+      <button class="seg" type="button" data-currency="stars" aria-label="Stars">★</button>
+      <button class="seg" type="button" data-currency="usd" aria-label="USD">$</button>
+      <span class="divider"></span>
+      <label class="lang">
+        <select id="lang" aria-label="Language">
+          <option value="uk">UK</option>
+          <option value="en">EN</option>
+        </select>
+      </label>
+    </div>
+  </header>
+  <main id="view"></main>
+  <footer id="footer" class="footer"></footer>
+</div>
+<script src="static/app.js?v=__V__"></script>
+</body>
+</html>
