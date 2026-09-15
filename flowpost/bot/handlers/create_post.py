@@ -38,13 +38,19 @@ def initial_options(channel: Channel, is_ad: bool) -> dict:
 
 
 def extract_source_signature(messages: list[Message]) -> str:
-    """The author signature Telegram attaches when forwarding a signed channel post."""
+    """The source channel's attribution Telegram attaches when forwarding one of its posts:
+    the channel title, plus the post author's name if the channel signs its posts."""
     for m in messages:
         origin = m.forward_origin
         if origin is not None and origin.type == "channel":
-            signature = getattr(origin, "author_signature", None)
-            if signature:
-                return signature
+            title = getattr(getattr(origin, "chat", None), "title", None)
+            author = getattr(origin, "author_signature", None)
+            if title and author:
+                return f"{title} ({author})"
+            if title:
+                return title
+            if author:
+                return author
     return ""
 
 
