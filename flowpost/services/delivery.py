@@ -9,6 +9,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from flowpost.db.models import Channel, Post, Publication, User
 from flowpost.db.repo import posts as posts_repo
@@ -134,14 +135,33 @@ async def deliver_publication(
     if pub.repeat_index > 0 and post.repeat is not None and post.repeat.delete_previous:
         await _delete_previous_repeat(session, bot, pub, channel)
 
-    result = await publisher.publish_post(post, channel, owner.lang)
-    outcome = DeliveryOutcome(ok=True, channel_title=channel.title, warnings=list(result.warnings))
+    # Parts already sent on a previous, interrupted attempt are recorded in pub.message_ids.
+    # Only send what's left, and persist progress after every part, so a retry after a
+    # mid-post failure can't re-send parts that already made it into the channel.
+    sent_parts: list[dict] = list((pub.message_ids or {}).get("parts", []))
+    warnings: list[str] = list((pub.message_ids or {}).get("warnings", []))
+    remaining = list(range(len(sent_parts), len(post.parts)))
 
-    pub.message_ids = {"parts": [p.to_dict() for p in result.parts]}
+    for idx in remaining:
+        result = await publisher.publish_post(post, channel, owner.lang, part_indexes=[idx])
+        sent_parts = [*sent_parts, result.parts[0].to_dict()]
+        for w in result.warnings:
+            if w not in warnings:
+                warnings.append(w)
+        # A fresh dict/list each time isn't enough for SQLAlchemy to see this as a change on a
+        # plain JSON column (the previous flush's "committed" value keeps a reference to the same
+        # nested list, so a naive equality check treats successive assignments as no-ops and
+        # silently skips the UPDATE) — flag it explicitly so every part's progress is persisted.
+        pub.message_ids = {"parts": sent_parts, "warnings": warnings}
+        flag_modified(pub, "message_ids")
+        await session.flush()
+
+    outcome = DeliveryOutcome(ok=True, channel_title=channel.title, warnings=list(warnings))
+
     pub.status = "published"
     pub.published_at = now
     pub.last_error = None
-    first_id = result.parts[0].ids[0] if result.parts and result.parts[0].ids else None
+    first_id = sent_parts[0]["ids"][0] if sent_parts and sent_parts[0].get("ids") else None
     outcome.link = message_link(channel, first_id) if first_id else None
 
     if opts.get("pin") and first_id:

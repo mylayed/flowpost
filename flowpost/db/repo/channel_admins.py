@@ -67,8 +67,11 @@ async def create_invite(
     return invite
 
 
-async def get_invite(session: AsyncSession, token: str) -> ChannelInvite | None:
-    return await session.scalar(select(ChannelInvite).where(ChannelInvite.token == token))
+async def get_invite(session: AsyncSession, token: str, *, for_update: bool = False) -> ChannelInvite | None:
+    stmt = select(ChannelInvite).where(ChannelInvite.token == token)
+    if for_update:
+        stmt = stmt.with_for_update()
+    return await session.scalar(stmt)
 
 
 async def redeem_invite(session: AsyncSession, invite: ChannelInvite, user_id: int) -> ChannelAdmin:

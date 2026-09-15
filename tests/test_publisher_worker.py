@@ -1,9 +1,10 @@
 from datetime import timedelta
 from types import SimpleNamespace
 
+from aiogram.exceptions import TelegramNetworkError
 from sqlalchemy import select
 
-from flowpost.db.models import Channel, Post, Publication, RepeatRule, User
+from flowpost.db.models import Channel, Post, PostPart, Publication, RepeatRule, User
 from flowpost.db.types import utcnow
 from flowpost.services.publisher import OutMedia, Publisher, SendOptions, send_part
 from flowpost.services.worker import Worker
@@ -123,6 +124,47 @@ async def test_pin_and_auto_delete(fake_bot, sessionmaker, seeded, settings):
     async with sessionmaker() as session:
         pub = await session.get(Publication, pub_id)
         assert pub.deleted and pub.unpin_at is None
+
+
+async def test_retry_after_mid_post_failure_does_not_resend_earlier_parts(fake_bot, sessionmaker, seeded, settings):
+    """A transient failure on part 2 of a 3-part post, then a retry, must not re-send part 1."""
+    async with sessionmaker() as session:
+        post = await session.get(Post, seeded.post_id)
+        post.parts = [
+            PostPart(position=0, text_html="Частина 1", media=[], buttons=[]),
+            PostPart(position=1, text_html="Частина 2", media=[], buttons=[]),
+            PostPart(position=2, text_html="Частина 3", media=[], buttons=[]),
+        ]
+        await session.commit()
+    pub_id = await _pub(sessionmaker, seeded, utcnow() - timedelta(minutes=1))
+
+    class FlakyBot(fake_bot.__class__):
+        fail_on_text = "Частина 2"
+
+        async def send_message(self, chat_id, text, **kw):
+            if text == self.fail_on_text:
+                self.fail_on_text = None  # only fail once
+                raise TelegramNetworkError(SimpleNamespace(), "network blip")
+            return await super().send_message(chat_id, text, **kw)
+
+    bot = FlakyBot()
+    worker = _worker(bot, sessionmaker, settings)
+    await worker.tick()
+    async with sessionmaker() as session:
+        pub = await session.get(Publication, pub_id)
+        assert pub.status == "pending"  # rescheduled for retry
+        assert len(pub.message_ids["parts"]) == 1  # only part 1 persisted so far
+
+    await worker.tick(utcnow() + timedelta(minutes=5))
+    async with sessionmaker() as session:
+        pub = await session.get(Publication, pub_id)
+        assert pub.status == "published"
+        assert len(pub.message_ids["parts"]) == 3
+
+    sent_texts = [c[2] for c in bot.calls if c[0] == "send_message"]
+    assert sent_texts.count("Частина 1") == 1
+    assert sent_texts.count("Частина 2") == 1
+    assert sum(1 for txt in sent_texts if txt.startswith("Частина 3")) == 1  # last part carries the signature
 
 
 async def test_watermark_cache_reused(fake_bot, sessionmaker, seeded):

@@ -47,13 +47,19 @@ async def process_liqpay_payload(payload: dict, sessionmaker: async_sessionmaker
         message: str | None = None
         result = "ignored"
         if status in PAID_STATUSES:
+            # LiqPay reuses order_id across a subscription's initial charge and every renewal, so
+            # falling back to it alone on a missing payment_id would collapse a real renewal into
+            # a "duplicate" of an earlier charge and silently skip extending the subscription.
+            # create_date (the transaction's own creation timestamp) is present on every callback
+            # and is distinct per charge, so prefer that over order_id as the fallback.
+            payment_ref = payload.get("payment_id") or payload.get("create_date") or order_id
             is_new = await record_payment(
                 session,
                 user_id=user_id,
                 provider="liqpay",
                 amount=float(payload.get("amount") or 0),
                 currency=str(payload.get("currency") or ""),
-                provider_payment_id=f"liqpay:{payload.get('payment_id') or order_id}",
+                provider_payment_id=f"liqpay:{payment_ref}",
                 status=status,
                 raw=payload,
             )

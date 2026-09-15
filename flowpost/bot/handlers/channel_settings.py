@@ -48,7 +48,9 @@ def back_button(channel: Channel, post_id: int):
     return btn(t("btn.back"), Ed(a="home", p=post_id) if post_id else Pj(a="ch", c=channel.id))
 
 
-def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: bool = True) -> tuple[str, InlineKeyboardMarkup]:
+def channel_card(
+    channel: Channel, *, is_owner: bool = True, can_disconnect: bool = True, can_settings: bool = True,
+) -> tuple[str, InlineKeyboardMarkup]:
     wm = wm_settings(channel.watermark)
     kind = t("proj.kind_channel") if channel.kind == "channel" else t("proj.kind_group")
     recipients = channel.notify_recipients or "owner"
@@ -68,20 +70,22 @@ def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: boo
     if channel.is_forum:
         lines.append(t("proj.topic", topic=channel.topic_id or t("proj.topic_general")))
     c = channel.id
-    rows = [
-        [btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))],
-        [btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))],
-        [btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))],
-        [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))],
-    ]
-    if channel.notify_published:
-        rows.append([
-            btn(on(recipients == "owner") + t("proj.notify_rcpt_owner"), Cs(a="notify_rcpt", c=c, v="owner")),
-            btn(on(recipients == "admin") + t("proj.notify_rcpt_admin"), Cs(a="notify_rcpt", c=c, v="admin")),
-            btn(on(recipients == "both") + t("proj.notify_rcpt_both"), Cs(a="notify_rcpt", c=c, v="both")),
-        ])
-    if channel.is_forum:
-        rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
+    rows = [[btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))]]
+    if can_settings:
+        rows.append([btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))])
+    rows.append([btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))])
+    if can_settings:
+        rows.append(
+            [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))]
+        )
+        if channel.notify_published:
+            rows.append([
+                btn(on(recipients == "owner") + t("proj.notify_rcpt_owner"), Cs(a="notify_rcpt", c=c, v="owner")),
+                btn(on(recipients == "admin") + t("proj.notify_rcpt_admin"), Cs(a="notify_rcpt", c=c, v="admin")),
+                btn(on(recipients == "both") + t("proj.notify_rcpt_both"), Cs(a="notify_rcpt", c=c, v="both")),
+            ])
+        if channel.is_forum:
+            rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
     if is_owner:
         rows.append([btn(t("admins.manage_btn"), Ca(a="list", c=c))])
     if channel.is_active and (is_owner or can_disconnect):
@@ -93,10 +97,11 @@ def channel_card(channel: Channel, *, is_owner: bool = True, can_disconnect: boo
 async def card_kwargs(session: AsyncSession, channel: Channel, user: User) -> dict:
     is_owner = channel.owner_id == user.id
     can_disconnect = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "disconnect")
-    return {"is_owner": is_owner, "can_disconnect": can_disconnect}
+    can_settings = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    return {"is_owner": is_owner, "can_disconnect": can_disconnect, "can_settings": can_settings}
 
 
-def wm_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMarkup]:
+def wm_menu(channel: Channel, post: Post | None, *, can_settings: bool = True) -> tuple[str, InlineKeyboardMarkup]:
     s = wm_settings(channel.watermark)
     p = post.id if post else 0
     c = channel.id
@@ -112,16 +117,17 @@ def wm_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMar
     rows = []
     if post is not None:
         rows.append([btn(on(options_of(post)["watermark"]) + t("wm.apply_post"), Cs(a="wm_post", c=c, p=p))])
-    rows += [
-        [btn(t("wm.set_text"), Cs(a="wm_text", c=c, p=p)), btn(t("wm.set_image"), Cs(a="wm_img", c=c, p=p))],
-        [btn(t("wm.position"), Cs(a="wm_posm", c=c, p=p))],
-        [btn("➖", Cs(a="wm_op", c=c, p=p, v="-10")), btn(t("wm.opacity_short", v=s["opacity"]), Cs(a="noop", c=c, p=p)),
-         btn("➕", Cs(a="wm_op", c=c, p=p, v="10"))],
-        [btn("➖", Cs(a="wm_sc", c=c, p=p, v="-5")), btn(t("wm.scale_short", v=s["scale"]), Cs(a="noop", c=c, p=p)),
-         btn("➕", Cs(a="wm_sc", c=c, p=p, v="5"))],
-        [btn(on(bool(s.get("enabled"))) + t("wm.default_toggle"), Cs(a="wm_def", c=c, p=p))],
-        [back_button(channel, p)],
-    ]
+    if can_settings:
+        rows += [
+            [btn(t("wm.set_text"), Cs(a="wm_text", c=c, p=p)), btn(t("wm.set_image"), Cs(a="wm_img", c=c, p=p))],
+            [btn(t("wm.position"), Cs(a="wm_posm", c=c, p=p))],
+            [btn("➖", Cs(a="wm_op", c=c, p=p, v="-10")), btn(t("wm.opacity_short", v=s["opacity"]), Cs(a="noop", c=c, p=p)),
+             btn("➕", Cs(a="wm_op", c=c, p=p, v="10"))],
+            [btn("➖", Cs(a="wm_sc", c=c, p=p, v="-5")), btn(t("wm.scale_short", v=s["scale"]), Cs(a="noop", c=c, p=p)),
+             btn("➕", Cs(a="wm_sc", c=c, p=p, v="5"))],
+            [btn(on(bool(s.get("enabled"))) + t("wm.default_toggle"), Cs(a="wm_def", c=c, p=p))],
+        ]
+    rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
 
 
@@ -136,7 +142,7 @@ def wm_position_menu(channel: Channel, post_id: int) -> tuple[str, InlineKeyboar
     return t("wm.position_title"), markup(rows)
 
 
-def sig_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMarkup]:
+def sig_menu(channel: Channel, post: Post | None, *, can_settings: bool = True) -> tuple[str, InlineKeyboardMarkup]:
     p = post.id if post else 0
     c = channel.id
     template = channel.signature_template or default_signature_template(channel)
@@ -153,10 +159,11 @@ def sig_menu(channel: Channel, post: Post | None) -> tuple[str, InlineKeyboardMa
     rows = []
     if post is not None:
         rows.append([btn(on(options_of(post)["signature"]) + t("sig.apply_post"), Cs(a="sig_post", c=c, p=p))])
-    rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
-    if channel.signature_template:
-        rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
-    rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
+    if can_settings:
+        rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
+        if channel.signature_template:
+            rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
+        rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
 
@@ -223,11 +230,15 @@ async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -
 
 
 async def _context(
-    cb: CallbackQuery, data: Cs, session: AsyncSession, user: User
+    cb: CallbackQuery, data: Cs, session: AsyncSession, user: User, *, require: str | None = "settings"
 ) -> tuple[Channel | None, Post | None]:
+    """`require` is the delegated-admin permission needed for non-owners (None = any access is enough)."""
     channel = await channels_repo.get_channel(session, user.id, data.c)
     post = await posts_repo.get_post(session, user.id, data.p) if data.p else None
     if channel is None or (data.p and post is None):
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return None, None
+    if require and channel.owner_id != user.id and not await channel_admins_repo.has_permission(session, channel.id, user.id, require):
         await cb.answer(t("err.not_found"), show_alert=True)
         return None, None
     return channel, post
@@ -264,9 +275,14 @@ async def _ask_input(cb: CallbackQuery, state: FSMContext, new_state, channel: C
 async def _input_channel(message: Message, session: AsyncSession, state: FSMContext, user: User) -> Channel | None:
     data = await state.get_data()
     channel = await channels_repo.get_channel(session, user.id, int(data.get("cs_channel") or 0))
-    if channel is None:
+    ok = channel is not None and (
+        channel.owner_id == user.id
+        or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    )
+    if not ok:
         await state.set_state(None)
         await message.answer(t("err.not_found"))
+        return None
     return channel
 
 
@@ -279,7 +295,7 @@ async def cs_noop(cb: CallbackQuery) -> None:
 
 @router.callback_query(Cs.filter(F.a == "ch"))
 async def cs_card(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
-    channel, _ = await _context(cb, callback_data, session, user)
+    channel, _ = await _context(cb, callback_data, session, user, require=None)
     if channel is None:
         return
     await cb.answer()
@@ -302,11 +318,14 @@ async def cs_notify(cb: CallbackQuery, callback_data: Cs, session: AsyncSession,
 
 @router.callback_query(Cs.filter(F.a.in_({"wm", "wm_post", "wm_op", "wm_sc", "wm_def", "wm_pos"})))
 async def cs_watermark(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
-    channel, post = await _context(cb, callback_data, session, user)
+    a, v = callback_data.a, callback_data.v
+    # Viewing the menu or toggling watermark for one's own post only needs post authoring rights;
+    # opacity/scale/position/default-on change the channel-level watermark, so those need "settings".
+    require = None if a == "wm" else ("posts" if a == "wm_post" else "settings")
+    channel, post = await _context(cb, callback_data, session, user, require=require)
     if channel is None:
         return
     s = wm_settings(channel.watermark)
-    a, v = callback_data.a, callback_data.v
     if post is not None and cb.message is not None:
         await state.update_data(panel_id=cb.message.message_id, post_id=post.id)
     if a == "wm_post" and post is not None:
@@ -327,12 +346,13 @@ async def cs_watermark(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         channel.watermark = s
     await session.flush()
     await cb.answer()
-    await _edit(cb, *wm_menu(channel, post))
+    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    await _edit(cb, *wm_menu(channel, post, can_settings=can_settings))
 
 
 @router.callback_query(Cs.filter(F.a == "wm_posm"))
 async def cs_wm_position(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
-    channel, _ = await _context(cb, callback_data, session, user)
+    channel, _ = await _context(cb, callback_data, session, user, require=None)
     if channel is None:
         return
     await cb.answer()
@@ -359,12 +379,15 @@ async def cs_wm_image(cb: CallbackQuery, callback_data: Cs, session: AsyncSessio
 
 @router.callback_query(Cs.filter(F.a.in_({"sig", "sig_post", "sig_reset", "sig_def"})))
 async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
-    channel, post = await _context(cb, callback_data, session, user)
+    a = callback_data.a
+    # Viewing the menu or toggling signature for one's own post only needs post authoring rights;
+    # resetting the template or flipping the channel default changes channel-level config.
+    require = None if a == "sig" else ("posts" if a == "sig_post" else "settings")
+    channel, post = await _context(cb, callback_data, session, user, require=require)
     if channel is None:
         return
     if post is not None and cb.message is not None:
         await state.update_data(panel_id=cb.message.message_id, post_id=post.id)
-    a = callback_data.a
     if a == "sig_post" and post is not None:
         post.options = {**(post.options or {}), "signature": not options_of(post)["signature"]}
     elif a == "sig_reset":
@@ -373,7 +396,8 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         channel.signature_on = not channel.signature_on
     await session.flush()
     await cb.answer()
-    await _edit(cb, *sig_menu(channel, post))
+    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    await _edit(cb, *sig_menu(channel, post, can_settings=can_settings))
 
 
 @router.callback_query(Cs.filter(F.a == "sig_edit"))
@@ -423,7 +447,7 @@ async def cs_topic(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, 
 
 @router.callback_query(Cs.filter(F.a == "stats"))
 async def cs_stats(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
-    channel, _ = await _context(cb, callback_data, session, user)
+    channel, _ = await _context(cb, callback_data, session, user, require="posts")
     if channel is None:
         return
     days = int(callback_data.v) if callback_data.v.isdigit() and int(callback_data.v) in STATS_PERIODS else STATS_PERIODS[0]

@@ -183,8 +183,9 @@ async def ed_ai_apply(
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
-    result = (await state.get_data()).get("ai_result")
-    if not result:
+    _missing = object()
+    result = (await state.get_data()).get("ai_result", _missing)
+    if result is _missing or result is None:
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     await cb.answer(t("ai.applied"))

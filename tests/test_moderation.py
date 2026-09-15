@@ -37,25 +37,38 @@ def test_contains_spam_link_detects_channel_mentions():
     assert not contains_spam_link("дякую @bob")  # short mention, below the username length floor
 
 
+def test_contains_spam_link_detects_bare_domains_without_scheme():
+    assert contains_spam_link("заходь на promo-shop.com/deal")
+    assert contains_spam_link("check bit.ly/xyz123")
+    assert not contains_spam_link("дякую за пост, було норм")
+
+
 def test_is_flood_detects_repeated_message_from_same_user():
     cache: dict = {}
-    assert not is_flood(cache, chat_id=1, user_id=1, text="привіт", now=0.0)
-    assert is_flood(cache, chat_id=1, user_id=1, text="привіт", now=1.0)
+    assert not is_flood(cache, chat_id=1, thread_id=1, user_id=1, text="привіт", now=0.0)
+    assert is_flood(cache, chat_id=1, thread_id=1, user_id=1, text="привіт", now=1.0)
 
 
 def test_is_flood_ignores_different_text_or_stale_repeats():
     cache: dict = {}
-    is_flood(cache, chat_id=1, user_id=1, text="привіт", now=0.0)
-    assert not is_flood(cache, chat_id=1, user_id=1, text="бувай", now=1.0)
+    is_flood(cache, chat_id=1, thread_id=1, user_id=1, text="привіт", now=0.0)
+    assert not is_flood(cache, chat_id=1, thread_id=1, user_id=1, text="бувай", now=1.0)
 
     cache2: dict = {}
-    is_flood(cache2, chat_id=1, user_id=1, text="привіт", now=0.0)
-    assert not is_flood(cache2, chat_id=1, user_id=1, text="привіт", now=1000.0)
+    is_flood(cache2, chat_id=1, thread_id=1, user_id=1, text="привіт", now=0.0)
+    assert not is_flood(cache2, chat_id=1, thread_id=1, user_id=1, text="привіт", now=1000.0)
+
+
+def test_is_flood_ignores_repeats_across_different_threads():
+    """Same comment on two different posts' threads shouldn't be flagged as flood."""
+    cache: dict = {}
+    is_flood(cache, chat_id=1, thread_id=1, user_id=1, text="🔥", now=0.0)
+    assert not is_flood(cache, chat_id=1, thread_id=2, user_id=1, text="🔥", now=1.0)
 
 
 def test_violation_prioritizes_profanity_then_links_then_flood():
     cache: dict = {}
-    assert violation("ти сука", [], cache, 1, 1) == "profanity"
-    assert violation("t.me/spam", [], cache, 1, 1) == "spam_link"
-    assert violation("клас!", [], cache, 1, 1) is None
-    assert violation("клас!", [], cache, 1, 1) == "flood"
+    assert violation("ти сука", [], cache, 1, 1, 1) == "profanity"
+    assert violation("t.me/spam", [], cache, 1, 1, 1) == "spam_link"
+    assert violation("клас!", [], cache, 1, 1, 1) is None
+    assert violation("клас!", [], cache, 1, 1, 1) == "flood"

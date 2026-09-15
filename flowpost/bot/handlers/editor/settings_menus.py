@@ -10,6 +10,7 @@ from flowpost.bot.callbacks import Ed
 from flowpost.bot.handlers.channel_settings import sig_menu, wm_menu
 from flowpost.bot.handlers.editor.view import post_from_callback, show_panel
 from flowpost.db.models import User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 
@@ -28,8 +29,12 @@ async def ed_channel_menu(
         await cb.answer(t("post.no_channels"), show_alert=True)
         return
     await cb.answer()
+    channel = channels[0]
+    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(
+        session, channel.id, user.id, "settings"
+    )
     builder = wm_menu if callback_data.a == "wm" else sig_menu
-    text, kb = builder(channels[0], post)
+    text, kb = builder(channel, post, can_settings=can_settings)
     if len(channels) > 1:
         text += "\n\n" + t("ed.primary_channel_note")
     await show_panel(bot, cb.from_user.id, state, text, kb)

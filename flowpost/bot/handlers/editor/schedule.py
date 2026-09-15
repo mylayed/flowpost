@@ -102,7 +102,12 @@ async def show_schedule(
 def _parse_day_value(value: str) -> tuple[date | None, int, str]:
     """Callback values look like '<date ordinal>_<page or HHMM>' (':' is reserved by CallbackData)."""
     first, _, second = value.partition("_")
-    day = date.fromordinal(int(first)) if first.isdigit() else None
+    day = None
+    if first.isdigit():
+        try:
+            day = date.fromordinal(int(first))
+        except (ValueError, OverflowError):
+            day = None
     return day, int(second) if second.isdigit() else 0, second
 
 

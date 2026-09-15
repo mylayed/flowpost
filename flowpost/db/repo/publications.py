@@ -101,24 +101,39 @@ async def published_for_post(session: AsyncSession, post_id: int) -> list[Public
     return list((await session.scalars(stmt)).all())
 
 
+_FIND_BY_MESSAGE_BATCH = 300
+
+
 async def find_by_channel_message(
     session: AsyncSession, owner_id: int, channel_ids: list[int], message_id: int
 ) -> Publication | None:
-    stmt = (
-        select(Publication)
-        .where(
-            Publication.owner_id == owner_id,
-            Publication.channel_id.in_(channel_ids),
-            Publication.status == "published",
-            Publication.deleted.is_(False),
+    """Scan published publications (most recent first) for the one containing `message_id`.
+
+    There's no portable, indexed way to query inside the `message_ids` JSON blob across both
+    SQLite and Postgres, so this pages through in batches instead of capping at one page —
+    a single fixed LIMIT would silently stop matching reactions on any post older than that cutoff.
+    """
+    offset = 0
+    while True:
+        stmt = (
+            select(Publication)
+            .where(
+                Publication.owner_id == owner_id,
+                Publication.channel_id.in_(channel_ids),
+                Publication.status == "published",
+                Publication.deleted.is_(False),
+            )
+            .order_by(Publication.published_at.desc())
+            .limit(_FIND_BY_MESSAGE_BATCH)
+            .offset(offset)
         )
-        .order_by(Publication.published_at.desc())
-        .limit(300)
-    )
-    for pub in (await session.scalars(stmt)).all():
-        if any(message_id in part.get("ids", []) for part in (pub.message_ids or {}).get("parts", [])):
-            return pub
-    return None
+        batch = (await session.scalars(stmt)).all()
+        for pub in batch:
+            if any(message_id in part.get("ids", []) for part in (pub.message_ids or {}).get("parts", [])):
+                return pub
+        if len(batch) < _FIND_BY_MESSAGE_BATCH:
+            return None
+        offset += _FIND_BY_MESSAGE_BATCH
 
 
 async def refresh_post_status(session: AsyncSession, post: Post) -> None:

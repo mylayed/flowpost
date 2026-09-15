@@ -15,6 +15,7 @@ from flowpost.bot.handlers.channel_settings import cm_menu
 from flowpost.bot.keyboards.main_menu import REQUEST_DISCUSSION, main_menu_kb
 from flowpost.bot.states import ChannelInput
 from flowpost.db.models import Channel, Publication, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
@@ -24,7 +25,8 @@ from flowpost.services.posts import options_of
 
 log = logging.getLogger(__name__)
 router = Router(name="discussion")
-_flood_cache: dict[tuple[int, int], tuple[str, float]] = {}
+_flood_cache: dict[tuple[int, int, int], tuple[str, float]] = {}
+_FLOOD_CACHE_MAX = 5000
 
 
 @router.message(StateFilter(ChannelInput.discussion_group), F.chat_shared)
@@ -35,7 +37,11 @@ async def on_discussion_group_shared(
     data = await state.get_data()
     channel = await channels_repo.get_channel(session, user.id, int(data.get("cs_channel") or 0))
     await state.set_state(None)
-    if channel is None:
+    allowed = channel is not None and (
+        channel.owner_id == user.id
+        or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    )
+    if not allowed:
         await message.answer(t("err.not_found"), reply_markup=main_menu_kb())
         return
     if shared.request_id != REQUEST_DISCUSSION:
@@ -126,7 +132,10 @@ async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSessio
     mod = moderation_settings(channel.moderation)
     if mod["enabled"]:
         text = message.text or message.caption or ""
-        kind = violation(text, mod["banned_words"], _flood_cache, message.chat.id, message.from_user.id)
+        thread_id = message.message_thread_id or 0
+        if len(_flood_cache) > _FLOOD_CACHE_MAX:
+            _flood_cache.clear()
+        kind = violation(text, mod["banned_words"], _flood_cache, message.chat.id, thread_id, message.from_user.id)
         if kind is not None:
             try:
                 await bot.delete_message(message.chat.id, message.message_id)

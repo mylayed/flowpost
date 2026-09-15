@@ -53,7 +53,6 @@ class Worker:
         self._wake.set()
 
     async def run(self) -> None:
-        await self.recover_stale()
         while True:
             try:
                 await self.tick()
@@ -69,6 +68,7 @@ class Worker:
 
     async def tick(self, now: datetime | None = None) -> None:
         now = now or utcnow()
+        await self.recover_stale()
         await self.process_due(now)
         await self.process_unpins(now)
         await self.process_deletes(now)

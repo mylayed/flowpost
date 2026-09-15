@@ -18,6 +18,18 @@ BUILT_IN_ROOTS: tuple[str, ...] = (
 )
 
 _LINK_RE = re.compile(r"(https?://\S+|t\.me/\S+|telegram\.me/\S+|www\.\S+\.\S+)", re.IGNORECASE)
+# Bare domains with no scheme/www — the common way spam dodges the pattern above. Anchored to a
+# fixed list of TLDs actually seen in spam/shorteners, so ordinary abbreviations ("т.д.", "e.g.")
+# don't false-positive.
+_BARE_DOMAIN_TLDS = (
+    "com", "net", "org", "info", "biz", "xyz", "top", "click", "shop", "online", "site", "club",
+    "pro", "co", "cc", "tv", "me", "link", "gg", "app", "dev", "live", "ly", "gl", "io", "ru", "ua",
+    "su", "vip", "icu", "buzz", "win", "bid", "loan", "download", "stream", "cyou", "cfd",
+)
+_BARE_DOMAIN_RE = re.compile(
+    r"\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:" + "|".join(_BARE_DOMAIN_TLDS) + r")\b(?:/\S*)?",
+    re.IGNORECASE,
+)
 _MENTION_RE = re.compile(r"@\w{5,}")
 _NON_LETTER_RE = re.compile(r"[^0-9a-zA-Zа-яіїєґА-ЯІЇЄҐ]+")
 
@@ -42,15 +54,15 @@ def contains_banned_word(text: str, extra_words: list[str]) -> bool:
 
 
 def contains_spam_link(text: str) -> bool:
-    return bool(_LINK_RE.search(text or "") or _MENTION_RE.search(text or ""))
+    return bool(_LINK_RE.search(text or "") or _BARE_DOMAIN_RE.search(text or "") or _MENTION_RE.search(text or ""))
 
 
-def is_flood(cache: dict[tuple[int, int], tuple[str, float]], chat_id: int, user_id: int, text: str,
+def is_flood(cache: dict[tuple[int, int, int], tuple[str, float]], chat_id: int, thread_id: int, user_id: int, text: str,
              *, now: float | None = None) -> bool:
-    """True if the same (normalized) text was just posted by this user in this chat."""
+    """True if the same (normalized) text was just posted by this user in this comment thread."""
     now = time.monotonic() if now is None else now
     norm = _normalize(text)
-    key = (chat_id, user_id)
+    key = (chat_id, thread_id, user_id)
     prev = cache.get(key)
     cache[key] = (norm, now)
     if not norm or prev is None:
@@ -60,14 +72,14 @@ def is_flood(cache: dict[tuple[int, int], tuple[str, float]], chat_id: int, user
 
 
 def violation(
-    text: str, extra_words: list[str], flood_cache: dict[tuple[int, int], tuple[str, float]],
-    chat_id: int, user_id: int,
+    text: str, extra_words: list[str], flood_cache: dict[tuple[int, int, int], tuple[str, float]],
+    chat_id: int, thread_id: int, user_id: int,
 ) -> str | None:
     """Return a violation kind ("profanity" | "spam_link" | "flood") or None if the message is clean."""
     if contains_banned_word(text, extra_words):
         return "profanity"
     if contains_spam_link(text):
         return "spam_link"
-    if is_flood(flood_cache, chat_id, user_id, text):
+    if is_flood(flood_cache, chat_id, thread_id, user_id, text):
         return "flood"
     return None

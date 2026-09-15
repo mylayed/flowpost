@@ -26,7 +26,8 @@ async def send_main_menu(message: Message, text: str | None = None) -> None:
 
 
 async def _redeem_admin_invite(message: Message, session: AsyncSession, user: User, token: str) -> None:
-    invite = await channel_admins_repo.get_invite(session, token)
+    # Row-locked so two concurrent redemptions of the same link can't both pass the used_by check.
+    invite = await channel_admins_repo.get_invite(session, token, for_update=True)
     channel = await session.get(Channel, invite.channel_id) if invite else None
     if invite is None or invite.revoked or invite.used_by is not None or channel is None or not channel.is_active:
         await message.answer(t("admins.invite_invalid"), reply_markup=main_menu_kb())
