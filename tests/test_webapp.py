@@ -16,6 +16,7 @@ from flowpost.db.models import (
     BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, Publication, User,
 )
 from flowpost.db.types import utcnow
+from flowpost.services.billing import plans
 from flowpost.services.billing.stars import parse_payload
 from flowpost.services.billing.wallet import apply_topup, cashback_for, credit
 from flowpost.web import build_web_app
@@ -251,5 +252,64 @@ async def test_transfer_channel_subscription(sessionmaker, seeded):
             assert await session.scalar(select(ChannelQuota).where(ChannelQuota.channel_id == source)) is None
             subs = (await session.scalars(select(ChannelSubscription).order_by(ChannelSubscription.channel_id))).all()
             assert [(s.channel_id, s.posts_per_day) for s in subs] == sorted([(ids["busy"], 1), (ids["lapsed"], 15)])
+    finally:
+        await client.close()
+
+
+async def test_subscribe_channels_from_wallet(sessionmaker, seeded):
+    settings = Settings(bot_token=TOKEN, webapp_enabled=True, liqpay_enabled=False, _env_file=None)
+    assert plans.quote(settings, 15, 30, 1) == (124, 30)
+    assert plans.quote(settings, 15, 30, 1, round_to_pack=True) == (150, 36)
+    assert plans.quote(settings, 15, 90, 1) == (335, 90)
+    assert plans.quote(settings, 15, 30, 3) == (365, 30)
+    assert plans.quote(settings, 7, 30, 1) is None and plans.quote(settings, 15, 45, 1) is None
+
+    client = await _client(settings, sessionmaker, InvoiceBot())
+    auth = {"Authorization": "tma " + init_data({"id": seeded.tg_id, "first_name": "Олена"})}
+    async with sessionmaker() as session:
+        other = User(tg_id=999, trial_ends_at=utcnow())
+        session.add(other)
+        await session.flush()
+        foreign = Channel(owner_id=other.id, chat_id=-1005, kind="channel", title="Чужий", watermark={})
+        session.add(foreign)
+        await session.flush()
+        foreign_id = foreign.id
+        await session.commit()
+
+    async def buy(**overrides):
+        body = {"channel_ids": [seeded.channel_id], "posts_per_day": 15, "days": 30, "stars": 124, **overrides}
+        return await client.post("/api/subscribe", json=body, headers=auth)
+
+    try:
+        me = await (await client.get("/api/me", headers=auth)).json()
+        assert me["plans"]["stars_packs"][:4] == [50, 75, 100, 150]
+        bad_requests = (
+            {"channel_ids": []}, {"channel_ids": [seeded.channel_id, seeded.channel_id]},
+            {"posts_per_day": True}, {"stars": "124"}, {"posts_per_day": 7},
+        )
+        for bad in bad_requests:
+            assert (await buy(**bad)).status == 400, bad
+        assert (await buy(channel_ids=[seeded.channel_id, foreign_id])).status == 404
+        resp = await buy(stars=100)
+        assert resp.status == 409 and (await resp.json())["stars"] == 124
+        resp = await buy(round_to_pack=True, stars=150)
+        assert resp.status == 402 and (await resp.json())["missing"] == 150
+
+        async with sessionmaker() as session:
+            await credit(session, seeded.user_id, 500, bucket="main", kind="topup")
+            await session.commit()
+
+        data = await (await buy(round_to_pack=True, stars=150)).json()
+        assert (data["balance"], data["days"]) == (350, 36)
+        detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
+        assert (detail["plan"], detail["posts_per_day"], detail["days_left"]) == ("paid", 15, 36)
+        remaining = (await (await client.get(f"/api/limits/{seeded.channel_id}", headers=auth)).json())["remaining"]
+        assert remaining == {"wm_photo": 540, "wm_video": 90, "ai_text": 0}
+
+        # 36 unused days of the 124★ plan are worth ~22.4 days of the 199★ plan, plus the 30 bought.
+        data = await (await buy(posts_per_day=50, stars=199)).json()
+        assert data["balance"] == 151
+        detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
+        assert (detail["posts_per_day"], detail["days_left"]) == (50, 53)
     finally:
         await client.close()

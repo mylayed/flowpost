@@ -197,6 +197,37 @@ async def buy_limits(request: web.Request, session: AsyncSession, user: User) ->
     })
 
 
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+async def subscribe_channels(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    settings = request.app[SETTINGS_KEY]
+    body = await _json_body(request)
+    channel_ids, posts, days, stars = (body.get(k) for k in ("channel_ids", "posts_per_day", "days", "stars"))
+    if (
+        not isinstance(channel_ids, list)
+        or not channel_ids
+        or not all(_is_int(i) for i in channel_ids)
+        or len(set(channel_ids)) != len(channel_ids)
+        or not all(_is_int(v) for v in (posts, days, stars))
+    ):
+        return web.json_response({"error": "invalid_request"}, status=400)
+    for channel_id in channel_ids:
+        if await owned_channel(session, user, channel_id) is None:
+            return web.json_response({"error": "not_found"}, status=404)
+    quote = plans.quote(settings, posts, days, len(channel_ids), round_to_pack=body.get("round_to_pack") is True)
+    if quote is None:
+        return web.json_response({"error": "invalid_plan"}, status=400)
+    total, term_days = quote
+    if total != stars:
+        return web.json_response({"error": "price_changed", "stars": total}, status=409)
+    if not await channel_subs.buy(session, settings, user.id, channel_ids, posts, term_days, total):
+        missing = total - user.balance - user.cashback
+        return web.json_response({"error": "insufficient_balance", "missing": missing}, status=402)
+    return web.json_response({"balance": user.balance, "cashback": user.cashback, "days": term_days})
+
+
 async def topup(request: web.Request, session: AsyncSession, user: User) -> web.Response:
     settings = request.app[SETTINGS_KEY]
     stars = (await _json_body(request)).get("stars")
@@ -259,5 +290,6 @@ def setup_webapp(app: web.Application) -> None:
     app.router.add_get(r"/api/channels/{channel_id:\d+}", authed(channel_detail))
     app.router.add_get(r"/api/limits/{channel_id:\d+}", authed(limits_remaining))
     app.router.add_post("/api/limits", authed(buy_limits))
+    app.router.add_post("/api/subscribe", authed(subscribe_channels))
     app.router.add_get("/api/transfer", authed(transfer_options))
     app.router.add_post("/api/transfer", authed(transfer_subscription))

@@ -687,6 +687,40 @@ main { flex: 1; padding-bottom: 24px; }
 
 .transfer-warning { margin: 0 0 16px; }
 
+.renew-card .segmented { margin-top: 0; }
+
+.renew-card .fineprint { margin: 8px 0 0; }
+
+.renew-label { margin-top: 20px; }
+
+.pack-offer { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; cursor: pointer; }
+
+.pack-offer .info-box-title { font-size: 14px; }
+
+.pack-offer-sub { margin-top: 2px; font-size: 12px; color: var(--muted); }
+
+.renew-due {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.renew-due-value { text-align: right; }
+
+.renew-due-stars { font-size: 22px; }
+
+.renew-due .due-usd { font-weight: 400; }
+
+.renew-card .summary { margin-top: 16px; }
+
+.summary-sub { margin: 10px 0 2px; font-size: 11px; }
+
 .btn-quiet-disabled:disabled { opacity: 1; background: #26303d; color: var(--muted); box-shadow: none; }
 
 .text-link {

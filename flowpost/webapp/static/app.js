@@ -66,6 +66,20 @@ const I18N = {
     not_enough: "На балансі {balance} ⭐, не вистачає {missing} ⭐.",
     topup_missing: "Поповнити на {missing} ⭐",
     limits_done: "Ліміти поповнено!",
+    checkout_subscribe: "Підписка на постинг",
+    term: "Строк",
+    posts_note: "Рахуються лише опубліковані пости, заплановані — створюйте без обмежень.",
+    pack_extend: "Продовжити до {days} дн.",
+    pack_hint: "Stars продаються пакетами в @PremiumBot, найближчий — {pack} ★. Позначте, щоб укластися рівно в пакет.",
+    includes: "Що входить",
+    channels_row: "Каналів",
+    per_channel: "На кожен канал",
+    posts_row: "Постів",
+    wm_photo_row: "Водяні знаки · фото",
+    wm_video_row: "Водяні знаки · відео",
+    discount_row: "Знижка",
+    subscribe_done: "Підписку оформлено!",
+    price_changed: "Ціна змінилася. Перевірте суму й спробуйте ще раз.",
     w_posts: ["пост", "пости", "постів"],
     w_days: ["день", "дні", "днів"],
     w_channels_from: ["каналу", "каналів", "каналів"],
@@ -203,6 +217,20 @@ const I18N = {
     not_enough: "Your balance is {balance} ⭐, {missing} ⭐ short.",
     topup_missing: "Top up {missing} ⭐",
     limits_done: "Limits topped up!",
+    checkout_subscribe: "Posting subscription",
+    term: "Term",
+    posts_note: "Only published posts count — schedule as many as you like.",
+    pack_extend: "Extend to {days} d.",
+    pack_hint: "Stars are sold in packs in @PremiumBot, the nearest is {pack} ★. Tick to match a pack exactly.",
+    includes: "What's included",
+    channels_row: "Channels",
+    per_channel: "Per channel",
+    posts_row: "Posts",
+    wm_photo_row: "Watermarks · photo",
+    wm_video_row: "Watermarks · video",
+    discount_row: "Discount",
+    subscribe_done: "Subscription activated!",
+    price_changed: "The price has changed. Check the amount and try again.",
     w_posts: ["post", "posts"],
     w_days: ["day", "days"],
     w_channels_from: ["channel", "channels"],
@@ -301,6 +329,7 @@ const state = {
   topupDraft: "",
   checkout: null,
   subscribe: null,
+  renew: null,
   limits: null,
   plansUi: null,
   calc: null,
@@ -692,21 +721,45 @@ function topUpShortfall(missing) {
 }
 
 async function payFromBalance(button) {
-  const { channelId, packs } = state.checkout;
+  const checkout = state.checkout;
+  const subscribing = checkout.kind === "subscribe";
   button.disabled = true;
   try {
-    const result = await api("limits", { channel_id: channelId, packs });
+    const result = subscribing
+      ? await api("subscribe", {
+        channel_ids: checkout.channelIds,
+        posts_per_day: checkout.posts,
+        days: checkout.days,
+        round_to_pack: checkout.roundPack,
+        stars: checkout.stars,
+      })
+      : await api("limits", { channel_id: checkout.channelId, packs: checkout.packs });
     state.me.balance = result.balance;
     state.me.cashback = result.cashback;
     state.checkout = null;
-    state.limits = { channelId, packs: {} };
     tg.HapticFeedback?.notificationOccurred("success");
-    tg.showAlert(t("limits_done"));
-    go("limits");
+    if (subscribing) {
+      state.subscribe = null;
+      state.renew = null;
+      await loadMe().catch(() => {});
+      tg.showAlert(t("subscribe_done"));
+      go("");
+    } else {
+      state.limits = { channelId: checkout.channelId, packs: {} };
+      tg.showAlert(t("limits_done"));
+      go("limits");
+    }
   } catch (error) {
     if (error.status === 402) {
       await loadMe().catch(() => {});
       render();
+      return;
+    }
+    if (error.status === 409) {
+      state.checkout = null;
+      await loadMe().catch(() => {});
+      tg.showAlert(t("price_changed"));
+      go("renew");
       return;
     }
     tg.showAlert(t("error"));
@@ -1094,10 +1147,123 @@ function renderSubscribe() {
         visible.length
           ? h("button", { class: "text-btn", type: "button", onclick: toggleAll }, t(allSelected ? "clear_selection" : "select_all"))
           : null),
-      h("button", { class: "btn btn-primary btn-quiet-disabled", type: "button", disabled: count === 0, onclick: soon },
+      h("button", { class: "btn btn-primary btn-quiet-disabled", type: "button", disabled: count === 0, onclick: openRenew },
         count ? `${t("continue")} · ${count}` : t("continue"))),
     h("button", { class: "text-link", type: "button", onclick: () => go("plans") }, t("plans")),
   ];
+}
+
+function selectedChannels() {
+  const selected = state.subscribe?.selected;
+  return selected ? state.me.channels.filter((c) => selected.has(c.id)) : [];
+}
+
+function openRenew() {
+  const p = state.me.plans;
+  const current = selectedChannels()
+    .map((c) => c.posts_per_day)
+    .find((n) => p.posting.some((plan) => plan.posts_per_day === n));
+  state.renew = {
+    posts: current ?? p.posting[Math.min(1, p.posting.length - 1)].posts_per_day,
+    days: p.term_discounts[0][0],
+    roundPack: false,
+  };
+  go("renew");
+}
+
+function renewQuote(p, posts, days, channels) {
+  const plan = p.posting.find((x) => x.posts_per_day === posts);
+  const termPct = (p.term_discounts.find(([d]) => d === days) || [0, 0])[1];
+  const pct = discountFor(p.channel_discounts, channels) + termPct;
+  // Integer numerator so the rounding matches the server's quote to the Star.
+  const stars = Math.ceil((plan.stars * channels * days * (100 - pct)) / 3000);
+  const pack = p.stars_packs.find((size) => size > stars);
+  const packDays = pack ? Math.floor((days * pack) / stars) : 0;
+  return { plan, pct, stars, offer: packDays > days ? { stars: pack, days: packDays } : null };
+}
+
+function segmentedPick(values, current, format, onPick) {
+  return h("div", {
+    class: "segmented",
+    role: "radiogroup",
+    style: `grid-template-columns: repeat(${values.length}, minmax(0, 1fr))`,
+  }, values.map((value) => h("button", {
+    class: value === current ? "seg-opt active" : "seg-opt",
+    type: "button",
+    role: "radio",
+    "aria-checked": String(value === current),
+    onclick: () => onPick(value),
+  }, format(value))));
+}
+
+function renderRenew() {
+  const p = state.me.plans;
+  const r = state.renew;
+  const channels = selectedChannels();
+  const quote = renewQuote(p, r.posts, r.days, channels.length);
+  const rounded = Boolean(r.roundPack && quote.offer);
+  const stars = rounded ? quote.offer.stars : quote.stars;
+  const days = rounded ? quote.offer.days : r.days;
+  const pick = (key) => (value) => {
+    r[key] = value;
+    render();
+  };
+
+  let offer = null;
+  if (quote.offer) {
+    const box = h("input", { class: "checkbox", type: "checkbox" });
+    box.checked = rounded;
+    box.addEventListener("change", () => {
+      r.roundPack = box.checked;
+      render();
+    });
+    offer = h("label", { class: "info-box pack-offer" },
+      box,
+      h("div", {},
+        h("div", { class: "info-box-title" }, t("pack_extend", { days: number(quote.offer.days) })),
+        h("div", { class: "pack-offer-sub" }, `${number(quote.stars)} ★ → ${number(quote.offer.stars)} ★`),
+        h("div", { class: "pack-offer-sub" }, t("pack_hint", { pack: number(quote.offer.stars) }))));
+  }
+
+  const perChannel = (amount) => number(Math.floor((amount * days) / 30));
+  return [
+    h("h1", { class: "title title-tight" }, t("sub_title")),
+    h("div", { class: "subtitle" }, t("selected_count", { n: channels.length })),
+    h("section", { class: "card renew-card" },
+      h("div", { class: "card-label" }, t("calc_posts")),
+      segmentedPick(p.posting.map((x) => x.posts_per_day), r.posts, number, pick("posts")),
+      h("p", { class: "fineprint" }, t("posts_note")),
+      h("div", { class: "card-label renew-label" }, t("term")),
+      segmentedPick(p.term_discounts.map(([d]) => d), r.days, (d) => t("days_short", { n: d }), pick("days")),
+      offer,
+      h("div", { class: "renew-due" },
+        h("span", {}, t("total_due")),
+        h("div", { class: "renew-due-value" },
+          h("div", { class: "renew-due-stars" }, `${number(stars)} ★`),
+          h("div", { class: "due-usd" }, `≈ ${usd(stars)}`))),
+      h("div", { class: "summary" },
+        h("div", { class: "remaining-title" }, t("includes")),
+        infoRow(t("channels_row"), number(channels.length)),
+        infoRow(t("term"), t("days_short", { n: number(days) })),
+        quote.pct ? infoRow(t("discount_row"), `−${quote.pct}%`, "good") : null,
+        h("div", { class: "card-label summary-sub" }, t("per_channel")),
+        infoRow(t("posts_row"), number(r.posts * days)),
+        infoRow(t("wm_photo_row"), perChannel(quote.plan.wm_photo)),
+        infoRow(t("wm_video_row"), perChannel(quote.plan.wm_video))),
+      h("button", {
+        class: "btn btn-primary",
+        type: "button",
+        onclick: () => startRenewCheckout(channels, stars, rounded),
+      }, `${t("go_to_payment")} · ${number(stars)} ★`)),
+  ];
+}
+
+function startRenewCheckout(channels, stars, roundPack) {
+  const { posts, days } = state.renew;
+  state.checkout = {
+    kind: "subscribe", stars, accepted: false, channelIds: channels.map((c) => c.id), posts, days, roundPack,
+  };
+  go("checkout");
 }
 
 function formatDate(iso, timeZone) {
@@ -1177,12 +1343,14 @@ const ROUTES = {
   terms: renderTerms,
   channel: renderChannel,
   subscribe: renderSubscribe,
+  renew: renderRenew,
   limits: renderLimits,
   plans: renderPlans,
   transfer: renderTransfer,
 };
 const PARENT = {
-  topup: "", checkout: "topup", terms: "checkout", channel: "", subscribe: "", limits: "", plans: "", transfer: "",
+  topup: "", checkout: "topup", terms: "checkout", channel: "", subscribe: "", renew: "subscribe", limits: "", plans: "",
+  transfer: "",
 };
 let lastHash = null;
 
@@ -1190,6 +1358,7 @@ function currentRoute() {
   const [name = "", param = ""] = location.hash.replace(/^#\/?/, "").split("/");
   if (!(name in ROUTES)) return ["", ""];
   if (name === "checkout" && !state.checkout) return ["", ""];
+  if (name === "renew" && !(state.renew && selectedChannels().length)) return ["", ""];
   if (name === "channel" && !/^\d+$/.test(param)) return ["", ""];
   return [name, param];
 }
@@ -1212,8 +1381,8 @@ function goBack() {
     go("checkout");
     return;
   }
-  if (name === "checkout" && checkout?.kind === "limits") {
-    go("limits");
+  if (name === "checkout" && checkout && checkout.kind !== "topup") {
+    go(checkout.kind === "limits" ? "limits" : "renew");
     return;
   }
   const parent = PARENT[name] ?? "";

@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     }
     channel_discounts: dict[int, int] = {3: 2, 5: 5, 10: 10, 20: 15, 30: 20, 50: 25, 100: 30}  # from N channels -> %
     term_discounts: dict[int, int] = {30: 0, 90: 10, 180: 15, 365: 20}  # days -> %
+    # Stars pack sizes sold in @PremiumBot; checkout offers extra days to match the nearest pack exactly
+    stars_packs: list[int] = [50, 75, 100, 150, 250, 350, 500, 750, 1000, 1500, 2500, 5000, 10000, 25000, 50000]
     trial_posts: int = 50
     trial_quotas: dict[str, int] = {"wm_photo": 5, "wm_video": 5, "ai_text": 5}
     free_posts_per_day: int = 10  # 0 = no free plan

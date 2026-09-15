@@ -1,14 +1,56 @@
 """Per-channel paid posting subscriptions and moving one to another channel of the same owner."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flowpost.config import Settings
 from flowpost.db.models import ChannelQuota, ChannelSubscription
 from flowpost.db.types import utcnow
 from flowpost.services import analytics
+from flowpost.services.billing import limits
+from flowpost.services.billing.wallet import debit
+
+PLAN_QUOTAS = ("wm_photo", "wm_video")
+
+
+async def buy(
+    session: AsyncSession, settings: Settings, user_id: int, channel_ids: list[int], posts_per_day: int, days: int,
+    stars: int, now: datetime | None = None,
+) -> bool:
+    """Charge `stars` and extend every channel's plan by `days`; False if the wallet can't cover it."""
+    now = now or utcnow()
+    if not await debit(session, user_id, stars, kind="spend", ref=f"subscribe:{posts_per_day}:{days}"):
+        return False
+    plan = settings.posting_plans[posts_per_day]
+    for channel_id in channel_ids:
+        sub = await session.scalar(
+            select(ChannelSubscription).where(ChannelSubscription.channel_id == channel_id).with_for_update()
+        )
+        start = now
+        if sub is None:
+            sub = ChannelSubscription(channel_id=channel_id, posts_per_day=posts_per_day, paid_until=now)
+            session.add(sub)
+        elif sub.paid_until > now:
+            left = sub.paid_until - now
+            old = settings.posting_plans.get(sub.posts_per_day)
+            if sub.posts_per_day != posts_per_day and old:
+                # Unused days of another plan are converted by price so switching plans neither loses nor gains value.
+                left = left * old["stars"] / plan["stars"]
+            start = now + left
+        sub.posts_per_day = posts_per_day
+        sub.paid_until = start + timedelta(days=days)
+        for kind in PLAN_QUOTAS:
+            amount = plan.get(kind, 0) * days // 30
+            if amount:
+                await limits.add(session, channel_id, kind, amount)
+    await session.flush()
+    analytics.track(
+        session, user_id, "subscribe", channels=channel_ids, posts_per_day=posts_per_day, days=days, stars=stars
+    )
+    return True
 
 
 async def get(session: AsyncSession, channel_id: int) -> ChannelSubscription | None:

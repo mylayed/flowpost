@@ -41,22 +41,23 @@ async def remaining(session: AsyncSession, channel_id: int) -> dict[str, int]:
     return left
 
 
+async def add(session: AsyncSession, channel_id: int, kind: str, amount: int) -> None:
+    quota = await session.scalar(
+        select(ChannelQuota).where(ChannelQuota.channel_id == channel_id, ChannelQuota.kind == kind).with_for_update()
+    )
+    if quota is None:
+        quota = ChannelQuota(channel_id=channel_id, kind=kind, remaining=0)
+        session.add(quota)
+    quota.remaining += amount
+
+
 async def buy_packs(session: AsyncSession, user_id: int, channel_id: int, packs: dict[str, int], total: int) -> bool:
     """Charge `total` from the wallet and add the packs to the channel; False if the wallet can't cover it."""
     if not await debit(session, user_id, total, kind="spend", ref=f"limits:{channel_id}"):
         return False
     for kind, size in packs.items():
-        if not size:
-            continue
-        quota = await session.scalar(
-            select(ChannelQuota)
-            .where(ChannelQuota.channel_id == channel_id, ChannelQuota.kind == kind)
-            .with_for_update()
-        )
-        if quota is None:
-            quota = ChannelQuota(channel_id=channel_id, kind=kind, remaining=0)
-            session.add(quota)
-        quota.remaining += size
+        if size:
+            await add(session, channel_id, kind, size)
     await session.flush()
     analytics.track(session, user_id, "limits", channel_id=channel_id, packs=packs, stars=total)
     return True
