@@ -746,6 +746,7 @@ main { flex: 1; padding-bottom: 24px; }
   height: 0.95em;
   vertical-align: middle;
   flex-shrink: 0;
+  transform: translateY(-0.12em);
 }
 .star-icon svg { display: block; width: 100%; height: 100%; }
 
