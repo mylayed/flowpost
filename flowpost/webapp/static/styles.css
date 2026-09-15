@@ -7,9 +7,9 @@
   --text: #f3f5f9;
   --text-soft: #c3cad6;
   --muted: #8b95a7;
-  --accent: #5b4fe3;
-  --accent-2: #7a6bff;
-  --icon: #8f86ff;
+  --accent: #8b8dd8;
+  --accent-2: #a8aae2;
+  --icon: #a8aae2;
   --gold: #ffc93c;
   color-scheme: dark;
 }
@@ -130,8 +130,8 @@ main { flex: 1; padding-bottom: 24px; }
 .balance-card {
   padding: 22px;
   border-radius: 20px;
-  background: linear-gradient(135deg, #6161e2, #6a4fdc);
-  box-shadow: 0 12px 40px rgba(91, 79, 227, 0.35);
+  background: linear-gradient(135deg, #8b8dd8, #686aa2);
+  box-shadow: 0 12px 40px rgba(139, 141, 216, 0.35);
 }
 
 .balance-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -157,7 +157,7 @@ main { flex: 1; padding-bottom: 24px; }
 
 .btn-light { margin-top: 22px; background: #fff; color: var(--accent); }
 
-.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px rgba(91, 79, 227, 0.35); }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 8px 24px rgba(139, 141, 216, 0.35); }
 
 .section-label {
   margin: 22px 0 8px;
@@ -244,7 +244,7 @@ main { flex: 1; padding-bottom: 24px; }
   height: 32px;
   border-radius: 50%;
   background: #262b4a;
-  color: #b3adff;
+  color: var(--accent-2);
   font-size: 13px;
   font-weight: 700;
 }
@@ -261,13 +261,13 @@ main { flex: 1; padding-bottom: 24px; }
   width: 100%;
   height: 48px;
   border: 0;
-  background: rgba(91, 79, 227, 0.12);
+  background: rgba(139, 141, 216, 0.12);
   color: var(--icon);
   font-weight: 700;
   cursor: pointer;
 }
 
-.renew-all:active { background: rgba(91, 79, 227, 0.2); }
+.renew-all:active { background: rgba(139, 141, 216, 0.2); }
 
 .card { padding: 22px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); }
 
@@ -296,7 +296,7 @@ main { flex: 1; padding-bottom: 24px; }
   background: var(--field);
 }
 
-.amount-field:focus-within { box-shadow: 0 0 0 3px rgba(122, 107, 255, 0.25); }
+.amount-field:focus-within { box-shadow: 0 0 0 3px rgba(168, 170, 226, 0.25); }
 
 .amount-input {
   flex: 1;
@@ -408,7 +408,7 @@ main { flex: 1; padding-bottom: 24px; }
   cursor: pointer;
 }
 
-.chip.active { background: rgba(91, 79, 227, 0.22); color: #a9a2ff; }
+.chip.active { background: rgba(139, 141, 216, 0.22); color: var(--accent-2); }
 
 .pick-card { padding: 12px; }
 
@@ -513,7 +513,7 @@ main { flex: 1; padding-bottom: 24px; }
   cursor: pointer;
 }
 
-.seg-opt.active { border-color: rgba(122, 107, 255, 0.45); background: rgba(91, 79, 227, 0.22); color: #b3adff; }
+.seg-opt.active { border-color: rgba(168, 170, 226, 0.45); background: rgba(139, 141, 216, 0.22); color: var(--accent-2); }
 
 .seg-opt.active.zero { border-color: transparent; background: rgba(255, 255, 255, 0.07); color: var(--text); }
 
@@ -619,9 +619,9 @@ main { flex: 1; padding-bottom: 24px; }
 
 .packs-table tbody tr:last-child th, .packs-table tbody tr:last-child td { border-bottom: 0; }
 
-.calc-card { scroll-margin-top: 16px; border-color: rgba(122, 107, 255, 0.15); background: #221d3f; }
+.calc-card { scroll-margin-top: 16px; border-color: rgba(168, 170, 226, 0.15); background: #221d3f; }
 
-.calc-card .card-label { color: #a9a2ff; }
+.calc-card .card-label { color: var(--accent-2); }
 
 .calc-head {
   display: flex;
@@ -657,7 +657,7 @@ main { flex: 1; padding-bottom: 24px; }
 
 .range::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--accent-2); }
 
-.range:focus-visible { box-shadow: 0 0 0 3px rgba(122, 107, 255, 0.35); }
+.range:focus-visible { box-shadow: 0 0 0 3px rgba(168, 170, 226, 0.35); }
 
 .calc-label { margin: 18px 0 8px; font-size: 13px; color: var(--text-soft); }
 
@@ -665,7 +665,7 @@ main { flex: 1; padding-bottom: 24px; }
 
 .calc-seg .seg-opt { height: 44px; border: 0; border-radius: 12px; color: var(--text-soft); }
 
-.calc-seg .seg-opt.fill { background: #6d62e8; color: #fff; font-weight: 800; }
+.calc-seg .seg-opt.fill { background: var(--accent); color: #fff; font-weight: 800; }
 
 .calc-rows { display: grid; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 
