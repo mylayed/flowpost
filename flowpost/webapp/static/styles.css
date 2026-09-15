@@ -735,13 +735,4 @@ main { flex: 1; padding-bottom: 24px; }
   cursor: pointer;
 }
 
-.footer {
-  margin: 0 -16px;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
-  font-size: 14px;
-  text-align: center;
-  color: var(--muted);
-}
-
 .notice { margin-top: 30vh; text-align: center; color: var(--muted); }

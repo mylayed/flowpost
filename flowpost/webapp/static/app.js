@@ -2,7 +2,6 @@
 
 const tg = window.Telegram && window.Telegram.WebApp;
 const view = document.getElementById("view");
-const footer = document.getElementById("footer");
 const langSelect = document.getElementById("lang");
 const currencyButtons = document.querySelectorAll("[data-currency]");
 
@@ -1446,7 +1445,6 @@ function render() {
   document.documentElement.lang = state.lang;
   langSelect.value = state.lang;
   currencyButtons.forEach((b) => b.classList.toggle("active", b.dataset.currency === state.currency));
-  footer.textContent = state.me.bot_username ? `@${state.me.bot_username}` : "";
   view.replaceChildren(...ROUTES[name](param).flat(Infinity).filter(Boolean));
   if (name) tg.BackButton.show();
   else tg.BackButton.hide();
