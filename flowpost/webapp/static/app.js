@@ -19,6 +19,7 @@ const I18N = {
     transfer: "Перенести підписку",
     plans: "Тарифи",
     my_channels: "Мої канали",
+    channels_hint: "Усі підключені канали.",
     no_channels: "Каналів немає.",
     renew_soon: "Час продовжити",
     renew_all: "Продовжити підписки",
@@ -170,6 +171,7 @@ const I18N = {
     transfer: "Transfer subscription",
     plans: "Plans",
     my_channels: "My channels",
+    channels_hint: "All connected channels.",
     no_channels: "No channels yet.",
     renew_soon: "Time to renew",
     renew_all: "Renew subscriptions",
@@ -330,6 +332,8 @@ const state = {
   checkout: null,
   subscribe: null,
   renew: null,
+  channelsUi: null,
+  channelBack: "",
   limits: null,
   plansUi: null,
   calc: null,
@@ -446,7 +450,7 @@ function renderRenewSoon(me) {
     h("div", { class: "section-label" }, t("renew_soon"), h("span", { class: "count" }, ` · ${expiring.length}`)),
     h("section", { class: "renew-card" },
       expiring.map((c) =>
-        h("button", { class: "renew-row", type: "button", onclick: () => go(`channel/${c.id}`) },
+        h("button", { class: "renew-row", type: "button", onclick: () => openChannel(c.id, "") },
           h("span", { class: "avatar" }, initial(c.title)),
           h("span", { class: "grow" }, c.title),
           daysLabel(c),
@@ -478,7 +482,7 @@ function renderHome() {
       menuItem("swap", t("transfer"), () => go("transfer")),
       menuItem("tag", t("plans"), () => go("plans"))),
     me.channels.length ? null : h("p", { class: "hint" }, t("no_channels")),
-    h("div", { class: "menu menu-bottom" }, menuItem("list", t("my_channels"), soon)),
+    h("div", { class: "menu menu-bottom" }, menuItem("list", t("my_channels"), () => go("channels"))),
   ];
 }
 
@@ -1153,6 +1157,49 @@ function renderSubscribe() {
   ];
 }
 
+function openChannel(id, back) {
+  state.channelBack = back;
+  go(`channel/${id}`);
+}
+
+function renderChannels() {
+  const ui = (state.channelsUi ??= { filters: new Set() });
+  const channels = state.me.channels;
+  const counts = { renew: 0, none: 0, ok: 0 };
+  channels.forEach((c) => { counts[channelCategory(c)] += 1; });
+  const visible = ui.filters.size ? channels.filter((c) => ui.filters.has(channelCategory(c))) : channels;
+  const toggle = (category) => {
+    if (ui.filters.has(category)) ui.filters.delete(category);
+    else ui.filters.add(category);
+    render();
+  };
+
+  let list;
+  if (!channels.length) list = h("p", { class: "hint" }, t("no_channels"));
+  else if (!visible.length) list = h("p", { class: "hint" }, t("no_filtered"));
+  else {
+    list = h("section", { class: "renew-card" }, visible.map((c) =>
+      h("button", { class: "renew-row", type: "button", onclick: () => openChannel(c.id, "channels") },
+        h("span", { class: "avatar" }, initial(c.title)),
+        h("span", { class: "grow" }, c.title),
+        daysLabel(c),
+        icon("chevron", "chev"))));
+  }
+
+  return [
+    h("h1", { class: "title title-tight" }, t("my_channels")),
+    h("div", { class: "subtitle" }, t("channels_hint")),
+    h("div", { class: "chips" }, CATEGORIES.map((category) =>
+      h("button", {
+        class: ui.filters.has(category) ? "chip active" : "chip",
+        type: "button",
+        "aria-pressed": String(ui.filters.has(category)),
+        onclick: () => toggle(category),
+      }, `${t(`cat_${category}`)} · ${counts[category]}`))),
+    list,
+  ];
+}
+
 function selectedChannels() {
   const selected = state.subscribe?.selected;
   return selected ? state.me.channels.filter((c) => selected.has(c.id)) : [];
@@ -1342,6 +1389,7 @@ const ROUTES = {
   checkout: renderCheckout,
   terms: renderTerms,
   channel: renderChannel,
+  channels: renderChannels,
   subscribe: renderSubscribe,
   renew: renderRenew,
   limits: renderLimits,
@@ -1349,7 +1397,7 @@ const ROUTES = {
   transfer: renderTransfer,
 };
 const PARENT = {
-  topup: "", checkout: "topup", terms: "checkout", channel: "", subscribe: "", renew: "subscribe", limits: "", plans: "",
+  topup: "", checkout: "topup", terms: "checkout", channels: "", subscribe: "", renew: "subscribe", limits: "", plans: "",
   transfer: "",
 };
 let lastHash = null;
@@ -1379,6 +1427,10 @@ function goBack() {
   if (name === "checkout" && checkout?.resume) {
     state.checkout = checkout.resume;
     go("checkout");
+    return;
+  }
+  if (name === "channel") {
+    go(state.channelBack);
     return;
   }
   if (name === "checkout" && checkout && checkout.kind !== "topup") {
