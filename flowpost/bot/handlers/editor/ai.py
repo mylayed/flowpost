@@ -27,6 +27,7 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
+from flowpost.services.billing import limits
 from flowpost.services.billing.subscriptions import Access, get_access
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import CAPTION_LIMIT, TEXT_LIMIT, render_signature
@@ -36,12 +37,16 @@ router = Router(name="editor_ai")
 MAX_IMAGE = 5 * 1024 * 1024
 
 
-def ai_menu(post: Post, primary_channel_id: int | None, enabled: bool, left: int | None) -> tuple[str, object]:
+def ai_menu(
+    post: Post, primary_channel_id: int | None, enabled: bool, left: int | None, channel_left: int | None = None,
+) -> tuple[str, object]:
     p = post.id
     lines = [t("ai.title"), ""]
     lines.append(t("ai.help") if enabled else t("ai.disabled"))
     if left is not None:
         lines.append(t("ai.quota", left=max(0, left)))
+    if channel_left is not None:
+        lines.append(t("ai.quota_channel", left=max(0, channel_left)))
     rows = [
         [btn(t("ai.format"), Ed(a="ai_run", p=p, v="format"))],
         [btn(t("ai.shorten"), Ed(a="ai_run", p=p, v="shorten")), btn(t("ai.fix"), Ed(a="ai_run", p=p, v="fix"))],
@@ -71,8 +76,9 @@ async def ed_ai_menu(
     await cb.answer()
     await state.set_state(Editor.content)
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
-    left =await _quota_left(session, user, settings, await get_access(session, user)) if ai.enabled else None
-    text, kb = ai_menu(post, channels[0].id if channels else None, ai.enabled, left)
+    left = await _quota_left(session, user, settings, await get_access(session, user)) if ai.enabled else None
+    channel_left = (await limits.remaining(session, channels[0].id))["ai_text"] if ai.enabled and channels else None
+    text, kb = ai_menu(post, channels[0].id if channels else None, ai.enabled, left, channel_left)
     await show_panel(bot, cb.from_user.id, state, text, kb)
 
 
@@ -101,9 +107,12 @@ async def run_ai(
     if await _quota_left(session, user, settings, access) <= 0:
         await show_panel(bot, chat_id, state, t("ai.quota_over"), back, resend=resend)
         return
-    part = post.parts[idx]
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
     primary = channels[0] if channels else None
+    if primary is not None and (await limits.remaining(session, primary.id))["ai_text"] <= 0:
+        await show_panel(bot, chat_id, state, t("ai.quota_channel_over"), back, resend=resend)
+        return
+    part = post.parts[idx]
     limit = CAPTION_LIMIT if part.media else TEXT_LIMIT
     if primary is not None and (post.options or {}).get("signature", True):
         limit -= visible_len(render_signature(primary)) + 2
@@ -127,6 +136,8 @@ async def run_ai(
         await show_panel(bot, chat_id, state, t(e.key), back)
         return
     analytics.track(session, user.id, "ai_call", action=action)
+    if primary is not None:
+        await limits.take(session, primary.id, "ai_text")
     await state.update_data(ai_result=result, ai_action=action, ai_instruction=instruction, ai_image=image_file_id)
     kb = markup([
         [btn(t("ai.apply"), Ed(a="ai_apply", p=post.id))],

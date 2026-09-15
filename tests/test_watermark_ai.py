@@ -1,9 +1,15 @@
 import io
 
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
+from aiogram.fsm.storage.memory import MemoryStorage
 from PIL import Image
 
+from flowpost.bot.handlers.editor.ai import run_ai
 from flowpost.config import Settings
+from flowpost.db.models import Channel, Post, User
 from flowpost.services.ai import AIService
+from flowpost.services.billing import limits
 from flowpost.services.watermark import position_xy, render_photo, wm_cache_key, wm_configured
 
 
@@ -53,3 +59,58 @@ def test_ai_request_shape():
 
 def test_ai_disabled_without_key():
     assert not AIService(Settings(bot_token="1:x", _env_file=None)).enabled
+
+
+class _StubAI:
+    enabled = True
+    calls = 0
+
+    async def generate(self, action, **kw):
+        _StubAI.calls += 1
+        return "generated text"
+
+
+async def _fsm(fake_bot) -> FSMContext:
+    return FSMContext(storage=MemoryStorage(), key=StorageKey(bot_id=1, chat_id=1, user_id=1))
+
+
+async def test_ai_generation_blocked_and_spent_by_channel_quota(fake_bot, sessionmaker, seeded):
+    settings = Settings(bot_token="1:x", ai_daily_limit_trial=100, _env_file=None)
+    async with sessionmaker() as session:
+        user = await session.get(User, seeded.user_id)
+        post = await session.get(Post, seeded.post_id)
+        channel = await session.get(Channel, seeded.channel_id)
+        channel.title = "Channel"
+        state = await _fsm(fake_bot)
+        ai = _StubAI()
+
+        # No ai_text quota granted yet -> blocked, nothing generated.
+        await run_ai(fake_bot, 1, session, state, user, ai, settings, None, post, 0, "format")
+        await session.commit()
+    assert _StubAI.calls == 0
+    assert "AI-текстів" in fake_bot.calls[-1][2]
+
+    async with sessionmaker() as session:
+        await limits.add(session, seeded.channel_id, "ai_text", 1)
+        await session.commit()
+
+    async with sessionmaker() as session:
+        user = await session.get(User, seeded.user_id)
+        post = await session.get(Post, seeded.post_id)
+        state = await _fsm(fake_bot)
+        ai = _StubAI()
+        await run_ai(fake_bot, 1, session, state, user, ai, settings, None, post, 0, "format")
+        await session.commit()
+    assert _StubAI.calls == 1
+    async with sessionmaker() as session:
+        assert (await limits.remaining(session, seeded.channel_id))["ai_text"] == 0
+
+    # Quota exhausted again after the single generation -> blocked once more.
+    async with sessionmaker() as session:
+        user = await session.get(User, seeded.user_id)
+        post = await session.get(Post, seeded.post_id)
+        state = await _fsm(fake_bot)
+        ai = _StubAI()
+        await run_ai(fake_bot, 1, session, state, user, ai, settings, None, post, 0, "format")
+        await session.commit()
+    assert _StubAI.calls == 1

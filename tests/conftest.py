@@ -52,6 +52,10 @@ class FakeBot:
         self.calls.append(("send_message", chat_id, text, kw))
         return self._msg()
 
+    async def edit_message_text(self, text, chat_id, message_id, **kw):
+        self.calls.append(("edit_message_text", chat_id, text, kw))
+        return self._msg()
+
     async def send_photo(self, chat_id, photo, **kw):
         self.calls.append(("send_photo", chat_id, photo, kw))
         return self._msg(photo=[SimpleNamespace(file_id=f"photo-{self._next_id + 1}")])

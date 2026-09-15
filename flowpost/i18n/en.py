@@ -277,6 +277,8 @@ TEXTS: dict[str, str] = {
     "ai.disabled": "The AI assistant hasn't been set up by the bot owner yet.",
     "ai.quota": "Requests left today: {left}",
     "ai.quota_over": "The daily AI request limit is used up. Try again later.",
+    "ai.quota_channel": "AI texts left for this channel: {left}",
+    "ai.quota_channel_over": "This channel's AI text limit is used up. Top up limits in billing.",
     "ai.format": "✨ Polish the post",
     "ai.shorten": "✂️ Shorten",
     "ai.fix": "📝 Fix mistakes",

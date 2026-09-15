@@ -58,13 +58,13 @@ class Settings(BaseSettings):
         "wm_video": {10: 10, 100: 75, 500: 325, 1000: 599},
         "ai_text": {10: 10, 100: 29, 500: 129, 1000: 229},
     }
-    # Posting plans: posts per day -> Stars and included watermarks per channel per 30 days
+    # Posting plans: posts per day -> Stars and included watermarks/AI texts per channel per 30 days
     posting_plans: dict[int, dict[str, int]] = {
-        1: {"stars": 75, "wm_photo": 30, "wm_video": 6},
-        15: {"stars": 124, "wm_photo": 450, "wm_video": 75},
-        50: {"stars": 199, "wm_photo": 1500, "wm_video": 250},
-        150: {"stars": 349, "wm_photo": 4500, "wm_video": 750},
-        500: {"stars": 499, "wm_photo": 15000, "wm_video": 2500},
+        1: {"stars": 75, "wm_photo": 30, "wm_video": 6, "ai_text": 30},
+        15: {"stars": 124, "wm_photo": 450, "wm_video": 75, "ai_text": 450},
+        50: {"stars": 199, "wm_photo": 1500, "wm_video": 250, "ai_text": 1500},
+        150: {"stars": 349, "wm_photo": 4500, "wm_video": 750, "ai_text": 4500},
+        500: {"stars": 499, "wm_photo": 15000, "wm_video": 2500, "ai_text": 15000},
     }
     channel_discounts: dict[int, int] = {3: 2, 5: 5, 10: 10, 20: 15, 30: 20, 50: 25, 100: 30}  # from N channels -> %
     term_discounts: dict[int, int] = {30: 0, 90: 10, 180: 15, 365: 20}  # days -> %

@@ -304,7 +304,7 @@ async def test_subscribe_channels_from_wallet(sessionmaker, seeded):
         detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
         assert (detail["plan"], detail["posts_per_day"], detail["days_left"]) == ("paid", 15, 36)
         remaining = (await (await client.get(f"/api/limits/{seeded.channel_id}", headers=auth)).json())["remaining"]
-        assert remaining == {"wm_photo": 540, "wm_video": 90, "ai_text": 0}
+        assert remaining == {"wm_photo": 540, "wm_video": 90, "ai_text": 540}
 
         # 36 unused days of the 124★ plan are worth ~22.4 days of the 199★ plan, plus the 30 bought.
         data = await (await buy(posts_per_day=50, stars=199)).json()
