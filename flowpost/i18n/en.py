@@ -100,6 +100,8 @@ TEXTS: dict[str, str] = {
     "ed.hint_published": "<i>Send new text or media, change buttons — then tap «Save in channel».</i>",
     "ed.updated_media": "✅ Media updated",
     "ed.updated_text": "✅ Text updated",
+    "ed.deleted_text": "✅ Text deleted",
+    "ed.delete_text": "🗑 Delete text",
     "ed.primary_channel_note": "ℹ️ Settings are shown for the first channel. Change them for other channels in «My projects».",
     "ed.watermark": "💧 Watermark",
     "ed.buttons": "🔘 Buttons",

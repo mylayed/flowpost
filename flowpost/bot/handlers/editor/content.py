@@ -51,6 +51,20 @@ async def ed_part(
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher)
 
 
+@router.callback_query(Ed.filter(F.a == "del_text"))
+async def ed_delete_text(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
+) -> None:
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    post.parts[idx].text_html = ""
+    await session.flush()
+    await cb.answer()
+    await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_text"))
+
+
 @router.message(Editor.content, CONTENT)
 async def ed_replace_content(
     message: Message,
