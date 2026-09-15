@@ -1,7 +1,10 @@
 from datetime import timedelta
 
+from flowpost.bot.handlers.channels import _grant_trial_quotas
+from flowpost.config import Settings
 from flowpost.db.models import Payment, Subscription, User
 from flowpost.db.types import utcnow
+from flowpost.services.billing import limits
 from flowpost.services.billing.liqpay import (
     LiqPayClient,
     decode_data,
@@ -66,3 +69,20 @@ async def test_liqpay_callback_processing(sessionmaker, seeded):
         assert await session.scalar(select(func.count(Payment.id))) == 1
     cancel = {**payload, "status": "unsubscribed", "payment_id": 1000}
     assert await process_liqpay_payload(cancel, sessionmaker, None) == "cancelled"
+
+
+async def test_grant_trial_quotas_only_on_creation(sessionmaker, seeded):
+    settings = Settings(bot_token="1:x", trial_quotas={"wm_photo": 5, "wm_video": 5, "ai_text": 5}, _env_file=None)
+    async with sessionmaker() as session:
+        await _grant_trial_quotas(session, settings, seeded.channel_id, created=True)
+        await session.commit()
+    async with sessionmaker() as session:
+        left = await limits.remaining(session, seeded.channel_id)
+        assert left == {"wm_photo": 5, "wm_video": 5, "ai_text": 5}
+
+    # Reconnecting the same channel (created=False) must not top it up again.
+    async with sessionmaker() as session:
+        await _grant_trial_quotas(session, settings, seeded.channel_id, created=False)
+        await session.commit()
+    async with sessionmaker() as session:
+        assert (await limits.remaining(session, seeded.channel_id))["wm_photo"] == 5

@@ -14,9 +14,11 @@ from aiogram.types import (
     LinkPreviewOptions,
     Message,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from flowpost.db.models import Channel, Post
+from flowpost.services.billing import limits
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of
 from flowpost.services.watermark import Watermarker, WatermarkSkipped, wm_cache_key, wm_configured
@@ -202,7 +204,9 @@ class Publisher:
         self.bot = bot
         self.watermarker = watermarker
 
-    async def resolve_media(self, media_items: list[dict], channel: Channel | None, opts: dict) -> tuple[list[OutMedia], list[str]]:
+    async def resolve_media(
+        self, media_items: list[dict], channel: Channel | None, opts: dict, session: AsyncSession | None = None,
+    ) -> tuple[list[OutMedia], list[str]]:
         out: list[OutMedia] = []
         warnings: list[str] = []
         use_wm = bool(
@@ -210,18 +214,23 @@ class Publisher:
         )
         for item in media_items:
             if use_wm and item["type"] in WATERMARKABLE:
-                key = wm_cache_key(channel.id, channel.watermark)
-                cached = (item.get("wm") or {}).get(key)
-                if cached:
-                    out.append(OutMedia(item["type"], cached, item, key))
-                    continue
-                try:
-                    data, filename = await self.watermarker.apply(self.bot, item, channel.watermark)
-                    out.append(OutMedia(item["type"], BufferedInputFile(data, filename), item, key))
-                    continue
-                except WatermarkSkipped as e:
-                    if e.key not in warnings:
-                        warnings.append(e.key)
+                # session is None only for editor live previews, which don't spend the channel's quota.
+                kind = "wm_photo" if item["type"] == "photo" else "wm_video"
+                if session is None or await limits.take(session, channel.id, kind):
+                    key = wm_cache_key(channel.id, channel.watermark)
+                    cached = (item.get("wm") or {}).get(key)
+                    if cached:
+                        out.append(OutMedia(item["type"], cached, item, key))
+                        continue
+                    try:
+                        data, filename = await self.watermarker.apply(self.bot, item, channel.watermark)
+                        out.append(OutMedia(item["type"], BufferedInputFile(data, filename), item, key))
+                        continue
+                    except WatermarkSkipped as e:
+                        if e.key not in warnings:
+                            warnings.append(e.key)
+                elif "warn.wm_no_quota" not in warnings:
+                    warnings.append("warn.wm_no_quota")
             out.append(OutMedia(item["type"], item["file_id"], item))
         return out, warnings
 
@@ -243,6 +252,7 @@ class Publisher:
         chat_id: int | None = None,
         preview: bool = False,
         part_indexes: list[int] | None = None,
+        session: AsyncSession | None = None,
     ) -> PublishResult:
         """Send all (or selected) parts of `post`. With `preview=True` sends to `chat_id` without channel options."""
         opts = options_of(post)
@@ -266,7 +276,7 @@ class Publisher:
                 result.parts.append(sent)
                 continue
             text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)
-            media, warnings = await self.resolve_media(part.media, channel, opts)
+            media, warnings = await self.resolve_media(part.media, channel, opts, session)
             sent = await send_part(self.bot, target, text, media, part.buttons, send_opts)
             if self.remember_uploads(media, sent):
                 flag_modified(part, "media")

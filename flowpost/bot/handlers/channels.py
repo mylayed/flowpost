@@ -22,6 +22,7 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.i18n import t
 from flowpost.services import analytics
+from flowpost.services.billing import limits
 
 log = logging.getLogger(__name__)
 router = Router(name="channels")
@@ -39,6 +40,14 @@ def _first_notice(user_id: int, chat_id: int) -> bool:
         return False
     _recent_connects[(user_id, chat_id)] = now
     return True
+
+
+async def _grant_trial_quotas(session: AsyncSession, settings: Settings, channel_id: int, created: bool) -> None:
+    if not created:
+        return
+    for kind, amount in settings.trial_quotas.items():
+        if amount:
+            await limits.add(session, channel_id, kind, amount)
 
 
 async def send_add_channel_screen(message: Message) -> None:
@@ -114,6 +123,7 @@ async def on_chat_shared(message: Message, bot: Bot, session: AsyncSession, user
         is_forum=bool(chat.is_forum),
         trial_days=settings.trial_days,
     )
+    await _grant_trial_quotas(session, settings, channel.id, _created)
     analytics.track(session, user.id, "channel_connected", chat_id=chat.id)
     notify = _first_notice(user.id, chat.id)
     if not notify:
@@ -170,6 +180,7 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
         is_forum=bool(getattr(chat, "is_forum", False)),
         trial_days=settings.trial_days,
     )
+    await _grant_trial_quotas(session, settings, channel.id, _created)
     if _first_notice(adder.id, chat.id):
         try:
             await bot.send_message(

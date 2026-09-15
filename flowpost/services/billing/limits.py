@@ -51,6 +51,18 @@ async def add(session: AsyncSession, channel_id: int, kind: str, amount: int) ->
     quota.remaining += amount
 
 
+async def take(session: AsyncSession, channel_id: int, kind: str, amount: int = 1) -> bool:
+    """Spend `amount` of a channel's quota; False and no write if less than that remains."""
+    quota = await session.scalar(
+        select(ChannelQuota).where(ChannelQuota.channel_id == channel_id, ChannelQuota.kind == kind).with_for_update()
+    )
+    if quota is None or quota.remaining < amount:
+        return False
+    quota.remaining -= amount
+    await session.flush()
+    return True
+
+
 async def buy_packs(session: AsyncSession, user_id: int, channel_id: int, packs: dict[str, int], total: int) -> bool:
     """Charge `total` from the wallet and add the packs to the channel; False if the wallet can't cover it."""
     if not await debit(session, user_id, total, kind="spend", ref=f"limits:{channel_id}"):

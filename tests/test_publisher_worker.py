@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from flowpost.db.models import Channel, Post, PostPart, Publication, RepeatRule, User
 from flowpost.db.types import utcnow
+from flowpost.services.billing import limits
 from flowpost.services.publisher import OutMedia, Publisher, SendOptions, send_part
 from flowpost.services.worker import Worker
 
@@ -206,3 +207,34 @@ async def test_watermark_cache_reused(fake_bot, sessionmaker, seeded):
     assert Publisher.remember_uploads(media, sent)
     media2, _ = await publisher.resolve_media([item], channel, opts)
     assert StubWatermarker.calls == 1 and isinstance(media2[0].media, str)
+
+
+async def test_watermark_spends_channel_quota(fake_bot, sessionmaker, seeded):
+    class StubWatermarker:
+        async def apply(self, bot, item, settings):
+            return b"jpeg", "photo.jpg"
+
+    publisher = Publisher(fake_bot, StubWatermarker())
+    opts = {"watermark": True}
+    item = {"type": "photo", "file_id": "orig"}
+
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, seeded.channel_id)
+        channel.watermark = {"type": "text", "text": "FlowPost"}
+        await limits.add(session, seeded.channel_id, "wm_photo", 1)
+        await session.commit()
+
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, seeded.channel_id)
+        media, warnings = await publisher.resolve_media([item], channel, opts, session)
+        await session.commit()
+    assert not isinstance(media[0].media, str) and warnings == []  # freshly watermarked, no warning
+
+    async with sessionmaker() as session:
+        assert (await limits.remaining(session, seeded.channel_id))["wm_photo"] == 0
+
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, seeded.channel_id)
+        media, warnings = await publisher.resolve_media([item], channel, opts, session)
+        await session.commit()
+    assert media[0].media == "orig" and warnings == ["warn.wm_no_quota"]  # quota exhausted, published as-is

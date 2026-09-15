@@ -143,7 +143,7 @@ async def deliver_publication(
     remaining = list(range(len(sent_parts), len(post.parts)))
 
     for idx in remaining:
-        result = await publisher.publish_post(post, channel, owner.lang, part_indexes=[idx])
+        result = await publisher.publish_post(post, channel, owner.lang, part_indexes=[idx], session=session)
         sent_parts = [*sent_parts, result.parts[0].to_dict()]
         for w in result.warnings:
             if w not in warnings:

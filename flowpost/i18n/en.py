@@ -588,4 +588,5 @@ TEXTS: dict[str, str] = {
     "warn.wm_failed": "couldn't watermark the video — the original was published",
     "warn.wm_no_ffmpeg": "video watermarks are unavailable on the server (ffmpeg missing)",
     "warn.wm_too_big": "the file is larger than 20 MB — published without a watermark",
+    "warn.wm_no_quota": "watermark quota used up — published without it. Top up limits in billing",
 }
