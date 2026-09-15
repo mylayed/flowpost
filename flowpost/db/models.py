@@ -85,6 +85,7 @@ class PostPart(Base):
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     text_html: Mapped[str] = mapped_column(Text, default="")
+    source_signature: Mapped[str] = mapped_column(Text, default="")
     media: Mapped[list] = mapped_column(JSONType, default=list)
     buttons: Mapped[list] = mapped_column(JSONType, default=list)
 

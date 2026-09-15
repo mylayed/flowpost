@@ -123,8 +123,12 @@ def render_signature(channel: Channel) -> str:
     )
 
 
-def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: bool, lang: str) -> str:
+def final_text(
+    part_text: str, opts: dict, channel: Channel | None, *, is_last: bool, lang: str, source_signature: str = "",
+) -> str:
     chunks = [part_text.strip()] if part_text and part_text.strip() else []
+    if source_signature and source_signature.strip():
+        chunks.append(f"<i>{html.escape(source_signature.strip())}</i>")
     if is_last and opts.get("ad_label"):
         chunks.append(f"<i>{html.escape(t('post.ad_label', locale=lang))}</i>")
     if is_last and opts.get("signature") and channel is not None:
@@ -152,7 +156,9 @@ def post_is_empty(post: Post) -> bool:
 
 def part_warnings(part: PostPart, opts: dict, channel: Channel | None, lang: str, *, is_last: bool) -> list[str]:
     keys: list[str] = []
-    text_len = visible_len(final_text(part.text_html, opts, channel, is_last=is_last, lang=lang))
+    text_len = visible_len(
+        final_text(part.text_html, opts, channel, is_last=is_last, lang=lang, source_signature=part.source_signature)
+    )
     if len(part.media) > 1 and part.buttons:
         keys.append("warn.album_buttons")
     if part.media and text_len > CAPTION_LIMIT:

@@ -127,7 +127,7 @@ async def ed_media_received(
         await message.answer(t("err.post_not_found"))
         return
     part = post.parts[idx]
-    _, media = extract_content(album or [message])
+    _, media, _ = extract_content(album or [message])
     combined = list(part.media) + media
     error = group_error(combined)
     if error:

@@ -102,6 +102,8 @@ TEXTS: dict[str, str] = {
     "ed.updated_text": "✅ Текст оновлено",
     "ed.deleted_text": "✅ Текст видалено",
     "ed.delete_text": "🗑 Видалити текст",
+    "ed.delete_source_signature": "🗑 Видалити підпис джерела",
+    "ed.deleted_source_signature": "✅ Підпис джерела видалено",
     "ed.primary_channel_note": "ℹ️ Налаштування показані для першого каналу. Для інших каналів змініть їх у «Мої проєкти».",
     "ed.watermark": "💧 Водяний знак",
     "ed.buttons": "🔘 Кнопки",

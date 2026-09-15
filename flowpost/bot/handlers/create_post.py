@@ -37,10 +37,21 @@ def initial_options(channel: Channel, is_ad: bool) -> dict:
     return opts
 
 
-def extract_content(messages: list[Message]) -> tuple[str, list[dict]]:
+def extract_source_signature(messages: list[Message]) -> str:
+    """The author signature Telegram attaches when forwarding a signed channel post."""
+    for m in messages:
+        origin = m.forward_origin
+        if origin is not None and origin.type == "channel":
+            signature = getattr(origin, "author_signature", None)
+            if signature:
+                return signature
+    return ""
+
+
+def extract_content(messages: list[Message]) -> tuple[str, list[dict], str]:
     media = [m for m in (media_from_message(x) for x in messages) if m]
     text = next((message_text(x) for x in messages if (x.text or x.caption)), "")
-    return text, media
+    return text, media, extract_source_signature(messages)
 
 
 async def start_post(
@@ -54,6 +65,7 @@ async def start_post(
     is_ad: bool = False,
     text: str = "",
     media: list[dict] | None = None,
+    source_signature: str = "",
 ) -> None:
     await state.clear()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
@@ -63,12 +75,13 @@ async def start_post(
     if len(channels) == 1:
         post = await posts_repo.create_post(
             session, channels[0].owner_id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
-            text=text, media=media,
+            text=text, media=media, source_signature=source_signature,
         )
         note = t("post.ad_intro") if is_ad else None
         await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
         return
-    post = await posts_repo.create_post(session, user.id, [], is_ad=is_ad, text=text, media=media)
+    post = await posts_repo.create_post(session, user.id, [], is_ad=is_ad, text=text, media=media,
+                                         source_signature=source_signature)
     await message.answer(t("post.choose_channel"), reply_markup=channels_pick_kb(channels, post.id))
 
 
@@ -114,7 +127,7 @@ async def content_starts_post(
     if message.text and message.text.startswith("/"):
         await message.answer(t("err.unknown_command"))
         return
-    text, media = extract_content(album or [message])
+    text, media, source_signature = extract_content(album or [message])
     error = group_error(media)
     if error:
         await message.answer(t(error))
@@ -122,4 +135,5 @@ async def content_starts_post(
     if visible_len(text) > TEXT_LIMIT:
         await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
         return
-    await start_post(message, bot, session, state, user, publisher, text=text, media=media)
+    await start_post(message, bot, session, state, user, publisher, text=text, media=media,
+                      source_signature=source_signature)

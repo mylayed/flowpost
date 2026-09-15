@@ -229,7 +229,8 @@ class Publisher:
         last_index = len(post.parts) - 1
         for idx in indexes:
             part = post.parts[idx]
-            text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)
+            text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang,
+                               source_signature=part.source_signature)
             media, warnings = await self.resolve_media(part.media, channel, opts)
             sent = await send_part(self.bot, target, text, media, part.buttons, send_opts)
             if self.remember_uploads(media, sent):

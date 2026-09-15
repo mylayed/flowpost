@@ -28,6 +28,10 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
     media_label = t("ed.media") + (f" ({len(part.media)})" if part.media else "")
 
     if published:
+        if part.text_html.strip():
+            rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
+        if part.source_signature.strip():
+            rows.append([btn(t("ed.delete_source_signature"), Ed(a="del_sig", p=p))])
         rows += [
             [btn(buttons_label, Ed(a="btn", p=p)), btn(media_label, Ed(a="media", p=p))],
             [btn(t("ed.ai"), Ed(a="ai", p=p))],
@@ -40,6 +44,8 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
     multi_label = t("ed.multipost") + (f" ({len(post.targets)})" if len(post.targets) > 1 else "")
     if part.text_html.strip():
         rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
+    if part.source_signature.strip():
+        rows.append([btn(t("ed.delete_source_signature"), Ed(a="del_sig", p=p))])
     rows += [
         [btn(on(opts["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p)), btn(buttons_label, Ed(a="btn", p=p))],
         [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],

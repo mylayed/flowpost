@@ -102,6 +102,8 @@ TEXTS: dict[str, str] = {
     "ed.updated_text": "✅ Text updated",
     "ed.deleted_text": "✅ Text deleted",
     "ed.delete_text": "🗑 Delete text",
+    "ed.delete_source_signature": "🗑 Delete source signature",
+    "ed.deleted_source_signature": "✅ Source signature deleted",
     "ed.primary_channel_note": "ℹ️ Settings are shown for the first channel. Change them for other channels in «My projects».",
     "ed.watermark": "💧 Watermark",
     "ed.buttons": "🔘 Buttons",

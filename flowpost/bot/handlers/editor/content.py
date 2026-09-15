@@ -65,6 +65,20 @@ async def ed_delete_text(
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_text"))
 
 
+@router.callback_query(Ed.filter(F.a == "del_sig"))
+async def ed_delete_source_signature(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
+) -> None:
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    post.parts[idx].source_signature = ""
+    await session.flush()
+    await cb.answer()
+    await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_source_signature"))
+
+
 @router.message(Editor.content, CONTENT)
 async def ed_replace_content(
     message: Message,
@@ -84,7 +98,7 @@ async def ed_replace_content(
         await message.answer(t("err.post_not_found"))
         return
     part = post.parts[idx]
-    text, media = extract_content(album or [message])
+    text, media, source_signature = extract_content(album or [message])
     if visible_len(text) > TEXT_LIMIT:
         await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
         return
@@ -96,9 +110,11 @@ async def ed_replace_content(
         part.media = media
         if text:
             part.text_html = text
+            part.source_signature = source_signature
         note = t("ed.updated_media")
     else:
         part.text_html = text
+        part.source_signature = source_signature
         note = t("ed.updated_text")
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
