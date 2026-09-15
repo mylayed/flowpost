@@ -37,27 +37,40 @@ def initial_options(channel: Channel, is_ad: bool) -> dict:
     return opts
 
 
-def extract_source_signature(messages: list[Message]) -> str:
-    """The source channel's attribution Telegram attaches when forwarding one of its posts:
-    the channel title, plus the post author's name if the channel signs its posts."""
-    for m in messages:
-        origin = m.forward_origin
-        if origin is not None and origin.type == "channel":
-            title = getattr(getattr(origin, "chat", None), "title", None)
-            author = getattr(origin, "author_signature", None)
-            if title and author:
-                return f"{title} ({author})"
-            if title:
-                return title
-            if author:
-                return author
-    return ""
+def extract_source_signature(messages: list[Message], text: str) -> str:
+    """The trailing line of `text` that names the forwarded channel — e.g. a self-promo
+    link/title the source channel appends to its own posts. Returns the exact substring
+    (with any blank separator lines before it) so it can be cut out verbatim later."""
+    if not text:
+        return ""
+    origin = next((m.forward_origin for m in messages if m.forward_origin and m.forward_origin.type == "channel"), None)
+    if origin is None:
+        return ""
+    chat = getattr(origin, "chat", None)
+    username = getattr(chat, "username", None)
+    needles = [n for n in (
+        getattr(chat, "title", None),
+        f"@{username}" if username else None,
+        f"t.me/{username}" if username else None,
+    ) if n]
+    if not needles:
+        return ""
+    lines = text.split("\n")
+    last = len(lines) - 1
+    while last >= 0 and not lines[last].strip():
+        last -= 1
+    if last < 0 or not any(n.lower() in lines[last].lower() for n in needles):
+        return ""
+    start = last
+    while start > 0 and not lines[start - 1].strip():
+        start -= 1
+    return "\n".join(lines[start:])
 
 
 def extract_content(messages: list[Message]) -> tuple[str, list[dict], str]:
     media = [m for m in (media_from_message(x) for x in messages) if m]
     text = next((message_text(x) for x in messages if (x.text or x.caption)), "")
-    return text, media, extract_source_signature(messages)
+    return text, media, extract_source_signature(messages, text)
 
 
 async def start_post(

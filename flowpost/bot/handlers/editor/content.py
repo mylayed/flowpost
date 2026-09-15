@@ -73,7 +73,10 @@ async def ed_delete_source_signature(
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
-    post.parts[idx].source_signature = ""
+    part = post.parts[idx]
+    if part.source_signature and part.source_signature in part.text_html:
+        part.text_html = part.text_html.replace(part.source_signature, "", 1).rstrip("\n")
+    part.source_signature = ""
     await session.flush()
     await cb.answer()
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("ed.deleted_source_signature"))

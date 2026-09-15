@@ -201,8 +201,7 @@ async def ed_save_published(
                 if i >= len(records):
                     warnings.append("save.parts_added")
                     break
-                text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang,
-                                   source_signature=part.source_signature)
+                text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang)
                 await _edit_published_part(bot, channel, records[i], part, text, warnings)
             flag_modified(pub, "message_ids")
             lines.append(t("save.ok_line", title=html.escape(channel.title)))
