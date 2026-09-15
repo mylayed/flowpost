@@ -529,10 +529,15 @@ function renderTopup() {
     min, max, step: 1, placeholder: "100", value: state.topupDraft,
   });
   const usdHint = h("span", { class: "amount-usd" });
+  const errorHint = h("p", { class: "hint danger" });
+  const button = h("button", { class: "btn btn-primary", type: "button", onclick: () => continueTopup(input) }, t("continue"));
   const refresh = () => {
     state.topupDraft = input.value;
     const stars = Number(input.value);
+    const valid = input.value !== "" && Number.isInteger(stars) && stars >= min && stars <= max;
     usdHint.textContent = input.value && stars > 0 ? `≈ ${usd(stars)}` : "";
+    errorHint.textContent = input.value && !valid ? t("invalid_amount", { min: number(min), max: number(max) }) : "";
+    button.disabled = !valid;
   };
   input.addEventListener("input", refresh);
   refresh();
@@ -543,10 +548,11 @@ function renderTopup() {
       h("label", { class: "field-label", for: "amount" }, t("topup_amount")),
       h("div", { class: "field-sub" }, `${number(min)}–${number(max)}`),
       h("div", { class: "amount-field" }, input, usdHint),
+      errorHint,
       state.me.cashback_percent > 0
         ? h("p", { class: "hint" }, t("topup_cashback", { percent: state.me.cashback_percent }))
         : null,
-      h("button", { class: "btn btn-primary", type: "button", onclick: () => continueTopup(input) }, t("continue"))),
+      button),
   ];
 }
 
