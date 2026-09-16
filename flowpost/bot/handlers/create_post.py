@@ -1,19 +1,23 @@
 """Starting a new post: via the menu button or by simply sending content to the bot."""
 from __future__ import annotations
 
+import html
+
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.callbacks import Nc
+from flowpost.bot.callbacks import Fd, Nc
 from flowpost.bot.handlers.editor.view import open_editor, safe_delete
 from flowpost.bot.keyboards.common import add_channel_inline_kb
 from flowpost.bot.keyboards.editor import channels_pick_kb
 from flowpost.db.models import Channel, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.repo import folders as folders_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
@@ -102,7 +106,45 @@ async def start_post(
         return
     post = await posts_repo.create_post(session, user.id, [], is_ad=is_ad, text=text, media=media,
                                          source_signature=source_signature, poll=poll)
-    await message.answer(t("post.choose_channel"), reply_markup=channels_pick_kb(channels, post.id))
+    picker_text, picker_kb = await channel_picker(session, user, post.id)
+    await message.answer(picker_text, reply_markup=picker_kb)
+
+
+async def channel_picker(
+    session: AsyncSession, user: User, post_id: int, folder_id: int = 0
+) -> tuple[str, InlineKeyboardMarkup]:
+    """The «which channel?» screen: folders plus loose channels at the root, a folder's channels inside it."""
+    channels = await channels_repo.list_channels(session, user.id, perm="posts")
+    if folder_id:
+        folder = await folders_repo.get_folder(session, user.id, folder_id)
+        if folder is None:
+            return await channel_picker(session, user, post_id)
+        inside_ids = set(await folders_repo.folder_channel_ids(session, folder_id))
+        inside = [c for c in channels if c.id in inside_ids]
+        text = t("fld.pick_title", title=html.escape(folder.title)) + "\n\n"
+        text += t("post.choose_channel") if inside else t("fld.empty_folder")
+        return text, channels_pick_kb(inside, post_id, folder_id=folder_id)
+    counts = await folders_repo.counts_by_folder(session, user.id)
+    folders = [(f, counts[f.id]) for f in await folders_repo.list_folders(session, user.id) if counts.get(f.id)]
+    grouped = await folders_repo.grouped_channel_ids(session, user.id)
+    loose = [c for c in channels if c.id not in grouped]
+    return t("post.choose_channel"), channels_pick_kb(loose, post_id, folders)
+
+
+@router.callback_query(Fd.filter(F.a == "pick"))
+async def cb_pick_folder(cb: CallbackQuery, callback_data: Fd, session: AsyncSession, user: User) -> None:
+    post = await posts_repo.get_post(session, user.id, callback_data.p)
+    if post is None:
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return
+    await cb.answer()
+    text, kb = await channel_picker(session, user, post.id, callback_data.f)
+    if cb.message:
+        try:
+            await cb.message.edit_text(text, reply_markup=kb)
+        except TelegramBadRequest as e:
+            if "not modified" not in str(e):
+                await cb.message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(Nc.filter())

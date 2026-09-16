@@ -15,12 +15,12 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
 from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Bl, Ca, Cp, Cs, Ed, Ep, Pj, St
+from flowpost.bot.callbacks import Bl, Ca, Cp, Cs, Ed, Ep, Fd, Nc, Pj, St
 from flowpost.bot.handlers.channel_settings import stats_view
 from flowpost.bot.setup import build_dispatcher
 from flowpost.config import Settings
-from flowpost.db.models import Channel, ChannelAdmin, Post, PostPart, PostTarget, Publication, RepeatRule, \
-    Subscription, User
+from flowpost.db.models import Channel, ChannelAdmin, ChannelFolder, ChannelFolderItem, Post, PostPart, \
+    PostTarget, Publication, RepeatRule, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.ai import AIService
 from flowpost.services.billing.stars import make_payload
@@ -712,3 +712,57 @@ async def test_stats_view_summarizes_engagement(h: Harness):
         return await stats_view(session, channel, user, 7)
     text, _ = await h.db(render)
     assert "Реакції: 5" in text and "Коментарі: 4" in text and "Новина дня" in text
+
+
+async def test_folders_group_channels_in_the_new_post_picker(h: Harness):
+    channel_id, _ = await _seed_published(h, message_id=4242)
+    user = await _user(h)
+    channel2_id = await _seed_second_channel(h, user.id)
+
+    # Налаштування → Інтерфейс → Папки → нова папка
+    h.session.clear()
+    await h.click(St(a="ui"))
+    assert "Інтерфейс" in h.session.texts()
+    await h.click(St(a="ui_folders"))
+    await h.click(Fd(a="new"))
+    h.session.clear()
+    await h.text("Новини")
+    folder = await h.db(lambda s: s.scalar(select(ChannelFolder)))
+    assert folder.title == "Новини" and "створено" in h.session.texts()
+
+    # tick one channel, save it into the folder
+    h.session.clear()
+    await h.click(Fd(a="tog", f=folder.id, c=channel_id))
+    assert "Зберегти" in str(h.session.calls[-1][1].reply_markup)
+    await h.click(Fd(a="save", f=folder.id))
+    async def member_ids(s):
+        return list(await s.scalars(select(ChannelFolderItem.channel_id)))
+    members = await h.db(member_ids)
+    assert members == [channel_id]
+
+    # a new post now offers the folder plus the channel left outside it
+    h.session.clear()
+    await h.photo()
+    post = await _post(h)
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Новини (1)" in kb_text and "Другий канал" in kb_text and "Test Channel" not in kb_text
+
+    # entering the folder narrows the picker to its channels
+    h.session.clear()
+    await h.click(Fd(a="pick", f=folder.id, p=post.id))
+    kb_text = str(h.session.calls[-1][1].reply_markup)
+    assert "Test Channel" in kb_text and "Другий канал" not in kb_text
+    assert "Вийти з папки" in kb_text
+
+    # picking a channel there opens the editor for it
+    h.session.clear()
+    await h.click(Nc(c=channel_id, p=post.id))
+    assert [t.channel_id for t in (await _post(h)).targets] == [channel_id]
+
+    # deleting the folder keeps the channels themselves
+    await h.click(Fd(a="delok", f=folder.id))
+    assert await h.db(lambda s: s.scalar(select(ChannelFolder))) is None
+    async def all_channels(s):
+        return list(await s.scalars(select(Channel)))
+    assert len(await h.db(all_channels)) == 2
+    assert channel2_id

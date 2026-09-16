@@ -28,5 +28,10 @@ class SettingsInput(StatesGroup):
     tz = State()
 
 
+class FolderInput(StatesGroup):
+    title = State()   # name for a folder being created
+    rename = State()  # new name for an existing folder
+
+
 class EditPublished(StatesGroup):
     waiting_forward = State()

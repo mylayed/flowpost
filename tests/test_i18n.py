@@ -7,7 +7,7 @@ from flowpost.i18n import detect_lang, en, t, uk, variants
 SRC = Path(__file__).resolve().parents[1] / "flowpost"
 PREFIXES = (
     "err|warn|ai|save|notify|pay|addch|media|provider|cmd|bot|sch|ed|more|rep|parts|multi|plan|proj|set|sig|wm|"
-    "topic|editp|btn|btn_menu|media_menu|menu|start|help|post|pub|cancel|paywall|fmt"
+    "topic|editp|fld|btn|btn_menu|media_menu|menu|start|help|post|pub|cancel|paywall|fmt"
 )
 KEY_RE = re.compile(r"[\"']((?:" + PREFIXES + r")\.[a-z0-9_]+)[\"']")
 FILE_SUFFIXES = ("png", "jpg", "mp4", "db")

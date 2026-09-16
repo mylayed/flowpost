@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardMarkup
 
 from flowpost.bot.callbacks import Ed
 from flowpost.bot.keyboards.common import btn, chunked, markup, on
-from flowpost.db.models import Channel, Post
+from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
 from flowpost.services.posts import options_of
 from flowpost.services.slots import fmt_date, fmt_hm
@@ -119,8 +119,17 @@ def schedule_kb(
     return markup(rows)
 
 
-def channels_pick_kb(channels: list[Channel], post_id: int) -> InlineKeyboardMarkup:
-    from flowpost.bot.callbacks import Nc
+def channels_pick_kb(
+    channels: list[Channel],
+    post_id: int,
+    folders: list[tuple[ChannelFolder, int]] = (),
+    *,
+    folder_id: int = 0,
+) -> InlineKeyboardMarkup:
+    from flowpost.bot.callbacks import Fd, Nc
 
-    rows = [[btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Nc(c=c.id, p=post_id))] for c in channels]
+    rows = [[btn(t("fld.row", title=f.title, n=n), Fd(a="pick", f=f.id, p=post_id))] for f, n in folders]
+    rows += [[btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Nc(c=c.id, p=post_id))] for c in channels]
+    if folder_id:
+        rows.append([btn(t("fld.leave"), Fd(a="pick", p=post_id))])
     return markup(rows)

@@ -55,6 +55,26 @@ class Channel(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ChannelFolder(Base):
+    """A user-defined group of channels used to narrow the channel pickers."""
+
+    __tablename__ = "channel_folders"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ChannelFolderItem(Base):
+    __tablename__ = "channel_folder_items"
+    __table_args__ = (UniqueConstraint("folder_id", "channel_id", name="uq_channel_folder_items_folder_channel"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    folder_id: Mapped[int] = mapped_column(ForeignKey("channel_folders.id", ondelete="CASCADE"), index=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+
+
 class Post(Base):
     __tablename__ = "posts"
 

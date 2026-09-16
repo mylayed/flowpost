@@ -42,6 +42,15 @@ class Pj(CallbackData, prefix="pj"):
     c: int = 0
 
 
+class Fd(CallbackData, prefix="fd"):
+    """Channel folders. `f` — folder id, `c` — channel id, `p` — post id (folder drill-down in the picker)."""
+
+    a: str
+    f: int = 0
+    c: int = 0
+    p: int = 0
+
+
 class St(CallbackData, prefix="st"):
     """User settings."""
 
