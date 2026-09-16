@@ -31,6 +31,20 @@ def chunked(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def paged(page: int, total: int, per_page: int) -> tuple[int, int]:
+    """Clamp `page` to the pages `total` items fill; returns (page, pages)."""
+    pages = max(1, -(-total // per_page))
+    return min(max(page, 0), pages - 1), pages
+
+
+def page_nav(page: int, pages: int, to_page, noop: CallbackData) -> list[InlineKeyboardButton]:
+    return [
+        btn("◀️", to_page(page - 1)) if page > 0 else btn("·", noop),
+        btn(f"{page + 1}/{pages}", noop),
+        btn("▶️", to_page(page + 1)) if page < pages - 1 else btn("·", noop),
+    ]
+
+
 def pay_btn(settings: Settings, text: str | None = None) -> InlineKeyboardButton:
     """Opens the billing Mini App; without a public HTTPS URL it falls back to the /subscribe screen."""
     label = text or t("btn.pay")

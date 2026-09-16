@@ -33,6 +33,7 @@ class Cp(CallbackData, prefix="cp"):
     id: int = 0
     m: str = "s"
     c: int = 0
+    pg: int = 0
 
 
 class Pj(CallbackData, prefix="pj"):
@@ -51,6 +52,7 @@ class Fd(CallbackData, prefix="fd"):
     c: int = 0
     p: int = 0
     v: str = ""
+    pg: int = 0
 
 
 class St(CallbackData, prefix="st"):

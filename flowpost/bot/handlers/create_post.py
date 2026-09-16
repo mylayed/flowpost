@@ -112,10 +112,11 @@ async def start_post(
 
 
 async def channel_picker(
-    session: AsyncSession, user: User, post_id: int, folder_id: int = 0
+    session: AsyncSession, user: User, post_id: int, folder_id: int = 0, page: int = 0
 ) -> tuple[str, InlineKeyboardMarkup]:
     """The «which channel?» screen: folders plus loose channels at the root, a folder's channels inside it."""
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
+    per_page = user.channels_per_page
     if folder_id:
         folder = await folders_repo.get_folder(session, user.id, folder_id)
         if folder is None:
@@ -124,12 +125,17 @@ async def channel_picker(
         inside = [c for c in channels if c.id in inside_ids]
         text = t("fld.pick_title", icon=folder.icon, title=html.escape(folder.title)) + "\n\n"
         text += t("post.choose_channel") if inside else t("fld.empty_folder")
-        return text, channels_pick_kb(inside, post_id, folder_id=folder_id)
+        return text, channels_pick_kb(inside, post_id, folder_id=folder_id, page=page, per_page=per_page)
     counts = await folders_repo.counts_by_folder(session, user.id)
     folders = [(f, counts[f.id]) for f in await folders_repo.list_folders(session, user.id) if counts.get(f.id)]
     grouped = await folders_repo.grouped_channel_ids(session, user.id)
     loose = [c for c in channels if c.id not in grouped]
-    return t("post.choose_channel"), channels_pick_kb(loose, post_id, folders)
+    return t("post.choose_channel"), channels_pick_kb(loose, post_id, folders, page=page, per_page=per_page)
+
+
+@router.callback_query(Fd.filter(F.a == "noop"))
+async def cb_picker_noop(cb: CallbackQuery) -> None:
+    await cb.answer()
 
 
 @router.callback_query(Fd.filter(F.a == "pick"))
@@ -139,7 +145,7 @@ async def cb_pick_folder(cb: CallbackQuery, callback_data: Fd, session: AsyncSes
         await cb.answer(t("err.post_not_found"), show_alert=True)
         return
     await cb.answer()
-    text, kb = await channel_picker(session, user, post.id, callback_data.f)
+    text, kb = await channel_picker(session, user, post.id, callback_data.f, callback_data.pg)
     if cb.message:
         try:
             await cb.message.edit_text(text, reply_markup=kb)

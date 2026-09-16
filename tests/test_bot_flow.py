@@ -783,3 +783,48 @@ async def test_folders_group_channels_in_the_new_post_picker(h: Harness):
         return list(await s.scalars(select(Channel)))
     assert len(await h.db(all_channels)) == 2
     assert channel2_id
+
+
+async def test_channel_list_order_and_paging(h: Harness):
+    await _seed_published(h, message_id=4242)
+    user = await _user(h)
+
+    async def more(session):
+        ids = []
+        for i in range(5):
+            channel = Channel(owner_id=user.id, chat_id=CHANNEL_CHAT - 10 - i, kind="channel",
+                              title=f"Канал {i}", username=f"c{i}", watermark={})
+            session.add(channel)
+            await session.flush()
+            ids.append(channel.id)
+        await session.commit()
+        return ids
+    extra = await h.db(more)
+
+    # Інтерфейс → Канали: four per page
+    h.session.clear()
+    await h.click(St(a="ui_channels"))
+    assert "списку каналів" in h.session.texts()
+    await h.click(St(a="ui_pp"))
+    await h.click(St(a="ui_ppset", v="4"))
+    assert (await _user(h)).channels_per_page == 4
+
+    # pin the last channel to the front of every channel list
+    h.session.clear()
+    await h.click(St(a="ui_order"))
+    await h.click(St(a="ui_ord", v=str(extra[-1])))
+    assert (await _user(h)).channel_order == [extra[-1]]
+    assert "1. " in str(h.session.calls[-1][1].reply_markup)
+
+    # the new-post picker honours both: pinned channel first, four rows plus a page nav
+    h.session.clear()
+    await h.photo()
+    rows = h.session.calls[-1][1].reply_markup.inline_keyboard
+    assert rows[0][0].text.endswith("Канал 4")
+    assert len(rows) == 5 and [b.text for b in rows[-1]] == ["·", "1/2", "▶️"]
+
+    h.session.clear()
+    post = await _post(h)
+    await h.click(Fd(a="pick", p=post.id, pg=1))
+    rows = h.session.calls[-1][1].reply_markup.inline_keyboard
+    assert len(rows) == 3 and [b.text for b in rows[-1]] == ["◀️", "2/2", "·"]

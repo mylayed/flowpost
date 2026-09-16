@@ -513,6 +513,18 @@ TEXTS: dict[str, str] = {
     "set.interface_text": "Tune the bot's interface for more convenient posting.",
     "set.interface_folders": "🗂 Folders",
     "set.interface_channels": "📢 Channels",
+    "set.ch_title": "📢 <b>Channel list settings</b>",
+    "set.ch_text": "Here you can set the order and the display of your channels.",
+    "set.ch_order": "⇅ Channel order",
+    "set.ch_per_page": "Channels per page: {n}",
+    "set.ch_per_page_title": "🔢 <b>Channels per page</b>",
+    "set.ch_per_page_text": "Choose how many channels to show per page when creating posts and in the content plan.",
+    "set.ch_order_title": "⇅ <b>Channel order</b>",
+    "set.ch_order_text": (
+        "Choose which channels come first in the channel lists "
+        "when creating posts, in the content plan and in the settings."
+    ),
+    "set.ch_order_empty": "Connect channels first.",
     "set.support": "🆘 Support",
 
     # ---- Channel folders ---------------------------------------------------------------------

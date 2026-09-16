@@ -14,7 +14,7 @@ from flowpost.bot.callbacks import Cp
 from flowpost.bot.handlers.editor.publish import publish_now
 from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import fmt_interval, open_editor
-from flowpost.bot.keyboards.common import btn, markup
+from flowpost.bot.keyboards.common import btn, markup, page_nav, paged
 from flowpost.db.models import Channel, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
@@ -29,8 +29,16 @@ from flowpost.services.worker import Worker
 router = Router(name="content_plan")
 
 
-async def channel_picker_view(channels: list[Channel]) -> tuple[str, InlineKeyboardMarkup]:
-    rows = [[btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Cp(a="day", c=c.id))] for c in channels]
+async def channel_picker_view(
+    channels: list[Channel], per_page: int = 20, page: int = 0
+) -> tuple[str, InlineKeyboardMarkup]:
+    page, pages = paged(page, len(channels), per_page)
+    rows = [
+        [btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Cp(a="day", c=c.id))]
+        for c in channels[page * per_page:(page + 1) * per_page]
+    ]
+    if pages > 1:
+        rows.append(page_nav(page, pages, lambda n: Cp(a="channels", pg=n), Cp(a="noop")))
     rows.append([btn(t("plan.all_channels"), Cp(a="day", c=0))])
     return t("plan.pick_channel"), markup(rows)
 
@@ -88,7 +96,7 @@ async def plan_view(
 async def send_plan(message: Message, session: AsyncSession, user: User) -> None:
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     if len(channels) > 1:
-        text, kb = await channel_picker_view(channels)
+        text, kb = await channel_picker_view(channels, user.channels_per_page)
         await message.answer(text, reply_markup=kb)
         return
     channel_id = channels[0].id if channels else 0
@@ -122,10 +130,10 @@ async def cp_day(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, us
 
 
 @router.callback_query(Cp.filter(F.a == "channels"))
-async def cp_channels(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+async def cp_channels(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     await cb.answer()
-    await _edit(cb, *await channel_picker_view(channels))
+    await _edit(cb, *await channel_picker_view(channels, user.channels_per_page, callback_data.pg))
 
 
 @router.callback_query(Cp.filter(F.a == "post"))

@@ -5,7 +5,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Channel
+from flowpost.db.models import Channel, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.types import utcnow
 
@@ -39,7 +39,12 @@ async def list_channels(
             Channel.chat_id.not_in(discussion_ids)
             & ~((Channel.kind == "group") & Channel.title.in_(discussion_titles))
         )
-    return list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
+    channels = list((await session.scalars(stmt.order_by(Channel.created_at, Channel.id))).all())
+    # Channels the owner pinned in «Інтерфейс → Канали → Порядок каналів» come first, in that order.
+    order = await session.scalar(select(User.channel_order).where(User.id == owner_id)) or []
+    rank = {channel_id: i for i, channel_id in enumerate(order)}
+    channels.sort(key=lambda c: rank.get(c.id, len(rank)))
+    return channels
 
 
 async def get_channel(session: AsyncSession, owner_id: int, channel_id: int) -> Channel | None:
