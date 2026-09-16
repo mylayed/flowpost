@@ -5,7 +5,7 @@ import html
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,7 +241,29 @@ async def in_tz(message: Message, session: AsyncSession, state: FSMContext, user
 
 
 @router.callback_query(St.filter(F.a == "support"))
-async def st_support(cb: CallbackQuery, settings: Settings) -> None:
+async def st_support(cb: CallbackQuery, state: FSMContext, settings: Settings) -> None:
     await cb.answer()
-    if cb.message:
+    if cb.message is None:
+        return
+    if not settings.admin_id_set:
         await cb.message.answer(t("set.support_text", contact=html.escape(settings.support_contact or "—")))
+        return
+    await state.set_state(SettingsInput.support)
+    await cb.message.answer(t("set.support_prompt"), reply_markup=markup([[btn(t("btn.back"), St(a="back"))]]))
+
+
+@router.message(SettingsInput.support, F.text)
+async def in_support_message(
+    message: Message, bot: Bot, state: FSMContext, user: User, settings: Settings
+) -> None:
+    await state.clear()
+    who = f"@{user.username}" if user.username else html.escape(user.first_name or str(user.tg_id))
+    header = f"🆘 Звернення в підтримку від {who} (id {user.tg_id}):"
+    sent = False
+    for admin_id in settings.admin_id_set:
+        try:
+            await bot.send_message(admin_id, header + "\n\n" + html.escape(message.text or ""))
+            sent = True
+        except TelegramAPIError:
+            pass
+    await message.answer(t("set.support_sent") if sent else t("set.support_failed"))

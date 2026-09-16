@@ -26,6 +26,7 @@ class ChannelInput(StatesGroup):
 
 class SettingsInput(StatesGroup):
     tz = State()
+    support = State()
 
 
 class FolderInput(StatesGroup):

@@ -828,3 +828,25 @@ async def test_channel_list_order_and_paging(h: Harness):
     await h.click(Fd(a="pick", p=post.id, pg=1))
     rows = h.session.calls[-1][1].reply_markup.inline_keyboard
     assert len(rows) == 3 and [b.text for b in rows[-1]] == ["◀️", "2/2", "·"]
+
+
+async def test_support_message_is_forwarded_to_admins(h: Harness, settings: Settings):
+    await h.text("/start")
+    settings.admin_ids = str(ADMIN_ID)
+
+    h.session.clear()
+    await h.click(St(a="support"))
+    assert "передам його команді" in h.session.texts()
+
+    h.session.clear()
+    await h.text("У мене проблема з оплатою")
+    # the admin gets a SendMessage call addressed to ADMIN_ID with the user's text inside
+    sent = [c for name, c in h.session.calls if name == "SendMessage"]
+    admin_call = next(c for c in sent if getattr(c, "chat_id", None) == ADMIN_ID)
+    assert "проблема" in admin_call.text and str(USER_ID) in admin_call.text
+    assert "надіслано" in h.session.texts()
+
+    # no new post was created out of the support message
+    async def count_posts(s):
+        return len((await s.scalars(select(Post))).all())
+    assert await h.db(count_posts) == 0
