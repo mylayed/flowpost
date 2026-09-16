@@ -19,6 +19,18 @@ from flowpost.i18n import t
 
 router = Router(name="folders")
 
+ICONS = [
+    "📂", "🗂", "📚", "🛡", "💲",
+    "👥", "🏢", "🛒", "💳", "📍",
+    "☁️", "🗺", "📖", "🎓", "👕",
+    "🎭", "🏆", "🏋", "⚽", "🎾",
+    "💊", "🛍", "💉", "🐾", "⛰",
+    "🌤", "☀️", "🛋", "💡", "🍔",
+    "🍴", "🍸", "⏰", "🚚", "⛵",
+]
+# Bot API 9.4 button styles; "" is the client's default look.
+STYLES = ["", "primary", "success", "danger"]
+
 
 def _label(channel: Channel, selected: bool) -> str:
     icon = "📢 " if channel.kind == "channel" else "👥 "
@@ -28,7 +40,10 @@ def _label(channel: Channel, selected: bool) -> str:
 async def folders_view(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
     folders = await folders_repo.list_folders(session, user.id)
     counts = await folders_repo.counts_by_folder(session, user.id)
-    rows = [[btn(t("fld.row", title=f.title, n=counts.get(f.id, 0)), Fd(a="open", f=f.id))] for f in folders]
+    rows = [
+        [btn(t("fld.row", icon=f.icon, title=f.title, n=counts.get(f.id, 0)), Fd(a="open", f=f.id), f.style)]
+        for f in folders
+    ]
     rows.append([btn(t("fld.new"), Fd(a="new"))])
     rows.append([btn(t("btn.back"), St(a="ui"))])
     return t("fld.title") + "\n\n" + t("fld.help"), markup(rows)
@@ -47,17 +62,29 @@ async def edit_view(
         rows.append([btn(t("btn.back"), Fd(a="list")), btn(t("fld.settings"), Fd(a="set", f=folder.id))])
     else:
         rows.append([btn(t("fld.cancel_back"), Fd(a="list")), btn(t("fld.save"), Fd(a="save", f=folder.id))])
-    text = t("fld.pick_title", title=html.escape(folder.title)) + "\n\n"
+    text = t("fld.pick_title", icon=folder.icon, title=html.escape(folder.title)) + "\n\n"
     text += t("fld.pick") if channels else t("fld.no_channels")
     return text, markup(rows)
 
 
-def settings_view(folder: ChannelFolder) -> tuple[str, InlineKeyboardMarkup]:
-    return t("fld.settings_title", title=html.escape(folder.title)), markup([
-        [btn(t("fld.rename"), Fd(a="ren", f=folder.id))],
-        [btn(t("fld.delete"), Fd(a="del", f=folder.id))],
-        [btn(t("btn.back"), Fd(a="open", f=folder.id))],
+def customize_view(folder: ChannelFolder) -> tuple[str, InlineKeyboardMarkup]:
+    rows = chunked([btn(icon, Fd(a="ico", f=folder.id, v=icon)) for icon in ICONS], 5)
+    rows.append([
+        btn("✅" if s == (folder.style or "") else "◯", Fd(a="sty", f=folder.id, v=s), s or None)
+        for s in STYLES
     ])
+    rows.append([btn(t("btn.back"), Fd(a="open", f=folder.id)), btn(t("fld.delete"), Fd(a="del", f=folder.id))])
+    text = (
+        t("fld.cz_title") + "\n\n" + t("fld.cz_folder")
+        + f"\n<blockquote>{html.escape(folder.icon)} {html.escape(folder.title)}</blockquote>\n\n"
+        + t("fld.cz_hint")
+    )
+    return text, markup(rows)
+
+
+def _is_icon(text: str) -> bool:
+    """A short pictographic message (an emoji) sets the folder's icon; anything else renames it."""
+    return 0 < len(text) <= 8 and not any(c.isalnum() or c.isspace() for c in text)
 
 
 async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -> None:
@@ -130,6 +157,7 @@ async def fd_open(
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     await cb.answer()
+    await state.set_state(None)
     selected = set(await folders_repo.folder_channel_ids(session, folder.id))
     await state.update_data(fld_id=folder.id, fld_sel=sorted(selected))
     await _edit(cb, *await edit_view(session, user, folder, selected))
@@ -172,48 +200,44 @@ async def fd_save(
     await _edit(cb, *await folders_view(session, user))
 
 
-@router.callback_query(Fd.filter(F.a == "set"))
-async def fd_settings(cb: CallbackQuery, callback_data: Fd, session: AsyncSession, user: User) -> None:
+@router.callback_query(Fd.filter(F.a.in_({"set", "ico", "sty"})))
+async def fd_customize(
+    cb: CallbackQuery, callback_data: Fd, session: AsyncSession, state: FSMContext, user: User
+) -> None:
     folder = await folders_repo.get_folder(session, user.id, callback_data.f)
     if folder is None:
         await cb.answer(t("err.not_found"), show_alert=True)
         return
+    if callback_data.a == "ico" and callback_data.v in ICONS:
+        folder.icon = callback_data.v
+        await session.flush()
+    elif callback_data.a == "sty" and callback_data.v in STYLES:
+        folder.style = callback_data.v or None
+        await session.flush()
     await cb.answer()
-    await _edit(cb, *settings_view(folder))
-
-
-@router.callback_query(Fd.filter(F.a == "ren"))
-async def fd_rename(cb: CallbackQuery, callback_data: Fd, session: AsyncSession, state: FSMContext, user: User) -> None:
-    folder = await folders_repo.get_folder(session, user.id, callback_data.f)
-    if folder is None:
-        await cb.answer(t("err.not_found"), show_alert=True)
-        return
-    await cb.answer()
-    await state.set_state(FolderInput.rename)
+    await state.set_state(FolderInput.customize)
     await state.update_data(fld_id=folder.id)
-    await _edit(
-        cb,
-        t("fld.rename_prompt", title=html.escape(folder.title)),
-        markup([[btn(t("btn.back"), Fd(a="open", f=folder.id))]]),
-    )
+    await _edit(cb, *customize_view(folder))
 
 
-@router.message(FolderInput.rename, F.text)
-async def in_folder_rename(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
-    title = (message.text or "").strip()
-    if not title:
-        await message.answer(t("fld.name_empty"))
-        return
+@router.message(FolderInput.customize, F.text)
+async def in_folder_customize(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
+    value = (message.text or "").strip()
     folder = await folders_repo.get_folder(session, user.id, (await state.get_data()).get("fld_id") or 0)
     if folder is None:
         await state.clear()
         await message.answer(t("err.not_found"))
         return
-    folder.title = title[:folders_repo.TITLE_LIMIT]
+    if not value:
+        await message.answer(t("fld.name_empty"))
+        return
+    if _is_icon(value):
+        folder.icon = value
+    else:
+        folder.title = value[:folders_repo.TITLE_LIMIT]
     await session.flush()
-    await state.clear()
-    text, kb = await folders_view(session, user)
-    await message.answer(t("fld.renamed", title=html.escape(folder.title)) + "\n\n" + text, reply_markup=kb)
+    text, kb = customize_view(folder)
+    await message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(Fd.filter(F.a.in_({"del", "delok"})))

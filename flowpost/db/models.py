@@ -63,6 +63,8 @@ class ChannelFolder(Base):
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(64))
+    icon: Mapped[str] = mapped_column(String(16), default="🗂")
+    style: Mapped[str | None] = mapped_column(String(16))  # primary | success | danger; None = default look
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

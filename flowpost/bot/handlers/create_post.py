@@ -14,6 +14,7 @@ from flowpost.bot.callbacks import Fd, Nc
 from flowpost.bot.handlers.editor.view import open_editor, safe_delete
 from flowpost.bot.keyboards.common import add_channel_inline_kb
 from flowpost.bot.keyboards.editor import channels_pick_kb
+from flowpost.bot.states import FolderInput
 from flowpost.db.models import Channel, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
@@ -121,7 +122,7 @@ async def channel_picker(
             return await channel_picker(session, user, post_id)
         inside_ids = set(await folders_repo.folder_channel_ids(session, folder_id))
         inside = [c for c in channels if c.id in inside_ids]
-        text = t("fld.pick_title", title=html.escape(folder.title)) + "\n\n"
+        text = t("fld.pick_title", icon=folder.icon, title=html.escape(folder.title)) + "\n\n"
         text += t("post.choose_channel") if inside else t("fld.empty_folder")
         return text, channels_pick_kb(inside, post_id, folder_id=folder_id)
     counts = await folders_repo.counts_by_folder(session, user.id)
@@ -176,7 +177,9 @@ async def cb_pick_channel(
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=note)
 
 
-@router.message(F.chat.type == "private", StateFilter(None), CONTENT)
+# The folder settings screen keeps its state while the user browses it: text there renames the folder
+# (folders.router runs first), but anything else should still start a post instead of being swallowed.
+@router.message(F.chat.type == "private", StateFilter(None, FolderInput.customize), CONTENT)
 async def content_starts_post(
     message: Message,
     bot: Bot,

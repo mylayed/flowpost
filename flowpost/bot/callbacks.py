@@ -43,12 +43,14 @@ class Pj(CallbackData, prefix="pj"):
 
 
 class Fd(CallbackData, prefix="fd"):
-    """Channel folders. `f` — folder id, `c` — channel id, `p` — post id (folder drill-down in the picker)."""
+    """Channel folders. `f` — folder id, `c` — channel id, `p` — post id (folder drill-down in the picker),
+    `v` — chosen icon or button style."""
 
     a: str
     f: int = 0
     c: int = 0
     p: int = 0
+    v: str = ""
 
 
 class St(CallbackData, prefix="st"):

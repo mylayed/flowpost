@@ -759,6 +759,23 @@ async def test_folders_group_channels_in_the_new_post_picker(h: Harness):
     await h.click(Nc(c=channel_id, p=post.id))
     assert [t.channel_id for t in (await _post(h)).targets] == [channel_id]
 
+    # folder settings: icon from the grid, a colour style, and a typed name
+    h.session.clear()
+    await h.click(Fd(a="set", f=folder.id))
+    assert "Налаштування папки" in h.session.texts()
+    await h.click(Fd(a="ico", f=folder.id, v="📍"))
+    await h.click(Fd(a="sty", f=folder.id, v="success"))
+    await h.text("Місто")
+    await h.text("⚽")
+    folder = await h.db(lambda s: s.scalar(select(ChannelFolder)))
+    assert (folder.icon, folder.style, folder.title) == ("⚽", "success", "Місто")
+
+    # the styled folder row carries icon, name and style into the post picker
+    h.session.clear()
+    await h.photo()
+    row = (await _post(h)) and h.session.calls[-1][1].reply_markup.inline_keyboard[0][0]
+    assert row.text == "⚽ Місто (1)" and row.style == "success"
+
     # deleting the folder keeps the channels themselves
     await h.click(Fd(a="delok", f=folder.id))
     assert await h.db(lambda s: s.scalar(select(ChannelFolder))) is None

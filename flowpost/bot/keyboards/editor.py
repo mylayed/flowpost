@@ -128,7 +128,10 @@ def channels_pick_kb(
 ) -> InlineKeyboardMarkup:
     from flowpost.bot.callbacks import Fd, Nc
 
-    rows = [[btn(t("fld.row", title=f.title, n=n), Fd(a="pick", f=f.id, p=post_id))] for f, n in folders]
+    rows = [
+        [btn(t("fld.row", icon=f.icon, title=f.title, n=n), Fd(a="pick", f=f.id, p=post_id), f.style)]
+        for f, n in folders
+    ]
     rows += [[btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Nc(c=c.id, p=post_id))] for c in channels]
     if folder_id:
         rows.append([btn(t("fld.leave"), Fd(a="pick", p=post_id))])

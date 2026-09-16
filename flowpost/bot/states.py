@@ -29,8 +29,8 @@ class SettingsInput(StatesGroup):
 
 
 class FolderInput(StatesGroup):
-    title = State()   # name for a folder being created
-    rename = State()  # new name for an existing folder
+    title = State()      # name for a folder being created
+    customize = State()  # folder settings screen: a sent message is a new name or a new icon
 
 
 class EditPublished(StatesGroup):

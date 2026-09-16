@@ -8,8 +8,11 @@ from flowpost.config import Settings
 from flowpost.i18n import t
 
 
-def btn(text: str, cb: CallbackData | str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text=text, callback_data=cb.pack() if isinstance(cb, CallbackData) else cb)
+def btn(text: str, cb: CallbackData | str, style: str | None = None) -> InlineKeyboardButton:
+    """`style` (Bot API 9.4: primary|success|danger) is ignored by clients older than Feb 2026."""
+    return InlineKeyboardButton(
+        text=text, callback_data=cb.pack() if isinstance(cb, CallbackData) else cb, style=style
+    )
 
 
 def url_btn(text: str, url: str) -> InlineKeyboardButton:
