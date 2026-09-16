@@ -61,7 +61,7 @@ async def settings_view(session: AsyncSession, user: User, settings: Settings) -
         [btn(t("set.change_lang"), St(a="lang"))],
         [btn(t("set.change_tz"), St(a="tz"))],
         [btn(t("set.interface"), St(a="ui"))],
-        [pay_btn(settings, t("set.manage_sub") if access.kind == "paid" else t("btn.pay"))],
+        [pay_btn(settings, t("set.manage_sub"))],
         [btn(t("pay.cancel_btn"), Bl(a="cancel"))] if _liqpay_renewing(access) else [],
         [btn(t("set.support"), St(a="support"))],
     ])
