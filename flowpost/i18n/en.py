@@ -12,6 +12,7 @@ TEXTS: dict[str, str] = {
     "bot.short_description": "Autoposting for Telegram channels: scheduling, AI, watermarks, buttons.",
     "cmd.start": "Main menu",
     "cmd.menu": "Show the menu buttons",
+    "cmd.restart": "🔄 Restart the bot",
     "cmd.newpost": "Create a post",
     "cmd.addchannel": "Connect a channel or group",
     "cmd.plan": "Content plan",
@@ -36,6 +37,7 @@ TEXTS: dict[str, str] = {
         "Action buttons are below the input field 👇"
     ),
     "start.no_channels": "To get started, connect your channel or group — it takes a minute.",
+    "start.restarted": "🔄 Bot restarted. Main menu 👇",
     "menu.main": "Main menu 👇",
     "menu.placeholder": "Send a photo, video or text…",
     "help.text": (

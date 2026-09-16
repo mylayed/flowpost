@@ -49,7 +49,7 @@ from flowpost.i18n import LANGS, t
 
 log = logging.getLogger(__name__)
 
-COMMANDS = ["start", "menu", "newpost", "addchannel", "plan", "ad", "edit", "projects", "settings", "subscribe", "paysupport", "terms", "help"]
+COMMANDS = ["start", "menu", "restart", "newpost", "addchannel", "plan", "ad", "edit", "projects", "settings", "subscribe", "paysupport", "terms", "help"]
 
 
 def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, storage: BaseStorage) -> Dispatcher:

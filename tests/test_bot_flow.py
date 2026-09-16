@@ -22,6 +22,7 @@ from flowpost.config import Settings
 from flowpost.db.models import Channel, ChannelAdmin, ChannelFolder, ChannelFolderItem, Post, PostPart, \
     PostTarget, Publication, RepeatRule, Subscription, User
 from flowpost.db.types import utcnow
+from flowpost.i18n import t
 from flowpost.services.ai import AIService
 from flowpost.services.billing.stars import make_payload
 from flowpost.services.publisher import Publisher
@@ -850,3 +851,20 @@ async def test_support_message_is_forwarded_to_admins(h: Harness, settings: Sett
     async def count_posts(s):
         return len((await s.scalars(select(Post))).all())
     assert await h.db(count_posts) == 0
+
+
+async def test_restart_clears_a_stuck_state_and_returns_the_keyboard(h: Harness, settings: Settings):
+    await h.text("/start")
+    settings.admin_ids = str(ADMIN_ID)
+    await h.click(St(a="support"))  # now waiting for a support message
+
+    h.session.clear()
+    await h.text("/restart")
+    sent = [c for name, c in h.session.calls if name == "SendMessage"][-1]
+    assert type(sent.reply_markup).__name__ == "ReplyKeyboardMarkup"
+
+    # the next message is no longer swallowed by the support flow
+    h.session.clear()
+    await h.text("Текст майбутнього поста")
+    assert not [c for name, c in h.session.calls if name == "SendMessage" and getattr(c, "chat_id", None) == ADMIN_ID]
+    assert t("post.no_channels", locale="uk") in h.session.texts()  # it reached the new-post flow

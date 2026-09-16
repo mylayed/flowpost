@@ -63,6 +63,13 @@ async def cmd_start(
         await message.answer(t("start.no_channels"), reply_markup=add_channel_inline_kb())
 
 
+@router.message(Command("restart"))
+async def cmd_restart(message: Message, state: FSMContext) -> None:
+    """Drops whatever screen or input the user is stuck on and brings the menu keyboard back."""
+    await state.clear()
+    await send_main_menu(message, t("start.restarted"))
+
+
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(t("help.text"))
