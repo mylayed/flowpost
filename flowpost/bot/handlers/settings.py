@@ -59,6 +59,7 @@ async def settings_view(session: AsyncSession, user: User, settings: Settings) -
     kb = markup([
         [btn(t("set.change_lang"), St(a="lang"))],
         [btn(t("set.change_tz"), St(a="tz"))],
+        [btn(t("set.interface"), St(a="ui"))],
         [pay_btn(settings, t("set.manage_sub") if access.kind == "paid" else t("btn.pay"))],
         [btn(t("pay.cancel_btn"), Bl(a="cancel"))] if _liqpay_renewing(access) else [],
         [btn(t("set.support"), St(a="support"))],
@@ -96,6 +97,16 @@ async def st_lang(cb: CallbackQuery, bot: Bot, session: AsyncSession, user: User
     await cb.answer()
     await _edit(cb, *await settings_view(session, user, settings))
     await bot.send_message(cb.from_user.id, t("set.lang_changed"), reply_markup=main_menu_kb())
+
+
+@router.callback_query(St.filter(F.a == "ui"))
+async def st_interface(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await _edit(cb, t("set.interface_title") + "\n\n" + t("set.interface_text"), markup([
+        [btn(t("set.interface_folders"), St(a="ui_folders"))],
+        [btn(t("set.interface_channels"), St(a="ui_channels"))],
+        [btn(t("btn.back"), St(a="back"))],
+    ]))
 
 
 @router.callback_query(St.filter(F.a == "tz"))
