@@ -56,8 +56,6 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
         rows.append([btn(t("ed.delete_poll"), Ed(a="del_poll", p=p))])
         rows.append([btn(buttons_label, Ed(a="btn", p=p)), btn(t("ed.more"), Ed(a="more", p=p))])
     else:
-        if len(part.media) > 1:
-            rows.append([btn(t("ed.album", n=len(part.media)), Ed(a="alb", p=p))])
         rows += [
             [btn(on(opts["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p)), btn(buttons_label, Ed(a="btn", p=p))],
             [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],

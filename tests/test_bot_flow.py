@@ -329,21 +329,23 @@ async def test_album_screen_orders_replaces_and_watermarks_items(h: Harness):
     await h.photo(file_id="p1")
     p = (await _post(h)).id
 
-    # a single media → no «Альбом» button yet
-    assert "Альбом" not in str(h.session.calls[-1][1].reply_markup)
+    # a single media → «Медіа» opens the plain media list
+    h.session.clear()
     await h.click(Ed(a="media", p=p))
+    assert "Медіа поста" in h.session.texts()
     await h.click(Ed(a="m_add", p=p))
     await h.photo(file_id="p2")
     await h.photo(file_id="p3")
     h.session.clear()
     await h.click(Ed(a="m_done", p=p))
-    assert "Альбом (3)" in str(h.session.calls[-1][1].reply_markup)
 
-    # the album screen previews one item with its panel underneath
+    # with several media «Медіа» opens the album screen: one item previewed with its panel underneath
     h.session.clear()
-    await h.click(Ed(a="alb", p=p, v="1"))
+    await h.click(Ed(a="media", p=p))
     names = h.session.names()
     assert "SendPhoto" in names and names[-1] == "SendMessage"
+    assert "Медіа 1 з 3" in h.session.texts()
+    await h.click(Ed(a="alb", p=p, v="1"))
     assert "Медіа 2 з 3" in h.session.texts()
 
     # swap 1 ↔ 3
@@ -398,7 +400,14 @@ async def test_album_screen_orders_replaces_and_watermarks_items(h: Harness):
     h.session.clear()
     await h.click(Ed(a="alb_del", p=p, v="0"))
     assert len((await _post(h)).parts[0].media) == 1
-    assert "Альбом" not in str(h.session.calls[-1][1].reply_markup)
+    assert "Редактор" in h.session.texts()
+
+    # «Прибрати все медіа» from the album
+    await h.click(Ed(a="m_add", p=p, v="alb"))
+    await h.photo(file_id="p5")
+    await h.click(Ed(a="m_done", p=p, v="alb"))
+    await h.click(Ed(a="m_clear", p=p, v="alb"))
+    assert (await _post(h)).parts[0].media == []
 
 
 async def test_channel_admin_delegation(h: Harness):

@@ -82,6 +82,7 @@ def album_screen(post: Post, idx: int, i: int, channel: Channel | None, note: st
     rows.append([btn(t("alb.wm_all"), Ed(a="alb_wma", p=p, v=str(i)))])
     if len(items) < MAX_MEDIA:
         rows.append([btn(t("alb.add"), Ed(a="m_add", p=p, v="alb"))])
+    rows.append([btn(t("media_menu.clear"), Ed(a="m_clear", p=p, v="alb"))])
     rows.append([btn(t("btn.back"), Ed(a="home", p=p))])
     return "\n".join(lines), markup(rows)
 

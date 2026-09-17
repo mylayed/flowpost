@@ -8,7 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ed
 from flowpost.bot.handlers.create_post import extract_content
-from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callback, render_editor, show_panel
+from flowpost.bot.handlers.editor.album import show_album
+from flowpost.bot.handlers.editor.view import (
+    is_published_mode,
+    load_editor_post,
+    post_from_callback,
+    render_editor,
+    show_panel,
+)
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.states import Editor
 from flowpost.db.models import Post, User
@@ -50,12 +57,17 @@ def media_menu(post: Post, idx: int, note: str | None = None) -> tuple[str, obje
 
 @router.callback_query(Ed.filter(F.a == "media"))
 async def ed_media_menu(
-    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
 ) -> None:
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
     await cb.answer()
+    # Two or more media open the album screen; a published album keeps this list, since its item count is fixed.
+    if len(post.parts[idx].media) > 1 and not is_published_mode(post):
+        await show_album(bot, cb.from_user.id, session, state, user, post, publisher)
+        return
     await state.set_state(Editor.content)
     text, kb = media_menu(post, idx)
     await show_panel(bot, cb.from_user.id, state, text, kb)
@@ -63,7 +75,8 @@ async def ed_media_menu(
 
 @router.callback_query(Ed.filter(F.a.in_({"m_up", "m_down", "m_del", "m_clear"})))
 async def ed_media_change(
-    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
 ) -> None:
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
@@ -83,6 +96,9 @@ async def ed_media_change(
     part.media = items
     await session.flush()
     await cb.answer(t("media_menu.changed"))
+    if callback_data.v == "alb":
+        await render_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("alb.cleared"))
+        return
     text, kb = media_menu(post, idx, note=t("media_menu.back_to_preview"))
     await show_panel(bot, cb.from_user.id, state, text, kb)
 
@@ -111,8 +127,6 @@ async def ed_media_done(
         return
     await cb.answer()
     if callback_data.v == "alb":
-        from flowpost.bot.handlers.editor.album import show_album
-
         await show_album(bot, cb.from_user.id, session, state, user, post, publisher, len(post.parts[idx].media) - 1)
         return
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher)
