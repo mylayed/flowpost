@@ -21,15 +21,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from flowpost.bot.callbacks import Ed
+from flowpost.bot.handlers.editor.defaults import done_screen
 from flowpost.bot.handlers.editor.view import close_editor, post_from_callback, show_panel
 from flowpost.bot.keyboards.editor import confirm_kb
 from flowpost.bot.keyboards.main_menu import main_menu_kb
 from flowpost.bot.states import Editor
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.delivery import DeliveryOutcome
 from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.posts import build_markup, final_text, options_of, part_warnings, post_is_empty
 from flowpost.services.worker import Worker
@@ -46,15 +49,19 @@ INPUT_MEDIA = {
 }
 
 
-async def publish_now(session: AsyncSession, worker: Worker, post: Post) -> str:
-    """Publish into all target channels right away and return a human-readable report."""
+async def publish_now(
+    session: AsyncSession, worker: Worker, post: Post
+) -> tuple[str, list[DeliveryOutcome]]:
+    """Publish into all target channels right away; returns a per-channel report and the outcomes."""
     await pubs_repo.cancel_pending(session, post.id)
     pubs = await pubs_repo.create_publications(session, post, utcnow(), status="publishing", notify=False)
     pub_ids = [p.id for p in pubs]
     await session.commit()
     lines = [t("pub.result_title")]
+    outcomes: list[DeliveryOutcome] = []
     for pub_id in pub_ids:
         outcome = await worker.deliver(pub_id)
+        outcomes.append(outcome)
         if outcome.ok:
             lines.append(t("pub.ok_line", title=html.escape(outcome.channel_title), link=outcome.link or ""))
         else:
@@ -63,7 +70,7 @@ async def publish_now(session: AsyncSession, worker: Worker, post: Post) -> str:
                 error_text += f" — {html.escape(outcome.detail)}"
             lines.append(t("pub.fail_line", title=html.escape(outcome.channel_title), error=error_text))
         lines += ["⚠️ " + t(w) for w in outcome.warnings]
-    return "\n".join(lines)
+    return "\n".join(lines), outcomes
 
 
 async def _validate(cb: CallbackQuery, session: AsyncSession, user: User, post: Post) -> bool:
@@ -111,8 +118,15 @@ async def ed_publish(
         return
     await cb.answer(t("pub.working"))
     await show_panel(bot, cb.from_user.id, state, t("pub.working"), None)
-    report = await publish_now(session, worker, post)
-    await show_panel(bot, cb.from_user.id, state, report, None)
+    report, outcomes = await publish_now(session, worker, post)
+    text, kb = report, None
+    if outcomes and all(o.ok for o in outcomes):
+        # The worker published in its own session, so re-read the post to pick up its new status.
+        fresh = await posts_repo.get_post(session, user.id, post.id)
+        if fresh is not None:
+            warnings = ["⚠️ " + t(w) for w in dict.fromkeys(w for o in outcomes for w in o.warnings)]
+            text, kb = await done_screen(session, user, fresh, note="\n".join(warnings) or None)
+    await show_panel(bot, cb.from_user.id, state, text, kb)
     await state.clear()
 
 

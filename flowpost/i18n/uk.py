@@ -445,6 +445,7 @@ TEXTS: dict[str, str] = {
     "pub.confirm": "🚀 Опублікувати пост зараз? Каналів: {n}\n{names}",
     "pub.confirm_yes": "🚀 Так, опублікувати",
     "pub.working": "⏳ Публікую…",
+    "pub.done": "<b>Готово</b> ✈️\n\nПост «{title}» опубліковано в {channels}.",
     "pub.result_title": "📬 <b>Результат публікації</b>",
     "pub.ok_line": "✅ {title}: <a href=\"{link}\">відкрити пост</a>",
     "pub.fail_line": "❌ {title}: {error}",

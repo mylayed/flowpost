@@ -968,3 +968,53 @@ async def test_scheduling_offers_to_save_the_posts_settings_as_channel_defaults(
     assert new_post.id != p
     assert new_post.options["silent"] is True and new_post.options["link_preview"] is False
     assert new_post.parts[0].buttons == [[{"text": "Реєстрація", "url": "https://t.me/testchan"}]]
+
+
+async def test_publishing_now_shows_the_same_done_screen_with_the_defaults_button(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    c = (await h.db(lambda s: s.scalar(select(Channel)))).id
+
+    await h.text("Безкоштовний майстер-клас у Дніпрі")
+    p = (await _post(h)).id
+    await h.click(Ed(a="more", p=p))
+    await h.click(Ed(a="mo_t", p=p, v="silent"))
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+
+    done = [m for name, m in h.session.calls if name in ("SendMessage", "EditMessageText")][-1]
+    assert "Готово" in done.text and "Безкоштовний майстер-клас" in done.text
+    assert "опубліковано" in done.text
+    # the channel name links straight to the published message, not to the channel
+    published = await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
+    assert f"/{published.message_ids['parts'][0]['ids'][0]}" in done.text
+    assert done.reply_markup.inline_keyboard[0][0].text == t("ed.def_btn", locale="uk")
+
+    # the same button saves the defaults from an already-published post
+    await h.click(Ed(a="defs", p=p))
+    await h.click(Ed(a="defsok", p=p))
+    assert (await h.db(lambda s: s.get(Channel, c))).post_defaults["options"]["silent"] is True
+
+
+async def test_a_failed_publication_keeps_the_detailed_report(h: Harness, monkeypatch):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    await h.text("Пост, який не вийде")
+    p = (await _post(h)).id
+
+    from flowpost.services import worker as worker_mod
+    from flowpost.services.delivery import DeliveryError
+
+    async def boom(*args, **kwargs):
+        raise DeliveryError("err.telegram")
+    # the worker imported the function by name, so it has to be patched where it is used
+    monkeypatch.setattr(worker_mod, "deliver_publication", boom)
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    done = [m for name, m in h.session.calls if name in ("SendMessage", "EditMessageText")][-1]
+    assert t("pub.result_title", locale="uk") in done.text
+    assert done.reply_markup is None

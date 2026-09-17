@@ -202,7 +202,7 @@ async def cp_publish_now(
         await cb.answer(t("err.post_not_found"), show_alert=True)
         return
     await cb.answer(t("pub.working"))
-    report = await publish_now(session, worker, post)
+    report, _ = await publish_now(session, worker, post)
     await _edit(cb, report, markup([[btn(t("btn.back"), Cp(a="day", d=callback_data.d, c=callback_data.c))]]))
 
 

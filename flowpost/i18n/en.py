@@ -445,6 +445,7 @@ TEXTS: dict[str, str] = {
     "pub.confirm": "🚀 Publish the post now? Channels: {n}\n{names}",
     "pub.confirm_yes": "🚀 Yes, publish",
     "pub.working": "⏳ Publishing…",
+    "pub.done": "<b>Done</b> ✈️\n\nThe post «{title}» is published in {channels}.",
     "pub.result_title": "📬 <b>Publishing result</b>",
     "pub.ok_line": "✅ {title}: <a href=\"{link}\">open post</a>",
     "pub.fail_line": "❌ {title}: {error}",

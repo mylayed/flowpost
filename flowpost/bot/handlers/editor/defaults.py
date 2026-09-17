@@ -22,7 +22,15 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import snippet
-from flowpost.services.posts import channel_link_html, options_of, part_preview_text, post_defaults
+from flowpost.services.delivery import publication_message_ids
+from flowpost.services.posts import (
+    channel_link,
+    channel_link_html,
+    message_link,
+    options_of,
+    part_preview_text,
+    post_defaults,
+)
 from flowpost.services.slots import fmt_when_full, tz_of
 
 router = Router(name="editor_defaults")
@@ -59,21 +67,39 @@ def saved_items(post: Post) -> list[str]:
     return items
 
 
+async def _published_channels_line(session: AsyncSession, user: User, post: Post) -> str:
+    """Channel names linking straight to the message this post became in each of them."""
+    channels = {c.id: c for c in await channels_repo.get_by_ids(session, user.id, post.channel_ids)}
+    links = []
+    for pub in await pubs_repo.published_for_post(session, post.id):
+        channel = channels.get(pub.channel_id)
+        if channel is None:
+            continue
+        ids = publication_message_ids(pub)
+        link = message_link(channel, ids[0]) if ids else channel_link(channel)
+        links.append(f'<a href="{link}">{html.escape(channel.title or "")}</a>')
+    return ", ".join(links) or ", ".join(channel_link_html(c) for c in channels.values())
+
+
 async def done_screen(
     session: AsyncSession, user: User, post: Post, *, note: str | None = None, with_button: bool = True
 ) -> tuple[str, InlineKeyboardMarkup | None]:
-    """«Готово ✈️ Пост «…» заплановано на …» plus the «save as default» offer."""
-    run_at = await pubs_repo.next_run(session, post.id)
-    channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
-    channels_line = ", ".join(channel_link_html(c) for c in channels) or "—"
-    if run_at is None:
-        text = t("sch.done_no_time", title=post_title(post), channels=channels_line)
+    """«Готово ✈️ Пост «…» заплановано на …» (or «опубліковано в …») plus the «save as default» offer."""
+    if post.status == "published":
+        text = t("pub.done", title=post_title(post),
+                 channels=await _published_channels_line(session, user, post) or "—")
     else:
-        local = run_at.astimezone(tz_of(user.tz))
-        text = t(
-            "sch.done", title=post_title(post),
-            when=fmt_when_full(local.date(), local.time(), user.lang), channels=channels_line,
-        )
+        run_at = await pubs_repo.next_run(session, post.id)
+        channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+        channels_line = ", ".join(channel_link_html(c) for c in channels) or "—"
+        if run_at is None:
+            text = t("sch.done_no_time", title=post_title(post), channels=channels_line)
+        else:
+            local = run_at.astimezone(tz_of(user.tz))
+            text = t(
+                "sch.done", title=post_title(post),
+                when=fmt_when_full(local.date(), local.time(), user.lang), channels=channels_line,
+            )
     if note:
         text += "\n\n" + note
     kb = markup([[btn(t("ed.def_btn"), Ed(a="defs", p=post.id))]]) if with_button else None
