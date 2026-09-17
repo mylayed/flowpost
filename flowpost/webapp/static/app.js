@@ -45,6 +45,12 @@ const I18N = {
     posts_left_label: "Залишок постів",
     expires: "Спливає",
     valid_until: "Діє до",
+    period_channel: "Підписка каналу",
+    period_account: "Підписка акаунта",
+    period_trial: "Пробний період",
+    period_value: "до {date} · {days}",
+    quotas_title: "Ліміти каналу",
+    quota_free: "не на безкоштовному тарифі",
     renew_subscription: "Продовжити підписку",
     sub_title: "Підписка на постинг",
     sub_hint: "Оберіть канали, на які оформити підписку.",
@@ -197,6 +203,12 @@ const I18N = {
     posts_left_label: "Posts left",
     expires: "Expires in",
     valid_until: "Valid until",
+    period_channel: "Channel subscription",
+    period_account: "Account subscription",
+    period_trial: "Free trial",
+    period_value: "until {date} · {days}",
+    quotas_title: "Channel limits",
+    quota_free: "not on the free plan",
     renew_subscription: "Renew subscription",
     sub_title: "Posting subscription",
     sub_hint: "Choose the channels you want to subscribe.",
@@ -1463,7 +1475,16 @@ function renderChannel(id) {
           infoRow(t("plan"), c.posts_per_day ? planName(c.posts_per_day) : t(`plan_${c.plan}`)),
           infoRow(t("posts_left_label"), postsLeftText(c), c.posts_left === 0 ? "danger" : ""),
           expires,
-          infoRow(t("valid_until"), c.until ? formatDate(c.until, state.me.user.tz) : "—")));
+          infoRow(t("valid_until"), c.until ? formatDate(c.until, state.me.user.tz) : "—"),
+          // With more than one plan running (e.g. an account subscription and the channel's trial), each ends on its own date.
+          ...(c.periods.length > 1 ? c.periods.map((p) => infoRow(t(`period_${p.kind}`), t("period_value", {
+            date: formatDate(p.until, state.me.user.tz), days: t("days_short", { n: p.days_left }),
+          }))) : [])),
+        h("div", { class: "remaining" },
+          h("div", { class: "remaining-title" }, t("quotas_title")),
+          ...limitKinds().map((kind) => c.extras
+            ? infoRow(t(`kind_${kind}`), number(c.quotas[kind] ?? 0), c.quotas[kind] ? "" : "danger")
+            : infoRow(t(`kind_${kind}`), t("quota_free"), "warn"))));
     })
     .catch(() => card.replaceChildren(h("p", { class: "hint" }, t("error"))));
   return [

@@ -70,18 +70,30 @@ def days_left(until: datetime | None, now: datetime) -> int:
 
 
 async def channel_info(session: AsyncSession, settings: Settings, channel: Channel, owner: User, now: datetime) -> dict:
-    """The channel's plan, validity and posts left, as shown in the Mini App."""
+    """The channel's plan, validity, posts and quotas left, as shown in the Mini App.
+
+    `until`/`days_left` cover every running plan and trial together — a channel whose account subscription ends
+    before its trial keeps working until the trial ends. Each one's own end date is listed in `periods`."""
     entitlement = await entitlements.for_channel(session, settings, channel, owner, now)
     left = await entitlements.posts_left(session, settings, channel, owner, entitlement, now)
+    cover = await entitlements.coverage(session, channel, now)
+    periods = [
+        {"kind": kind, "until": until.isoformat(), "days_left": days_left(until, now)}
+        for kind, until in (("channel", cover.channel_until), ("account", cover.account_until), ("trial", cover.trial_until))
+        if until
+    ]
     return {
         "status": {"paid": "active", "trial": "active", "free": "free"}.get(entitlement.plan, "inactive"),
         "plan": entitlement.plan,
         "posts_per_day": entitlement.posts_per_day,
-        "until": entitlement.until.isoformat() if entitlement.until else None,
-        "days_left": days_left(entitlement.until, now),
+        "until": cover.until.isoformat() if cover.until else None,
+        "days_left": days_left(cover.until, now),
+        "periods": periods,
         "posts_limit": entitlement.posts_limit,
         "posts_window": entitlement.window,
         "posts_left": left,
+        "quotas": await limits.remaining(session, channel.id),
+        "extras": entitlements.has_extras(entitlement),
     }
 
 

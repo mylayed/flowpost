@@ -9,11 +9,11 @@ from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from aiohttp.test_utils import TestClient, TestServer
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from flowpost.config import Settings
 from flowpost.db.models import (
-    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, Publication, User,
+    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, Publication, Subscription, User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services.billing import plans
@@ -124,7 +124,32 @@ async def test_webapp_api(sessionmaker):
         assert (detail["status"], detail["plan"], detail["days_left"]) == ("active", "trial", 14)
         assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (98, 100, "trial")
         assert detail["title"] == "Арабаба" and detail["link"] == "https://t.me/c/777"
+        assert detail["periods"] == [{"kind": "trial", "until": detail["until"], "days_left": 14}]
+        assert detail["quotas"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0} and detail["extras"] is True
         assert (await client.get(f"/api/channels/{foreign_id}", headers=auth)).status == 404
+
+        # an account-wide subscription ending before the trial: the plan is the subscription, but the channel
+        # keeps working until the trial ends, and both dates are listed
+        async with sessionmaker() as session:
+            session.add(Subscription(user_id=user.id, provider="manual", status="active",
+                                     current_period_end=utcnow() + timedelta(days=5, hours=1)))
+            session.add(ChannelQuota(channel_id=channel_id, kind="wm_photo", remaining=15))
+            await session.commit()
+        detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
+        assert (detail["plan"], detail["posts_left"], detail["days_left"]) == ("paid", None, 14)
+        assert [(p["kind"], p["days_left"]) for p in detail["periods"]] == [("account", 6), ("trial", 14)]
+        assert detail["quotas"]["wm_photo"] == 15
+        me = await (await client.get("/api/me", headers=auth)).json()
+        assert [(c["title"], c["days_left"]) for c in me["channels"]] == [("Арабаба", 14)]
+
+        # trial over, subscription over → free plan: no end date, quotas shown as not included
+        async with sessionmaker() as session:
+            await session.execute(update(Subscription).values(current_period_end=utcnow() - timedelta(minutes=1)))
+            await session.execute(update(Channel).where(Channel.id == channel_id)
+                                  .values(trial_ends_at=utcnow() - timedelta(minutes=1)))
+            await session.commit()
+        detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
+        assert (detail["plan"], detail["days_left"], detail["periods"], detail["extras"]) == ("free", 0, [], False)
 
         page = await client.get("/app/")
         assert page.status == 200 and "__V__" not in await page.text()
