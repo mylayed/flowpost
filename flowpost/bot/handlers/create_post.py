@@ -22,7 +22,14 @@ from flowpost.db.repo import folders as folders_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import TEXT_LIMIT, group_error, media_from_message, message_text, poll_from_message
+from flowpost.services.posts import (
+    TEXT_LIMIT,
+    channel_defaults,
+    group_error,
+    media_from_message,
+    message_text,
+    poll_from_message,
+)
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import wm_configured, wm_settings
 
@@ -32,13 +39,18 @@ CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text | F.po
 
 
 def initial_options(channel: Channel, is_ad: bool) -> dict:
+    """Channel toggles, overridden by whatever «Зберегти форматування та налаштування» stored."""
     wm = wm_settings(channel.watermark)
+    configured = wm_configured(channel.watermark)
     opts = {
-        "signature": bool(channel.signature_on) and not is_ad,
-        "watermark": bool(wm.get("enabled")) and wm_configured(channel.watermark),
+        "signature": bool(channel.signature_on),
+        "watermark": bool(wm.get("enabled")) and configured,
     }
+    opts.update(channel_defaults(channel)["options"])
+    # A saved default can't turn on a watermark the channel no longer has set up.
+    opts["watermark"] = bool(opts["watermark"]) and configured
     if is_ad:
-        opts.update({"ad_label": True, "auto_delete_hours": 24})
+        opts.update({"signature": False, "ad_label": True, "auto_delete_hours": 24})
     return opts
 
 
@@ -101,6 +113,7 @@ async def start_post(
         post = await posts_repo.create_post(
             session, channels[0].owner_id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
             text=text, media=media, source_signature=source_signature, poll=poll,
+            buttons=channel_defaults(channels[0])["buttons"],
         )
         note = t("post.ad_intro") if is_ad else None
         await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
@@ -176,6 +189,8 @@ async def cb_pick_channel(
     post.owner_id = channel.owner_id
     posts_repo.set_targets(post, [channel.id])
     post.options = {**initial_options(channel, post.is_ad), **(post.options or {})}
+    if post.parts and not post.parts[0].buttons:
+        post.parts[0].buttons = channel_defaults(channel)["buttons"]
     await session.flush()
     if cb.message:
         await safe_delete(bot, cb.message.chat.id, [cb.message.message_id])

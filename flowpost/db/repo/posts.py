@@ -19,9 +19,10 @@ async def create_post(
     media: list[dict] | None = None,
     source_signature: str = "",
     poll: dict | None = None,
+    buttons: list | None = None,
 ) -> Post:
     post = Post(owner_id=owner_id, is_ad=is_ad, options=dict(options or {}), status="draft")
-    post.parts = [PostPart(position=0, text_html=text or "", media=list(media or []), buttons=[],
+    post.parts = [PostPart(position=0, text_html=text or "", media=list(media or []), buttons=list(buttons or []),
                             source_signature=source_signature or "", poll=poll)]
     post.targets = [PostTarget(channel_id=cid, position=i) for i, cid in enumerate(channel_ids)]
     post.repeat = None

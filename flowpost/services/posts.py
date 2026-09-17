@@ -29,9 +29,32 @@ DEFAULT_OPTIONS: dict = {
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}
 WATERMARKABLE = {"photo", "video", "animation"}
 
+# «Реклама» belongs to the /ad flow, so it is never carried over into ordinary posts.
+DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k != "ad_label")
+
 
 def options_of(post: Post) -> dict:
     return {**DEFAULT_OPTIONS, **(post.options or {})}
+
+
+def post_defaults(post: Post) -> dict:
+    """What «Зберегти форматування та налаштування» stores on a channel."""
+    opts = options_of(post)
+    buttons = post.parts[0].buttons if post.parts else []
+    return {
+        "options": {k: opts[k] for k in DEFAULTABLE_OPTIONS},
+        "buttons": [list(row) for row in (buttons or [])],
+    }
+
+
+def channel_defaults(channel: Channel) -> dict:
+    """The stored defaults of `channel`, cleaned of anything a newer/older version wrote."""
+    data = channel.post_defaults or {}
+    options = data.get("options") or {}
+    return {
+        "options": {k: v for k, v in options.items() if k in DEFAULTABLE_OPTIONS},
+        "buttons": [list(row) for row in (data.get("buttons") or [])],
+    }
 
 
 def media_from_message(m: Message) -> dict | None:

@@ -53,6 +53,8 @@ class Channel(Base):
     discussion_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     discussion_title: Mapped[str | None] = mapped_column(String(256))
     moderation: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # «Зберегти форматування та налаштування»: {"options": {...}, "buttons": [[{"text","url"}]]}
+    post_defaults: Mapped[dict] = mapped_column(JSONType, default=dict)
     trial_ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

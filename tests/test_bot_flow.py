@@ -917,3 +917,54 @@ async def test_restart_clears_a_stuck_state_and_returns_the_keyboard(h: Harness,
     await h.text("Текст майбутнього поста")
     assert not [c for name, c in h.session.calls if name == "SendMessage" and getattr(c, "chat_id", None) == ADMIN_ID]
     assert t("post.no_channels", locale="uk") in h.session.texts()  # it reached the new-post flow
+
+
+async def test_scheduling_offers_to_save_the_posts_settings_as_channel_defaults(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    c = (await h.db(lambda s: s.scalar(select(Channel)))).id
+
+    # a post with its own buttons and a couple of settings changed
+    await h.text("Безкоштовний майстер-клас у Дніпрі")
+    p = (await _post(h)).id
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_set", p=p))
+    await h.text("Реєстрація — https://t.me/testchan")
+    await h.click(Ed(a="more", p=p))
+    await h.click(Ed(a="mo_t", p=p, v="silent"))
+    await h.click(Ed(a="mo_t", p=p, v="link_preview"))
+
+    tomorrow = local_now("Europe/Kyiv").date() + timedelta(days=1)
+    await h.click(Ed(a="sch", p=p))
+    await h.click(Ed(a="slot", p=p, v=f"{tomorrow.toordinal()}_0930"))
+    h.session.clear()
+    await h.click(Ed(a="schok", p=p, v=f"{tomorrow.toordinal()}_0930"))
+
+    # the «Готово» confirmation names the post, the full date and the channel, and offers the button
+    done = [m for name, m in h.session.calls if name in ("SendMessage", "EditMessageText")][-1]
+    assert "Готово" in done.text and "Безкоштовний майстер-клас" in done.text
+    assert f"{tomorrow.day} вересня {tomorrow.year}, 09:30" in done.text
+    assert done.reply_markup.inline_keyboard[0][0].text == t("ed.def_btn", locale="uk")
+
+    # «Зберегти форматування та налаштування» → confirmation → saved onto the channel
+    h.session.clear()
+    await h.click(Ed(a="defs", p=p))
+    assert "за замовчуванням" in h.session.texts()
+    await h.click(Ed(a="defsx", p=p))  # ← Назад returns to the «Готово» screen
+    assert "Готово" in h.session.texts()
+    assert (await h.db(lambda s: s.get(Channel, c))).post_defaults == {}
+
+    await h.click(Ed(a="defs", p=p))
+    await h.click(Ed(a="defsok", p=p))
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.post_defaults["options"]["silent"] is True
+    assert channel.post_defaults["options"]["link_preview"] is False
+    assert channel.post_defaults["buttons"] == [[{"text": "Реєстрація", "url": "https://t.me/testchan"}]]
+    assert "ad_label" not in channel.post_defaults["options"]
+
+    # the next post in that channel opens with those settings and buttons already applied
+    await h.text("Наступний пост")
+    new_post = await _post(h)
+    assert new_post.id != p
+    assert new_post.options["silent"] is True and new_post.options["link_preview"] is False
+    assert new_post.parts[0].buttons == [[{"text": "Реєстрація", "url": "https://t.me/testchan"}]]

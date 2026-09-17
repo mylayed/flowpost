@@ -141,6 +141,25 @@ TEXTS: dict[str, str] = {
     "ed.sum_pin_hours": "pin for {hours} h",
     "ed.sum_delete": "delete after {hours} h",
     "ed.sum_repeat": "repeat every {interval}",
+
+    # ---- Channel post defaults ---------------------------------------------------------------
+    "ed.def_btn": "Save formatting and settings",
+    "ed.def_title": "🗄 <b>Save formatting and settings</b>",
+    "ed.def_confirm": "Confirm that new posts should use these settings and formatting by default.",
+    "ed.def_saving": "Will be saved: {items}",
+    "ed.def_no_signature": "no signature",
+    "ed.def_no_comments": "no comments",
+    "ed.def_buttons": "buttons ({n})",
+    "ed.def_help_title": "ℹ️ How default settings work",
+    "ed.def_help": (
+        "Every new post in this channel will open with these settings and buttons already applied — "
+        "you can always change them in the editor, and posts you already created stay untouched. "
+        "To update the defaults, save them from another post."
+    ),
+    "ed.def_save": "Save as default",
+    "ed.def_back": "← Back",
+    "ed.def_saved_short": "Saved!",
+    "ed.def_saved": "✅ New posts in {channels} will use these settings.",
     "fmt.days": "{n} d",
     "fmt.hours": "{n} h",
     "fmt.minutes": "{n} min",
@@ -410,7 +429,8 @@ TEXTS: dict[str, str] = {
     "sch.confirm_repeat": "🔁 Auto-repeat will kick in after publishing.",
     "sch.confirm_yes": "✅ Confirm",
     "sch.change": "✏️ Change",
-    "sch.done": "✅ Post scheduled for <b>{date}</b> at <b>{time}</b> (channels: {n})\n{channels}",
+    "sch.done": "<b>Done</b> ✈️\n\nThe post «{title}» is scheduled for <b>{when}</b> in {channels}.",
+    "sch.done_no_time": "<b>Done</b> ✈️\n\nThe post «{title}» is scheduled in {channels}.",
     "sch.done_short": "Scheduled!",
     "err.time_format": "❌ Wrong time format. Send it as Hours:Minutes, for example: <code>09:05</code> or <code>14:35</code>.",
 

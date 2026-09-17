@@ -13,6 +13,13 @@ MONTHS = {
     "en": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
 }
 
+MONTHS_FULL = {
+    "uk": ["січня", "лютого", "березня", "квітня", "травня", "червня",
+           "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"],
+    "en": ["January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December"],
+}
+
 SLOT_STEP_MINUTES = 5
 SLOTS_PER_PAGE = 12
 DAY_START = time(9, 0)
@@ -26,6 +33,12 @@ def fmt_date(d: date, lang: str) -> str:
 
 def fmt_hm(t: time | datetime) -> str:
     return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def fmt_when_full(d: date, t: time, lang: str) -> str:
+    """'пт 18 вересня 2026, 15:00' / 'Fri 18 September 2026, 15:00'."""
+    lang = lang if lang in WEEKDAYS else "uk"
+    return f"{WEEKDAYS[lang][d.weekday()]} {d.day} {MONTHS_FULL[lang][d.month - 1]} {d.year}, {fmt_hm(t)}"
 
 
 def tz_of(name: str | None) -> ZoneInfo:
