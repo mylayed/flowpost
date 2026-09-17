@@ -15,6 +15,7 @@ from flowpost.config import Settings
 from flowpost.db.models import User
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.billing import plans
 from flowpost.services.billing.liqpay import LiqPayClient
 from flowpost.services.billing.subscriptions import get_subscription
 from flowpost.services.slots import fmt_date, tz_of
@@ -93,5 +94,5 @@ async def cmd_paysupport(message: Message, settings: Settings) -> None:
 @router.message(Command("terms"))
 async def cmd_terms(message: Message, settings: Settings) -> None:
     await message.answer(
-        t("pay.terms", days=settings.trial_days, posts=settings.trial_posts, free=settings.free_posts_per_day)
+        t("pay.terms", free=settings.free_posts_per_day, **plans.trial_terms(settings))
     )

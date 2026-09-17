@@ -80,9 +80,11 @@ async def test_webapp_api(sessionmaker):
         ]
         assert (catalog["posting"][1]["wm_photo"], catalog["posting"][1]["wm_video"]) == (450, 75)
         assert catalog["term_discounts"] == [[30, 0], [90, 10], [180, 15], [365, 20]]
-        assert catalog["channel_discounts"][-1] == [100, 30] and catalog["trial"]["days"] == 14
+        assert catalog["channel_discounts"][-1] == [100, 30] and catalog["trial"] == {
+                "days": 30, "posts": 100, "quotas": {"wm_photo": 15, "wm_video": 15, "ai_text": 15},
+            }
         terms = await (await client.get("/api/terms", headers=auth)).json()
-        assert "FlowPost" in terms["html"]
+        assert "FlowPost" in terms["html"] and "30" in terms["html"] and "15 фото" in terms["html"]
 
         assert (await client.post("/api/topup", json={"stars": 0}, headers=auth)).status == 400
         assert (await client.post("/api/topup", json={"stars": "34"}, headers=auth)).status == 400
@@ -120,7 +122,7 @@ async def test_webapp_api(sessionmaker):
 
         detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
         assert (detail["status"], detail["plan"], detail["days_left"]) == ("active", "trial", 14)
-        assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (48, 50, "trial")
+        assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (98, 100, "trial")
         assert detail["title"] == "Арабаба" and detail["link"] == "https://t.me/c/777"
         assert (await client.get(f"/api/channels/{foreign_id}", headers=auth)).status == 404
 

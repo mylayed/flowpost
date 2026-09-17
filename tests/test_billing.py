@@ -72,17 +72,17 @@ async def test_liqpay_callback_processing(sessionmaker, seeded):
 
 
 async def test_grant_trial_quotas_only_on_creation(sessionmaker, seeded):
-    settings = Settings(bot_token="1:x", trial_quotas={"wm_photo": 5, "wm_video": 5, "ai_text": 5}, _env_file=None)
+    settings = Settings(bot_token="1:x", _env_file=None)
     async with sessionmaker() as session:
         await _grant_trial_quotas(session, settings, seeded.channel_id, created=True)
         await session.commit()
     async with sessionmaker() as session:
         left = await limits.remaining(session, seeded.channel_id)
-        assert left == {"wm_photo": 5, "wm_video": 5, "ai_text": 5}
+        assert left == {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
 
     # Reconnecting the same channel (created=False) must not top it up again.
     async with sessionmaker() as session:
         await _grant_trial_quotas(session, settings, seeded.channel_id, created=False)
         await session.commit()
     async with sessionmaker() as session:
-        assert (await limits.remaining(session, seeded.channel_id))["wm_photo"] == 5
+        assert (await limits.remaining(session, seeded.channel_id))["wm_photo"] == 15

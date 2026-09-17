@@ -6,6 +6,15 @@ import math
 from flowpost.config import Settings
 
 
+def trial_terms(settings: Settings) -> dict[str, int]:
+    """Trial allowance as placeholders for the terms text."""
+    q = settings.trial_quotas
+    return {
+        "days": settings.trial_days, "posts": settings.trial_posts,
+        "photo": q.get("wm_photo", 0), "video": q.get("wm_video", 0), "ai": q.get("ai_text", 0),
+    }
+
+
 def channel_discount(settings: Settings, channels: int) -> int:
     return max((pct for count, pct in settings.channel_discounts.items() if channels >= count), default=0)
 

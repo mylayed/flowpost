@@ -24,8 +24,8 @@ async def test_channel_plans_and_posts_left(sessionmaker, seeded, settings):
             ent = await entitlements.for_channel(session, cfg, ch, owner, now)
             return ent.plan, ent.posts_limit, await entitlements.posts_left(session, cfg, ch, owner, ent, now)
 
-        # trial: 50 posts for the whole trial, only published ones count
-        assert await state(channel) == ("trial", 50, 47)
+        # trial: 100 posts for the whole trial, only published ones count
+        assert await state(channel) == ("trial", 100, 97)
 
         # trial over → free plan: 10 a day per channel, shared by all of the owner's free channels
         channel.trial_ends_at = now - timedelta(minutes=1)

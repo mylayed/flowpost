@@ -637,7 +637,8 @@ TEXTS: dict[str, str] = {
     "pay.support": "🆘 <b>Payment support</b>\n\nIf something went wrong with a payment, write to {contact}: describe the problem and include the payment date.",
     "pay.terms": (
         "📄 <b>FlowPost terms of use</b>\n\n"
-        "• Every connected channel gets a free trial: {days} days and up to {posts} posts.\n"
+        "• Every connected channel gets a free trial: {days} days and up to {posts} posts, "
+        "plus watermarks on {photo} photos and {video} videos and {ai} AI texts.\n"
         "• After that the channel runs on the free plan ({free} posts a day) or on a paid subscription "
         "paid with Telegram Stars via the «Subscribe» button.\n"
         "• The bot only publishes to channels where you are an admin, and only content you created.\n"

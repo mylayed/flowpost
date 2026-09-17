@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     ai_daily_limit_paid: int = 150
 
     # --- Billing ---
-    trial_days: int = 14
+    trial_days: int = 30
     # LiqPay only processes renewals and cancellations of subscriptions bought before the Stars Mini App.
     liqpay_enabled: bool = True
     liqpay_public_key: str = ""
@@ -73,8 +73,8 @@ class Settings(BaseSettings):
     term_discounts: dict[int, int] = {30: 0, 90: 10, 180: 15, 365: 20}  # days -> %
     # Stars pack sizes sold in @PremiumBot; checkout offers extra days to match the nearest pack exactly
     stars_packs: list[int] = [50, 75, 100, 150, 250, 350, 500, 750, 1000, 1500, 2500, 5000, 10000, 25000, 50000]
-    trial_posts: int = 50
-    trial_quotas: dict[str, int] = {"wm_photo": 5, "wm_video": 5, "ai_text": 5}
+    trial_posts: int = 100
+    trial_quotas: dict[str, int] = {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
     free_posts_per_day: int = 10  # 0 = no free plan
     calc_max_channels: int = 100
     terms_url: str = ""  # empty = the built-in terms page (the /terms text)

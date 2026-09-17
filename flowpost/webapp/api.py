@@ -280,8 +280,7 @@ async def set_lang(request: web.Request, session: AsyncSession, user: User) -> w
 async def terms(request: web.Request, session: AsyncSession, user: User) -> web.Response:
     settings = request.app[SETTINGS_KEY]
     text = t(
-        "pay.terms", locale=user.lang, days=settings.trial_days, posts=settings.trial_posts,
-        free=settings.free_posts_per_day,
+        "pay.terms", locale=user.lang, free=settings.free_posts_per_day, **plans.trial_terms(settings),
     )
     return web.json_response({"html": text})
 
