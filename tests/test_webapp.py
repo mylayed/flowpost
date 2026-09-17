@@ -16,10 +16,11 @@ from flowpost.db.models import (
     BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, Publication, Subscription, User,
 )
 from flowpost.db.types import utcnow
-from flowpost.services.billing import plans
+from flowpost.services.billing import limits, plans
 from flowpost.services.billing.stars import parse_payload
 from flowpost.services.billing.wallet import apply_topup, cashback_for, credit
 from flowpost.web import build_web_app
+from flowpost.webapp import api
 from flowpost.webapp.auth import validate_init_data
 
 TOKEN = "123456:TEST"
@@ -36,6 +37,10 @@ def init_data(user: dict, token: str = TOKEN, auth_date: int | None = None) -> s
 class InvoiceBot:
     def __init__(self):
         self.invoices: list[dict] = []
+        self.invite_link: str | None = None
+
+    async def get_chat(self, chat_id):
+        return SimpleNamespace(username=None, invite_link=self.invite_link)
 
     async def me(self):
         return SimpleNamespace(username="flowpost_bot")
@@ -123,33 +128,53 @@ async def test_webapp_api(sessionmaker):
         detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
         assert (detail["status"], detail["plan"], detail["days_left"]) == ("active", "trial", 14)
         assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (98, 100, "trial")
-        assert detail["title"] == "Арабаба" and detail["link"] == "https://t.me/c/777"
-        assert detail["periods"] == [{"kind": "trial", "until": detail["until"], "days_left": 14}]
+        assert detail["title"] == "Арабаба"
         assert detail["quotas"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0} and detail["extras"] is True
         assert (await client.get(f"/api/channels/{foreign_id}", headers=auth)).status == 404
 
-        # an account-wide subscription ending before the trial: the plan is the subscription, but the channel
-        # keeps working until the trial ends, and both dates are listed
+        # «Відкрити в Telegram» opens the private channel itself, not t.me/c/<id> (a web page): with no invite
+        # link it points at the channel's first message
+        assert detail["link"] == "https://t.me/c/777/1"
+        api._chat_links.clear()
+        bot.invite_link = "https://t.me/+abcDEF"
+        detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
+        assert detail["link"] == "https://t.me/+abcDEF"
+
+        # an account-wide subscription doesn't show while the channel's trial runs…
         async with sessionmaker() as session:
             session.add(Subscription(user_id=user.id, provider="manual", status="active",
-                                     current_period_end=utcnow() + timedelta(days=5, hours=1)))
-            session.add(ChannelQuota(channel_id=channel_id, kind="wm_photo", remaining=15))
+                                     current_period_end=utcnow() + timedelta(days=20, hours=1)))
             await session.commit()
         detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
-        assert (detail["plan"], detail["posts_left"], detail["days_left"]) == ("paid", None, 14)
-        assert [(p["kind"], p["days_left"]) for p in detail["periods"]] == [("account", 6), ("trial", 14)]
-        assert detail["quotas"]["wm_photo"] == 15
-        me = await (await client.get("/api/me", headers=auth)).json()
-        assert [(c["title"], c["days_left"]) for c in me["channels"]] == [("Арабаба", 14)]
+        assert (detail["plan"], detail["days_left"], detail["posts_left"], detail["posts_limit"]) == ("trial", 14, 98, 100)
 
-        # trial over, subscription over → free plan: no end date, quotas shown as not included
+        # …and takes over once the trial ends, as a paid plan of 15 posts a day until its own end date
         async with sessionmaker() as session:
-            await session.execute(update(Subscription).values(current_period_end=utcnow() - timedelta(minutes=1)))
             await session.execute(update(Channel).where(Channel.id == channel_id)
                                   .values(trial_ends_at=utcnow() - timedelta(minutes=1)))
             await session.commit()
         detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
-        assert (detail["plan"], detail["days_left"], detail["periods"], detail["extras"]) == ("free", 0, [], False)
+        assert (detail["status"], detail["plan"], detail["days_left"]) == ("active", "paid", 21)
+        assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (13, 15, "day")
+        assert detail["extras"] is True
+        me = await (await client.get("/api/me", headers=auth)).json()
+        assert [(c["title"], c["plan"], c["days_left"]) for c in me["channels"]] == [("Арабаба", "paid", 21)]
+
+        # quotas follow what's spent
+        async with sessionmaker() as session:
+            await limits.add(session, channel_id, "wm_photo", 15)
+            await limits.take(session, channel_id, "wm_photo", 4)
+            await session.commit()
+        detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
+        assert detail["quotas"]["wm_photo"] == 11
+
+        # subscription over too → free plan: no end date, quotas not included
+        async with sessionmaker() as session:
+            await session.execute(update(Subscription).values(current_period_end=utcnow() - timedelta(minutes=1)))
+            await session.commit()
+        detail = await (await client.get(f"/api/channels/{channel_id}", headers=auth)).json()
+        assert (detail["plan"], detail["status"], detail["days_left"], detail["extras"]) == ("free", "free", 0, False)
+        assert (detail["posts_left"], detail["posts_limit"]) == (8, 10)
 
         page = await client.get("/app/")
         assert page.status == 200 and "__V__" not in await page.text()
@@ -215,6 +240,10 @@ async def test_buy_limit_packs_from_wallet(sessionmaker, seeded):
         assert data["remaining"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 500}
         data = await (await buy({"wm_photo": 10})).json()
         assert data["balance"] == 11 and data["remaining"]["wm_photo"] == 20
+
+        # the channel page shows the bought packs on top of what was there
+        detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
+        assert detail["quotas"] == {"wm_photo": 20, "wm_video": 0, "ai_text": 500}
 
         async with sessionmaker() as session:
             spends = (await session.scalars(

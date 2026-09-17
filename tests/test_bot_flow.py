@@ -610,45 +610,6 @@ async def test_settings_pay_button_opens_billing_mini_app(h: Harness):
     assert sent.reply_markup.inline_keyboard[0][0].web_app.url == "https://flowpost.test/app/"
 
 
-async def test_grant_notifies_user_and_shows_days_left(sessionmaker):
-    settings = Settings(bot_token="123456:TEST", admin_ids=str(ADMIN_ID), liqpay_enabled=False, _env_file=None)
-    session = MockSession()
-    bot = Bot("123456:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
-    dp = build_dispatcher(settings, sessionmaker, MemoryStorage())
-    dp.workflow_data.update(settings=settings, publisher=Publisher(bot, None),
-                            worker=Worker(bot, sessionmaker, Publisher(bot, None), settings), ai=AIService(settings))
-    h = Harness(dp, bot, session, sessionmaker)
-    try:
-        await h.text("/start")
-
-        async def expire(s):
-            u = await s.scalar(select(User).where(User.tg_id == USER_ID))
-            u.trial_ends_at = utcnow() - timedelta(minutes=1)
-            await s.commit()
-        await h.db(expire)
-
-        # a bare /grant (e.g. from tapping the command in a forwarded receipt) must not crash:
-        # Telegram's HTML parser rejects "<...>" placeholders, so the usage text must avoid them.
-        h.session.clear()
-        await h.text("/grant", uid=ADMIN_ID)
-        usage_reply = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)
-        assert "Usage" in usage_reply.text and "<" not in usage_reply.text
-
-        h.session.clear()
-        await h.text(f"/grant {USER_ID} 30", uid=ADMIN_ID)
-        admin_reply = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)
-        assert "active" in admin_reply.text
-        user_notice = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == USER_ID)
-        assert "Підписку активовано" in user_notice.text
-
-        h.session.clear()
-        await h.text("/settings")
-        assert "ще 29 дн." in h.session.texts() or "ще 30 дн." in h.session.texts()
-    finally:
-        for router in dp.sub_routers:
-            router._parent_router = None
-
-
 async def _seed_published(h: Harness, *, message_id: int, discussion_thread_id: int | None = None) -> tuple[int, int]:
     """A channel with a post already published as one message; returns (channel_id, publication_id)."""
     async def create(session):

@@ -39,12 +39,17 @@ async def test_channel_plans_and_posts_left(sessionmaker, seeded, settings):
         assert await state(channel) == ("paid", 15, 12)
         assert await state(second) == ("free", 10, 10)
 
-        # an old account-wide subscription keeps the other channels unlimited until it expires
+        # an old account-wide subscription counts as a 15-posts-a-day plan on channels without a plan or trial
         legacy = Subscription(user_id=owner.id, provider="manual", status="active",
                               current_period_end=now + timedelta(days=5))
         session.add(legacy)
         await session.flush()
-        assert await state(second) == ("paid", None, None)
+        assert await state(second) == ("paid", 15, 15)
+        # …but a running trial comes first
+        second.trial_ends_at = now + timedelta(days=3)
+        await session.flush()
+        assert await state(second) == ("trial", 100, 100)
+        second.trial_ends_at = now - timedelta(days=1)
 
         # without a free plan, a channel with nothing left can't publish at all
         await session.delete(legacy)

@@ -535,6 +535,7 @@ main { flex: 1; padding-bottom: 24px; }
   background: rgba(255, 255, 255, 0.04);
 }
 
+.channel-quotas { margin: 20px 0 0; }
 .remaining-title { margin-bottom: 2px; font-size: 14px; font-weight: 700; }
 
 .remaining .info-row { font-size: 14px; }

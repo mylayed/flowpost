@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -11,17 +12,19 @@ from typing import Awaitable, Callable
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import User as TgUser
 from aiohttp import web
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import Channel, User
+from flowpost.db.models import Channel, Publication, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANGS, t
 from flowpost.services.billing import channel_subs, entitlements, limits, plans
 from flowpost.services.billing.stars import create_topup_link
-from flowpost.services.posts import channel_link
+from flowpost.services.delivery import publication_message_ids
+from flowpost.services.posts import message_link
 from flowpost.webapp import BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
 from flowpost.webapp.auth import validate_init_data
 
@@ -70,25 +73,15 @@ def days_left(until: datetime | None, now: datetime) -> int:
 
 
 async def channel_info(session: AsyncSession, settings: Settings, channel: Channel, owner: User, now: datetime) -> dict:
-    """The channel's plan, validity, posts and quotas left, as shown in the Mini App.
-
-    `until`/`days_left` cover every running plan and trial together — a channel whose account subscription ends
-    before its trial keeps working until the trial ends. Each one's own end date is listed in `periods`."""
+    """The channel's current plan, its validity, and the posts and quotas it has left, as shown in the Mini App."""
     entitlement = await entitlements.for_channel(session, settings, channel, owner, now)
     left = await entitlements.posts_left(session, settings, channel, owner, entitlement, now)
-    cover = await entitlements.coverage(session, channel, now)
-    periods = [
-        {"kind": kind, "until": until.isoformat(), "days_left": days_left(until, now)}
-        for kind, until in (("channel", cover.channel_until), ("account", cover.account_until), ("trial", cover.trial_until))
-        if until
-    ]
     return {
         "status": {"paid": "active", "trial": "active", "free": "free"}.get(entitlement.plan, "inactive"),
         "plan": entitlement.plan,
         "posts_per_day": entitlement.posts_per_day,
-        "until": cover.until.isoformat() if cover.until else None,
-        "days_left": days_left(cover.until, now),
-        "periods": periods,
+        "until": entitlement.until.isoformat() if entitlement.until else None,
+        "days_left": days_left(entitlement.until, now),
         "posts_limit": entitlement.posts_limit,
         "posts_window": entitlement.window,
         "posts_left": left,
@@ -153,6 +146,38 @@ async def owned_channel(session: AsyncSession, user: User, channel_id: int) -> C
     return channel
 
 
+_chat_links: dict[int, tuple[float, str | None]] = {}
+CHAT_LINK_TTL = 600  # seconds
+
+
+async def open_link(bot, session: AsyncSession, channel: Channel) -> str:
+    """A link that opens the channel itself in Telegram. A private channel's t.me/c/<id> without a message id only
+    opens Telegram's website, so it uses the channel's invite link or, failing that, a message link: its latest
+    published post, or message 1 (the "channel created" notice every channel starts with)."""
+    if channel.username:
+        return f"https://t.me/{channel.username}"
+    cached = _chat_links.get(channel.chat_id)
+    if cached is None or time.monotonic() - cached[0] > CHAT_LINK_TTL:
+        try:
+            chat = await bot.get_chat(channel.chat_id)
+            link = f"https://t.me/{chat.username}" if chat.username else chat.invite_link
+        except TelegramAPIError as e:
+            log.info("get_chat for channel %s failed: %s", channel.id, e)
+            link = None
+        cached = (time.monotonic(), link)
+        _chat_links[channel.chat_id] = cached
+    if cached[1]:
+        return cached[1]
+    last = await session.scalar(
+        select(Publication)
+        .where(Publication.channel_id == channel.id, Publication.status == "published", Publication.deleted.is_(False))
+        .order_by(Publication.published_at.desc())
+        .limit(1)
+    )
+    ids = publication_message_ids(last) if last is not None else []
+    return message_link(channel, ids[0] if ids else 1)
+
+
 async def channel_detail(request: web.Request, session: AsyncSession, user: User) -> web.Response:
     channel = await owned_channel(session, user, int(request.match_info["channel_id"]))
     if channel is None:
@@ -161,7 +186,7 @@ async def channel_detail(request: web.Request, session: AsyncSession, user: User
         "id": channel.id,
         "title": channel.title,
         "username": channel.username,
-        "link": channel_link(channel),
+        "link": await open_link(request.app[BOT_KEY], session, channel),
         **await channel_info(session, request.app[SETTINGS_KEY], channel, user, utcnow()),
     })
 

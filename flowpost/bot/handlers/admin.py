@@ -1,8 +1,7 @@
-"""Admin commands for the bot owner: /stats, /grant, /expire."""
+"""Admin commands for the bot owner: /stats, /expire."""
 from __future__ import annotations
 
-from aiogram import Bot, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram import Router
 from aiogram.filters import BaseFilter, Command, CommandObject
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,9 +10,7 @@ from flowpost.config import Settings
 from flowpost.db.repo import stats as stats_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
-from flowpost.i18n import t
-from flowpost.services.billing.subscriptions import extend_subscription, get_subscription
-from flowpost.services.slots import fmt_date, tz_of
+from flowpost.services.billing.subscriptions import get_subscription
 
 
 class IsAdmin(BaseFilter):
@@ -45,26 +42,6 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
 def _args(command: CommandObject, count: int) -> list[str] | None:
     parts = (command.args or "").split()
     return parts if len(parts) == count else None
-
-
-@router.message(Command("grant"))
-async def cmd_grant(message: Message, command: CommandObject, bot: Bot, session: AsyncSession) -> None:
-    args = _args(command, 2)
-    if not args or not args[0].isdigit() or not args[1].lstrip("-").isdigit():
-        await message.answer("Usage: /grant tg_id days")
-        return
-    user = await users_repo.get_by_tg(session, int(args[0]))
-    if user is None:
-        await message.answer("User not found (they must /start the bot first).")
-        return
-    sub = await extend_subscription(session, user.id, "manual", days=int(args[1]))
-    await message.answer(f"✅ Subscription of {args[0]} is now {sub.status} until {sub.current_period_end:%Y-%m-%d %H:%M} UTC")
-    if sub.status == "active":
-        local = sub.current_period_end.astimezone(tz_of(user.tz))
-        try:
-            await bot.send_message(user.tg_id, t("pay.success", locale=user.lang, date=fmt_date(local.date(), user.lang)))
-        except TelegramAPIError:
-            pass
 
 
 @router.message(Command("expire"))

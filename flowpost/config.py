@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     # Stars pack sizes sold in @PremiumBot; checkout offers extra days to match the nearest pack exactly
     stars_packs: list[int] = [50, 75, 100, 150, 250, 350, 500, 750, 1000, 1500, 2500, 5000, 10000, 25000, 50000]
     trial_posts: int = 100
+    # Account-wide subscriptions from before per-channel plans count as this plan on every channel of the account
+    legacy_posts_per_day: int = 15
     trial_quotas: dict[str, int] = {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
     free_posts_per_day: int = 10  # 0 = no free plan
     calc_max_channels: int = 100
