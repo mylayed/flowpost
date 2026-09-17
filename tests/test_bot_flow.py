@@ -322,6 +322,85 @@ async def test_full_editor_flow(h: Harness):
     assert {"EditMessageMedia", "EditMessageText"} & set(h.session.names())
 
 
+async def test_album_screen_orders_replaces_and_watermarks_items(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    c = (await h.db(lambda s: s.scalar(select(Channel)))).id
+    await h.photo(file_id="p1")
+    p = (await _post(h)).id
+
+    # a single media → no «Альбом» button yet
+    assert "Альбом" not in str(h.session.calls[-1][1].reply_markup)
+    await h.click(Ed(a="media", p=p))
+    await h.click(Ed(a="m_add", p=p))
+    await h.photo(file_id="p2")
+    await h.photo(file_id="p3")
+    h.session.clear()
+    await h.click(Ed(a="m_done", p=p))
+    assert "Альбом (3)" in str(h.session.calls[-1][1].reply_markup)
+
+    # the album screen previews one item with its panel underneath
+    h.session.clear()
+    await h.click(Ed(a="alb", p=p, v="1"))
+    names = h.session.names()
+    assert "SendPhoto" in names and names[-1] == "SendMessage"
+    assert "Медіа 2 з 3" in h.session.texts()
+
+    # swap 1 ↔ 3
+    await h.click(Ed(a="alb_mv", p=p, v="0"))
+    await h.click(Ed(a="alb_sw", p=p, v="0_2"))
+    assert [m["file_id"] for m in (await _post(h)).parts[0].media] == ["p3", "p2", "p1"]
+
+    # a sent file replaces the selected item (now index 2), keeping its slot settings
+    await h.click(Ed(a="alb_wms", p=p, v="2_off"))
+    await h.photo(file_id="p1-new")
+    media = (await _post(h)).parts[0].media
+    assert media[2]["file_id"] == "p1-new" and media[2]["wm_mode"] == "off"
+
+    # per-item watermark: can't be switched on while nothing is configured; an own text turns it on
+    h.session.clear()
+    await h.click(Ed(a="alb_wms", p=p, v="1_on"))
+    assert "Спершу задайте" in str(h.session.calls[-1][1])
+    assert "wm_mode" not in (await _post(h)).parts[0].media[1]
+    await h.click(Ed(a="alb_wm", p=p, v="1"))
+    await h.click(Ed(a="alb_wmc", p=p, v="1"))
+    await h.text("@mine")
+    media = (await _post(h)).parts[0].media
+    assert media[1]["wm_custom"]["text"] == "@mine" and media[1]["wm_mode"] == "on"
+    assert "wm_custom" not in media[0]
+
+    # album-wide: channel watermark set up, «на всі» resets per-item on/off but keeps own texts
+    await h.click(Ed(a="wm", p=p))
+    await h.click(Cs(a="wm_text", c=c, p=p))
+    await h.text("@testchan")
+    await h.click(Ed(a="alb_wma", p=p))
+    await h.click(Ed(a="alb_wmall", p=p, v="on"))
+    post = await _post(h)
+    assert post.options["watermark"] is True
+    assert all("wm_mode" not in m for m in post.parts[0].media)
+    assert post.parts[0].media[1]["wm_custom"]["text"] == "@mine"
+
+    # own watermark for all
+    await h.click(Ed(a="alb_wmc", p=p, v="all"))
+    await h.text("@all")
+    assert all(m["wm_custom"]["text"] == "@all" for m in (await _post(h)).parts[0].media)
+
+    # «Додати медіа в альбом» returns to the album on «Готово»
+    await h.click(Ed(a="m_add", p=p, v="alb"))
+    await h.photo(file_id="p4")
+    h.session.clear()
+    await h.click(Ed(a="m_done", p=p, v="alb"))
+    assert "Медіа 4 з 4" in h.session.texts()
+
+    # deleting down to one media drops back to the editor
+    await h.click(Ed(a="alb_del", p=p, v="3"))
+    await h.click(Ed(a="alb_del", p=p, v="0"))
+    h.session.clear()
+    await h.click(Ed(a="alb_del", p=p, v="0"))
+    assert len((await _post(h)).parts[0].media) == 1
+    assert "Альбом" not in str(h.session.calls[-1][1].reply_markup)
+
+
 async def test_channel_admin_delegation(h: Harness):
     """Owner invites an admin; the admin posts into the owner's channel under the owner's account/subscription."""
     await h.text("/start")

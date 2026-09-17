@@ -4,6 +4,8 @@ from aiogram.fsm.state import State, StatesGroup
 class Editor(StatesGroup):
     content = State()        # main editor: new media/text replaces the current part
     add_media = State()      # "Медіа → Додати"
+    album = State()          # "Альбом": a sent file replaces the selected album item
+    album_wm = State()       # "Альбом → Водяний знак → Свій знак": text or logo for one item or all of them
     buttons = State()        # waiting for "Текст — посилання" lines
     ai_custom = State()      # free-form AI instruction
     ai_image = State()       # screenshot for AI vision

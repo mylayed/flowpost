@@ -114,3 +114,19 @@ async def test_ai_generation_blocked_and_spent_by_channel_quota(fake_bot, sessio
         await run_ai(fake_bot, 1, session, state, user, ai, settings, None, post, 0, "format")
         await session.commit()
     assert _StubAI.calls == 1
+
+
+def test_item_watermark_overrides_post_setting():
+    from flowpost.services.watermark import item_wm
+
+    channel_wm = {"type": "text", "text": "@chan", "position": "tl"}
+    photo = {"type": "photo", "file_id": "a"}
+    assert item_wm(photo, True, channel_wm)["text"] == "@chan"
+    assert item_wm(photo, False, channel_wm) is None
+    assert item_wm({**photo, "wm_mode": "on"}, False, channel_wm)["text"] == "@chan"
+    assert item_wm({**photo, "wm_mode": "off"}, True, channel_wm) is None
+    own = item_wm({**photo, "wm_custom": {"type": "text", "text": "моє"}}, True, channel_wm)
+    assert own["text"] == "моє" and own["position"] == "tl"
+    assert wm_cache_key(1, own) != wm_cache_key(1, channel_wm)
+    # nothing to draw: no channel watermark and no own one
+    assert item_wm({**photo, "wm_mode": "on"}, True, {}) is None

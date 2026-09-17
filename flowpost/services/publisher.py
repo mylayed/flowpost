@@ -21,7 +21,7 @@ from flowpost.db.models import Channel, Post
 from flowpost.services.billing import limits
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of
-from flowpost.services.watermark import Watermarker, WatermarkSkipped, wm_cache_key, wm_configured
+from flowpost.services.watermark import Watermarker, WatermarkSkipped, item_wm, wm_cache_key
 
 log = logging.getLogger(__name__)
 
@@ -212,21 +212,22 @@ class Publisher:
     ) -> tuple[list[OutMedia], list[str]]:
         out: list[OutMedia] = []
         warnings: list[str] = []
-        use_wm = bool(
-            opts.get("watermark") and channel is not None and self.watermarker and wm_configured(channel.watermark)
-        )
+        channel_wm = channel.watermark if channel is not None else None
         for item in media_items:
-            if use_wm and item["type"] in WATERMARKABLE:
+            raw = None
+            if self.watermarker and item["type"] in WATERMARKABLE:
+                raw = item_wm(item, bool(opts.get("watermark")), channel_wm)
+            if raw is not None:
                 # session is None only for editor live previews, which don't spend the channel's quota.
                 kind = "wm_photo" if item["type"] == "photo" else "wm_video"
-                if session is None or await limits.take(session, channel.id, kind):
-                    key = wm_cache_key(channel.id, channel.watermark)
+                if session is None or (channel is not None and await limits.take(session, channel.id, kind)):
+                    key = wm_cache_key(channel.id if channel is not None else 0, raw)
                     cached = (item.get("wm") or {}).get(key)
                     if cached:
                         out.append(OutMedia(item["type"], cached, item, key))
                         continue
                     try:
-                        data, filename = await self.watermarker.apply(self.bot, item, channel.watermark)
+                        data, filename = await self.watermarker.apply(self.bot, item, raw)
                         out.append(OutMedia(item["type"], BufferedInputFile(data, filename), item, key))
                         continue
                     except WatermarkSkipped as e:
@@ -236,6 +237,14 @@ class Publisher:
                     warnings.append("warn.wm_no_quota")
             out.append(OutMedia(item["type"], item["file_id"], item))
         return out, warnings
+
+    async def preview_item(
+        self, chat_id: int, item: dict, channel: Channel | None, opts: dict,
+    ) -> tuple[int, list[str]]:
+        """Send one media item of a post (watermarked as it will be published) to `chat_id`, without a caption."""
+        media, warnings = await self.resolve_media([item], channel, opts)
+        m = await _send_single(self.bot, chat_id, media[0])
+        return m.message_id, warnings
 
     @staticmethod
     def remember_uploads(media: list[OutMedia], sent: SentPart) -> bool:

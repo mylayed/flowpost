@@ -47,6 +47,16 @@ def wm_configured(raw: dict | None) -> bool:
     return bool((s["text"] or "").strip())
 
 
+def item_wm(item: dict, post_enabled: bool, channel_wm: dict | None) -> dict | None:
+    """Effective watermark for one media item, or None. An item may override the post: `wm_mode` "on"/"off"
+    and `wm_custom` — its own text or logo on top of the channel's position/opacity/size."""
+    mode = item.get("wm_mode")
+    if not (mode == "on" if mode in ("on", "off") else post_enabled):
+        return None
+    raw = {**(channel_wm or {}), **(item.get("wm_custom") or {})}
+    return raw if wm_configured(raw) else None
+
+
 def wm_cache_key(channel_id: int, raw: dict | None) -> str:
     digest = hashlib.sha1(json.dumps(wm_settings(raw), sort_keys=True).encode()).hexdigest()[:10]
     return f"{channel_id}:{digest}"

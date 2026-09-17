@@ -96,7 +96,8 @@ async def ed_media_add(
         return
     await cb.answer()
     await state.set_state(Editor.add_media)
-    kb = markup([[btn(t("media_menu.done"), Ed(a="m_done", p=post.id))]])
+    await state.update_data(media_back=callback_data.v)
+    kb = markup([[btn(t("media_menu.done"), Ed(a="m_done", p=post.id, v=callback_data.v))]])
     await show_panel(bot, cb.from_user.id, state, t("media_menu.add_prompt"), kb)
 
 
@@ -105,10 +106,15 @@ async def ed_media_done(
     cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
     publisher: Publisher,
 ) -> None:
-    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
     await cb.answer()
+    if callback_data.v == "alb":
+        from flowpost.bot.handlers.editor.album import show_album
+
+        await show_album(bot, cb.from_user.id, session, state, user, post, publisher, len(post.parts[idx].media) - 1)
+        return
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher)
 
 
@@ -135,7 +141,8 @@ async def ed_media_received(
         return
     part.media = combined
     await session.flush()
-    kb = markup([[btn(t("media_menu.done"), Ed(a="m_done", p=post.id))]])
+    back = (await state.get_data()).get("media_back") or ""
+    kb = markup([[btn(t("media_menu.done"), Ed(a="m_done", p=post.id, v=back))]])
     await show_panel(
         bot, message.chat.id, state, t("media_menu.added", n=len(combined), max=MAX_MEDIA), kb, resend=True
     )
