@@ -16,7 +16,9 @@ from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
+from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.billing import entitlements
 from flowpost.services.posts import options_of, part_is_empty, part_warnings
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import fmt_date, fmt_hm, tz_of
@@ -203,7 +205,8 @@ async def render_editor(
     if not part_is_empty(part):
         try:
             result = await publisher.publish_post(
-                post, primary, user.lang, chat_id=chat_id, preview=True, part_indexes=[part_idx]
+                post, primary, user.lang, chat_id=chat_id, preview=True, part_indexes=[part_idx], session=session,
+                wm_allowed=await entitlements.extras_allowed(session, channels, utcnow()),
             )
             preview_ids = result.all_ids
             warnings += result.warnings

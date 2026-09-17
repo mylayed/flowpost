@@ -143,6 +143,16 @@ class Worker:
                     notify_key = "notify.paused"
                     if paywalled is not None:
                         paywalled.add(owner.id)
+            elif not entitlements.has_extras(entitlement) and post is not None and (
+                pub.repeat_index > 0 or len(post.targets) > 1
+            ):
+                # Auto-repeat and multiposting aren't on the free plan; paying for the channel resumes them.
+                pub.status = "paused"
+                outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.extras_plan")
+                if owner and pub.notify and (paywalled is None or owner.id not in paywalled):
+                    notify_key = "notify.paused_extras"
+                    if paywalled is not None:
+                        paywalled.add(owner.id)
             elif now - pub.run_at > timedelta(hours=self.settings.missed_grace_hours):
                 pub.status = "missed"
                 outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.missed")
@@ -159,7 +169,9 @@ class Worker:
                     notify_key = "notify.limit"
             else:
                 try:
-                    outcome = await deliver_publication(session, self.publisher, pub, now=now)
+                    outcome = await deliver_publication(
+                        session, self.publisher, pub, now=now, extras=entitlements.has_extras(entitlement),
+                    )
                     notify_key = "notify.published" if pub.notify and channel is not None and channel.notify_published else None
                 except TelegramRetryAfter as e:
                     pub.status = "pending"
@@ -241,7 +253,7 @@ class Worker:
 
     async def _notify(self, owner: User, key: str, outcome: DeliveryOutcome) -> None:
         markup = None
-        if key in ("notify.paused", "notify.limit"):
+        if key in ("notify.paused", "notify.paused_extras", "notify.limit"):
             markup = InlineKeyboardMarkup(inline_keyboard=[[
                 pay_btn(self.settings, t("btn.pay", locale=owner.lang))
             ]])

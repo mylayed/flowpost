@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import ChannelQuota, ChannelSubscription
+from flowpost.db.models import ChannelQuota, ChannelSubscription, Publication
 from flowpost.db.types import utcnow
 from flowpost.services import analytics
 from flowpost.services.billing import limits
@@ -46,6 +46,12 @@ async def buy(
             amount = plan.get(kind, 0) * days // 30
             if amount:
                 await limits.add(session, channel_id, kind, amount)
+    # Posts paused on these channels (plan ran out, or free-plan repeats/multiposts) go out again.
+    await session.execute(
+        update(Publication)
+        .where(Publication.channel_id.in_(channel_ids), Publication.status == "paused")
+        .values(status="pending")
+    )
     await session.flush()
     analytics.track(
         session, user_id, "subscribe", channels=channel_ids, posts_per_day=posts_per_day, days=days, stars=stars

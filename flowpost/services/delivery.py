@@ -117,9 +117,10 @@ async def _schedule_repeat(session: AsyncSession, post: Post, pub: Publication, 
 
 
 async def deliver_publication(
-    session: AsyncSession, publisher: Publisher, pub: Publication, *, now: datetime
+    session: AsyncSession, publisher: Publisher, pub: Publication, *, now: datetime, extras: bool = True,
 ) -> DeliveryOutcome:
-    """Send `pub`. Telegram exceptions propagate so the caller can decide about retries."""
+    """Send `pub`. Telegram exceptions propagate so the caller can decide about retries.
+    Without `extras` (the free plan) the post goes out without watermarks and schedules no further repeats."""
     owner = await session.get(User, pub.owner_id)
     post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
     channel = await session.get(Channel, pub.channel_id)
@@ -143,7 +144,9 @@ async def deliver_publication(
     remaining = list(range(len(sent_parts), len(post.parts)))
 
     for idx in remaining:
-        result = await publisher.publish_post(post, channel, owner.lang, part_indexes=[idx], session=session)
+        result = await publisher.publish_post(
+            post, channel, owner.lang, part_indexes=[idx], session=session, wm_allowed=extras,
+        )
         sent_parts = [*sent_parts, result.parts[0].to_dict()]
         for w in result.warnings:
             if w not in warnings:
@@ -177,5 +180,6 @@ async def deliver_publication(
 
     post.published_at = now
     analytics.track(session, owner.id, "post_published", channel_id=channel.id, post_id=post.id)
-    await _schedule_repeat(session, post, pub, now)
+    if extras:
+        await _schedule_repeat(session, post, pub, now)
     return outcome

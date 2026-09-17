@@ -27,8 +27,8 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
-from flowpost.services.billing import limits
-from flowpost.services.billing.subscriptions import Access, get_access
+from flowpost.services.billing import entitlements, limits
+from flowpost.services.billing.subscriptions import Access
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import CAPTION_LIMIT, TEXT_LIMIT, render_signature
 from flowpost.services.publisher import Publisher
@@ -76,7 +76,11 @@ async def ed_ai_menu(
     await cb.answer()
     await state.set_state(Editor.content)
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
-    left = await _quota_left(session, user, settings, await get_access(session, user)) if ai.enabled else None
+    now = utcnow()
+    owner = user if post.owner_id == user.id else await session.get(User, post.owner_id)
+    plans = [await entitlements.for_channel(session, settings, c, owner, now) for c in channels]
+    access = Access(True, "paid", None, None) if plans and all(e.plan == "paid" for e in plans) else None
+    left = await _quota_left(session, user, settings, access) if ai.enabled else None
     channel_left = (await limits.remaining(session, channels[0].id))["ai_text"] if ai.enabled and channels else None
     text, kb = ai_menu(post, channels[0].id if channels else None, ai.enabled, left, channel_left)
     await show_panel(bot, cb.from_user.id, state, text, kb)
@@ -109,7 +113,8 @@ async def run_ai(
         return
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
     primary = channels[0] if channels else None
-    if primary is not None and (await limits.remaining(session, primary.id))["ai_text"] <= 0:
+    # The text is charged up front so two quick taps can't both slip through on the last one; a failed run refunds it.
+    if primary is None or not await limits.take(session, primary.id, "ai_text"):
         await show_panel(bot, chat_id, state, t("ai.quota_channel_over"), back, resend=resend)
         return
     part = post.parts[idx]
@@ -133,11 +138,10 @@ async def run_ai(
             image=image,
         )
     except AIError as e:
+        await limits.add(session, primary.id, "ai_text", 1)
         await show_panel(bot, chat_id, state, t(e.key), back)
         return
     analytics.track(session, user.id, "ai_call", action=action)
-    if primary is not None:
-        await limits.take(session, primary.id, "ai_text")
     await state.update_data(ai_result=result, ai_action=action, ai_instruction=instruction, ai_image=image_file_id)
     kb = markup([
         [btn(t("ai.apply"), Ed(a="ai_apply", p=post.id))],

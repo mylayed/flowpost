@@ -25,7 +25,9 @@ from flowpost.bot.keyboards.common import btn, chunked, markup, on
 from flowpost.bot.states import Editor
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.billing import entitlements
 from flowpost.services.posts import MAX_MEDIA, WATERMARKABLE, group_error, media_icon, options_of
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import item_wm, wm_configured
@@ -113,7 +115,11 @@ async def show_album(
     preview_ids: list[int] = []
     notes = [note] if note else []
     try:
-        message_id, warnings = await publisher.preview_item(chat_id, items[i], channel, options_of(post))
+        channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+        message_id, warnings = await publisher.preview_item(
+            chat_id, items[i], channel, options_of(post), session,
+            wm_allowed=await entitlements.extras_allowed(session, channels, utcnow()),
+        )
         preview_ids.append(message_id)
         notes += ["⚠️ " + t(key) for key in warnings]
     except TelegramBadRequest as e:

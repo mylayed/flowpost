@@ -650,12 +650,19 @@ TEXTS: dict[str, str] = {
         "Publishing, scheduling and AI are available with a FlowPost subscription. Your drafts and settings are saved."
     ),
     "paywall.short": "Subscription required — the free trial has ended.",
+    "paywall.extras": (
+        "⛔ <b>Available with a subscription or during the trial</b>\n\n"
+        "The channel is on the free plan: the AI assistant, watermarks, multiposting and auto-repeat aren't included. "
+        "Subscribe for the channel, or publish the post to a single channel without auto-repeat."
+    ),
+    "paywall.extras_short": "Not included in the free plan — the channel needs a subscription.",
 
     # ---- Notifications -----------------------------------------------------------------------
     "notify.published": "✅ Post published in «{title}»: {link}",
     "notify.failed": "❌ Couldn't publish the post in «{title}»: {error}",
     "notify.missed": "⚠️ The publication in «{title}» was skipped: the bot was unavailable at the scheduled time. Open «Content plan» to reschedule.",
     "notify.paused": "⏸ Scheduled posts are paused: the trial or subscription has ended. Subscribe and they'll continue going out.",
+    "notify.paused_extras": "⏸ The post in «{title}» is paused: {error}. Subscribe for the channel and it will go out.",
     "notify.limit": "⏸ The post in «{title}» didn't go out: {error}.\nTo publish more, subscribe or upgrade your plan.",
     "notify.trial_ending":"⏳ Your FlowPost trial ends in less than a day. Subscribe to keep posts going out on schedule.",
     "notify.sub_ending": "⏳ Your FlowPost subscription ends tomorrow — the last day. Renew it to keep posts going out on schedule.",
@@ -667,6 +674,7 @@ TEXTS: dict[str, str] = {
     "err.post_empty": "📭 Nothing's been sent yet — the post is empty. Add some text, a photo, or a video, then try again.",
     "err.pub_missing": "the post or channel was deleted",
     "err.no_access": "no active subscription",
+    "err.extras_plan": "multiposting and auto-repeat aren't included in the free plan",
     "err.missed": "skipped",
     "err.retry_later": "we'll retry shortly",
     "err.telegram": "Telegram rejected the message (check formatting and media)",
@@ -688,4 +696,5 @@ TEXTS: dict[str, str] = {
     "warn.wm_no_ffmpeg": "video watermarks are unavailable on the server (ffmpeg missing)",
     "warn.wm_too_big": "the file is larger than 20 MB — published without a watermark",
     "warn.wm_no_quota": "watermark quota used up — published without it. Top up limits in billing",
+    "warn.wm_plan": "watermarks aren't included in the free plan — the post goes out without them",
 }

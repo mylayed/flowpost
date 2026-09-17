@@ -16,12 +16,13 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.billing import entitlements
-from flowpost.services.billing.subscriptions import get_access
+from flowpost.services.billing.subscriptions import Access
 
 
 class AccessMiddleware(BaseMiddleware):
-    """Guards flagged handlers: `paid` (AI) needs an active trial or subscription, and `publish`
-    (publish, schedule) needs every target channel to still have a plan — paid, trial or free."""
+    """Guards flagged handlers: `paid` (AI) needs every channel of the post on a paid plan or trial, and `publish`
+    (publish, schedule) needs every target channel to still have a plan — paid, trial or free — and, for
+    multiposting or auto-repeat, a paid plan or trial."""
 
     @staticmethod
     async def _post_id(event: TelegramObject, data: dict[str, Any]) -> int | None:
@@ -42,13 +43,32 @@ class AccessMiddleware(BaseMiddleware):
         return int(pid) if pid else None
 
     @staticmethod
-    async def _channels_have_plan(session: AsyncSession, settings: Settings, post: Post, owner: User) -> bool:
+    async def _channels_have_plan(session: AsyncSession, settings: Settings, post: Post, owner: User) -> str | None:
+        """None if the post may go out, otherwise the paywall reason: "plan" (nothing left) or "extras"
+        (multiposting or auto-repeat on a channel that's on the free plan)."""
         now = utcnow()
         channels = (await session.scalars(select(Channel).where(Channel.id.in_(post.channel_ids)))).all()
+        needs_extras = len(post.channel_ids) > 1 or bool(post.repeat and post.repeat.active)
         for channel in channels:
-            if (await entitlements.for_channel(session, settings, channel, owner, now)).plan == "none":
-                return False
-        return True
+            entitlement = await entitlements.for_channel(session, settings, channel, owner, now)
+            if entitlement.plan == "none":
+                return "plan"
+            if needs_extras and not entitlements.has_extras(entitlement):
+                return "extras"
+        return None
+
+    @staticmethod
+    async def _ai_access(session: AsyncSession, settings: Settings, post: Post, owner: User) -> Access | None:
+        """AI comes with the channels' paid plan or trial; every channel of the post needs one."""
+        now = utcnow()
+        channels = (await session.scalars(select(Channel).where(Channel.id.in_(post.channel_ids)))).all()
+        if not channels:
+            return None
+        plans = [await entitlements.for_channel(session, settings, c, owner, now) for c in channels]
+        if not all(entitlements.has_extras(e) for e in plans):
+            return None
+        kind = "paid" if all(e.plan == "paid" for e in plans) else "trial"
+        return Access(True, kind, min((e.until for e in plans if e.until), default=None), None)
 
     async def __call__(
         self,
@@ -73,17 +93,25 @@ class AccessMiddleware(BaseMiddleware):
                 owner = await session.get(User, post.owner_id)
                 if owner is not None:
                     access_for = owner
+        settings = data["settings"]
+        reason = "plan"
         if paid:
-            access = await get_access(session, access_for)
-            if access.active:
+            access = await self._ai_access(session, settings, post, access_for) if post is not None else None
+            if access is not None:
                 data["access"] = access
                 return await handler(event, data)
-        elif post is None or await self._channels_have_plan(session, data["settings"], post, access_for):
+            reason = "extras"
+        elif post is None:
             return await handler(event, data)
+        else:
+            reason = await self._channels_have_plan(session, settings, post, access_for)
+            if reason is None:
+                return await handler(event, data)
+        short, text = ("paywall.short", "paywall.text") if reason == "plan" else ("paywall.extras_short", "paywall.extras")
         if isinstance(event, CallbackQuery):
-            await event.answer(t("paywall.short"), show_alert=True)
+            await event.answer(t(short), show_alert=True)
             if event.message:
-                await event.message.answer(t("paywall.text"), reply_markup=paywall_kb(data["settings"]))
+                await event.message.answer(t(text), reply_markup=paywall_kb(settings))
         elif isinstance(event, Message):
-            await event.answer(t("paywall.text"), reply_markup=paywall_kb(data["settings"]))
+            await event.answer(t(text), reply_markup=paywall_kb(settings))
         return None

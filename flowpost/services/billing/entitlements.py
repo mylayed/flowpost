@@ -23,21 +23,42 @@ class Entitlement:
     posts_per_day: int | None = None
 
 
-async def for_channel(
-    session: AsyncSession, settings: Settings, channel: Channel, owner: User, now: datetime
-) -> Entitlement:
+async def _premium(session: AsyncSession, channel: Channel, now: datetime, trial_posts: int) -> Entitlement | None:
+    """The channel's paid plan or running trial, or None if it has neither."""
     sub = await channel_subs.get(session, channel.id)
     if sub is not None and sub.paid_until > now:
         return Entitlement("paid", sub.posts_per_day, "day", sub.paid_until, sub.posts_per_day)
-    account = await get_subscription(session, owner.id)
+    account = await get_subscription(session, channel.owner_id)
     if account is not None and account.status in ("active", "cancelled") and account.current_period_end > now:
         # Account-wide subscriptions bought before per-channel plans stay unlimited until they run out.
         return Entitlement("paid", None, "none", account.current_period_end)
     if channel.trial_ends_at is not None and channel.trial_ends_at > now:
-        return Entitlement("trial", settings.trial_posts, "trial", channel.trial_ends_at)
+        return Entitlement("trial", trial_posts, "trial", channel.trial_ends_at)
+    return None
+
+
+async def for_channel(
+    session: AsyncSession, settings: Settings, channel: Channel, owner: User, now: datetime
+) -> Entitlement:
+    premium = await _premium(session, channel, now, settings.trial_posts)
+    if premium is not None:
+        return premium
     if settings.free_posts_per_day > 0:
         return Entitlement("free", settings.free_posts_per_day, "day")
     return Entitlement("none", 0, "none")
+
+
+def has_extras(entitlement: Entitlement) -> bool:
+    """Watermarks, AI, multiposting and auto-repeat come with a paid plan or the trial, not with the free plan."""
+    return entitlement.plan in ("paid", "trial")
+
+
+async def extras_allowed(session: AsyncSession, channels: list[Channel], now: datetime) -> bool:
+    """Whether every one of `channels` is on a paid plan or in its trial (False for no channels)."""
+    for channel in channels:
+        if await _premium(session, channel, now, 0) is None:
+            return False
+    return bool(channels)
 
 
 async def published_count(session: AsyncSession, channel_ids: list[int], start: datetime, end: datetime) -> int:

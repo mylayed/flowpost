@@ -209,7 +209,11 @@ class Publisher:
 
     async def resolve_media(
         self, media_items: list[dict], channel: Channel | None, opts: dict, session: AsyncSession | None = None,
+        *, charge: bool = True, wm_allowed: bool = True,
     ) -> tuple[list[OutMedia], list[str]]:
+        """Media to send, watermarked where the post asks for it and the plan allows (`wm_allowed`). With a session
+        a watermark needs the channel's quota: publishing spends it (`charge`), previews only check some is left.
+        Without a session (unit tests) quotas aren't checked."""
         out: list[OutMedia] = []
         warnings: list[str] = []
         channel_wm = channel.watermark if channel is not None else None
@@ -217,10 +221,20 @@ class Publisher:
             raw = None
             if self.watermarker and item["type"] in WATERMARKABLE:
                 raw = item_wm(item, bool(opts.get("watermark")), channel_wm)
-            if raw is not None:
-                # session is None only for editor live previews, which don't spend the channel's quota.
+            if raw is not None and not wm_allowed:
+                if "warn.wm_plan" not in warnings:
+                    warnings.append("warn.wm_plan")
+            elif raw is not None:
                 kind = "wm_photo" if item["type"] == "photo" else "wm_video"
-                if session is None or (channel is not None and await limits.take(session, channel.id, kind)):
+                if session is None:
+                    has_quota = True
+                elif channel is None:
+                    has_quota = False
+                elif charge:
+                    has_quota = await limits.take(session, channel.id, kind)
+                else:
+                    has_quota = (await limits.remaining(session, channel.id))[kind] > 0
+                if has_quota:
                     key = wm_cache_key(channel.id if channel is not None else 0, raw)
                     cached = (item.get("wm") or {}).get(key)
                     if cached:
@@ -240,9 +254,10 @@ class Publisher:
 
     async def preview_item(
         self, chat_id: int, item: dict, channel: Channel | None, opts: dict,
+        session: AsyncSession | None = None, *, wm_allowed: bool = True,
     ) -> tuple[int, list[str]]:
         """Send one media item of a post (watermarked as it will be published) to `chat_id`, without a caption."""
-        media, warnings = await self.resolve_media([item], channel, opts)
+        media, warnings = await self.resolve_media([item], channel, opts, session, charge=False, wm_allowed=wm_allowed)
         m = await _send_single(self.bot, chat_id, media[0])
         return m.message_id, warnings
 
@@ -265,6 +280,7 @@ class Publisher:
         preview: bool = False,
         part_indexes: list[int] | None = None,
         session: AsyncSession | None = None,
+        wm_allowed: bool = True,
     ) -> PublishResult:
         """Send all (or selected) parts of `post`. With `preview=True` sends to `chat_id` without channel options."""
         opts = options_of(post)
@@ -288,7 +304,9 @@ class Publisher:
                 result.parts.append(sent)
                 continue
             text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)
-            media, warnings = await self.resolve_media(part.media, channel, opts, session)
+            media, warnings = await self.resolve_media(
+                part.media, channel, opts, session, charge=not preview, wm_allowed=wm_allowed,
+            )
             sent = await send_part(self.bot, target, text, media, part.buttons, send_opts)
             if self.remember_uploads(media, sent):
                 flag_modified(part, "media")
