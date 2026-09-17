@@ -200,9 +200,12 @@ async def send_part(
 
 
 class Publisher:
-    def __init__(self, bot: Bot, watermarker: Watermarker | None = None):
+    def __init__(self, bot: Bot, watermarker: Watermarker | None = None, *, premium_emoji: bool = False):
         self.bot = bot
         self.watermarker = watermarker
+        # Whether the bot may send custom emoji at all; the editor warns when it may not. Sending itself
+        # is guarded by StripCustomEmojiMiddleware, not here.
+        self.premium_emoji = premium_emoji
 
     async def resolve_media(
         self, media_items: list[dict], channel: Channel | None, opts: dict, session: AsyncSession | None = None,

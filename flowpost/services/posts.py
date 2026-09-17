@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from flowpost.db.models import Channel, Post, PostPart
 from flowpost.i18n import t
-from flowpost.services.html_sanitize import visible_len
+from flowpost.services.html_sanitize import has_custom_emoji, visible_len
 
 MAX_MEDIA = 10
 CAPTION_LIMIT = 1024
@@ -180,17 +180,22 @@ def post_is_empty(post: Post) -> bool:
     return all(part_is_empty(p) for p in post.parts)
 
 
-def part_warnings(part: PostPart, opts: dict, channel: Channel | None, lang: str, *, is_last: bool) -> list[str]:
+def part_warnings(
+    part: PostPart, opts: dict, channel: Channel | None, lang: str, *, is_last: bool, premium_emoji: bool = False,
+) -> list[str]:
     if part.poll:
         return []
     keys: list[str] = []
-    text_len = visible_len(final_text(part.text_html, opts, channel, is_last=is_last, lang=lang))
+    text = final_text(part.text_html, opts, channel, is_last=is_last, lang=lang)
+    text_len = visible_len(text)
     if len(part.media) > 1 and part.buttons:
         keys.append("warn.album_buttons")
     if part.media and text_len > CAPTION_LIMIT:
         keys.append("warn.long_caption")
     if text_len > TEXT_LIMIT:
         keys.append("warn.text_too_long")
+    if not premium_emoji and has_custom_emoji(text):
+        keys.append("warn.premium_emoji")
     return keys
 
 

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     bot_token: SecretStr
     admin_ids: str = ""
     support_contact: str = ""
+    # Premium (custom) emoji in posts. Telegram lets only bots that bought a username on Fragment send
+    # them; while this is off every <tg-emoji> is replaced by the plain emoji inside it at send time.
+    premium_emoji: bool = False
 
     # --- Storage ---
     database_url: str = "sqlite+aiosqlite:///./flowpost.db"

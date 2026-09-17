@@ -210,9 +210,10 @@ async def render_editor(
         except TelegramBadRequest as e:
             log.info("preview failed: %s", e)
             note = (note + "\n\n" if note else "") + t("warn.preview_failed", error=html.escape(e.message))
-    warnings = part_warnings(part, options_of(post), primary, user.lang, is_last=part_idx == len(post.parts) - 1) + [
-        w for w in warnings if w
-    ]
+    warnings = part_warnings(
+        part, options_of(post), primary, user.lang,
+        is_last=part_idx == len(post.parts) - 1, premium_emoji=publisher.premium_emoji,
+    ) + [w for w in warnings if w]
     text = await panel_text(session, user, post, channels, part_idx, list(dict.fromkeys(warnings)), note)
     panel = await bot.send_message(
         chat_id, text, reply_markup=editor_kb(post, part_idx, published=published), link_preview_options=NO_PREVIEW

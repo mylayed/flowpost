@@ -14,6 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
+from flowpost.bot.middlewares.premium_emoji import StripCustomEmojiMiddleware
 from flowpost.bot.setup import build_dispatcher, setup_bot_profile
 from flowpost.config import Settings, get_settings
 from flowpost.db.session import create_engine, create_sessionmaker
@@ -50,7 +51,13 @@ async def run(settings: Settings) -> None:
     engine = create_engine(settings.database_url)
     sessionmaker = create_sessionmaker(engine)
     bot = Bot(settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    publisher = Publisher(bot, Watermarker(settings.ffmpeg_bin, settings.watermark_font, settings.watermark_concurrency))
+    if not settings.premium_emoji:
+        bot.session.middleware(StripCustomEmojiMiddleware())
+    publisher = Publisher(
+        bot,
+        Watermarker(settings.ffmpeg_bin, settings.watermark_font, settings.watermark_concurrency),
+        premium_emoji=settings.premium_emoji,
+    )
     worker = Worker(bot, sessionmaker, publisher, settings)
     dp = build_dispatcher(settings, sessionmaker, make_storage(settings))
     dp.workflow_data.update(settings=settings, publisher=publisher, worker=worker, ai=AIService(settings))

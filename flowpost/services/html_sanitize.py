@@ -91,6 +91,20 @@ class _Sanitizer(HTMLParser):
         return "".join(self.out)
 
 
+# Premium (custom) emoji: `<tg-emoji emoji-id="5368324170671202286">👍</tg-emoji>`. The character inside
+# the tag is the plain fallback Telegram itself carries, so dropping the tag degrades gracefully.
+_CUSTOM_EMOJI_TAG = re.compile(r"</?tg-emoji\b[^>]*>", re.IGNORECASE)
+
+
+def has_custom_emoji(text_html: str) -> bool:
+    return bool(_CUSTOM_EMOJI_TAG.search(text_html or ""))
+
+
+def strip_custom_emoji(text_html: str) -> str:
+    """Leave only the plain fallback emoji, for bots that may not send custom emoji."""
+    return _CUSTOM_EMOJI_TAG.sub("", text_html or "")
+
+
 def _strip_fences(text: str) -> str:
     text = text.strip()
     m = re.match(r"^```[a-zA-Z]*\n(.*)\n```$", text, re.DOTALL)
