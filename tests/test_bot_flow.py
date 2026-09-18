@@ -977,6 +977,16 @@ async def test_support_group_gives_each_user_a_topic_and_relays_team_replies(h: 
     await h.text("Дякую, допомогло")
     assert next(m for name, m in h.session.calls if name == "CopyMessage").message_thread_id == topic
 
+    # /stats counts who wrote to support and who is still waiting for a reply
+    settings.admin_ids = str(ADMIN_ID)
+    h.session.clear()
+    await h.text("/stats", uid=ADMIN_ID)
+    assert "Support: 1 users (active 7d: 1), awaiting reply: 1" in h.session.texts()
+    await h.in_topic(topic, text="Радий допомогти!")
+    h.session.clear()
+    await h.text("/stats", uid=ADMIN_ID)
+    assert "awaiting reply: 0" in h.session.texts()
+
     async def count_posts(s):
         return len((await s.scalars(select(Post))).all())
     assert await h.db(count_posts) == 0

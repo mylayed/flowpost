@@ -42,6 +42,8 @@ class SupportThread(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     chat_id: Mapped[int] = mapped_column(BigInteger)
     topic_id: Mapped[int] = mapped_column(Integer)
+    last_user_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # the user's latest message
+    last_reply_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # the team's latest delivered reply
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

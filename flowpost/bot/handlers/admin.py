@@ -26,6 +26,10 @@ router.message.filter(IsAdmin())
 async def cmd_stats(message: Message, session: AsyncSession, settings: Settings) -> None:
     s = await stats_repo.admin_stats(session, utcnow(), settings)
     providers = ", ".join(f"{k}: {v}" for k, v in s["subs_by_provider"].items()) or "—"
+    support = (
+        f"\n\n🆘 Support: {s['support_users']} users (active 7d: {s['support_7d']}), "
+        f"awaiting reply: {s['support_waiting']}"
+    ) if settings.support_chat_id is not None else ""
     await message.answer(
         "<b>📊 FlowPost</b>\n\n"
         f"👤 Users: {s['users_total']} (+{s['users_new_7d']} / 7d, active 7d: {s['active_7d']})\n"
@@ -37,6 +41,7 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
         f"🚀 Published: {s['published_24h']} / 24h, {s['published_7d']} / 7d\n"
         f"🕒 In queue: {s['scheduled']}\n"
         f"🤖 AI calls / 24h: {s['ai_calls_24h']}"
+        + support
     )
 
 

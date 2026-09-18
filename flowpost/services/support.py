@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.db.models import Channel, SupportThread, User
+from flowpost.db.types import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -83,15 +84,15 @@ async def to_support(bot: Bot, session: AsyncSession, chat_id: int, user: User, 
             else:
                 raise
             await _copy(bot, chat_id, thread.topic_id, messages)
+        thread.last_user_at = utcnow()
         return True
     except TelegramAPIError as e:
         log.warning("support message from %s not delivered: %s", user.tg_id, e)
         return False
 
 
-async def thread_user(session: AsyncSession, chat_id: int, topic_id: int) -> User | None:
-    thread = await session.scalar(
+async def find_thread(session: AsyncSession, chat_id: int, topic_id: int) -> SupportThread | None:
+    return await session.scalar(
         select(SupportThread).where(SupportThread.chat_id == chat_id, SupportThread.topic_id == topic_id)
     )
-    return await session.get(User, thread.user_id) if thread is not None else None
 

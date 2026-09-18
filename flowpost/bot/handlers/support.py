@@ -15,8 +15,9 @@ from flowpost.bot.handlers.admin import IsAdmin
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.config import Settings
 from flowpost.db.models import User
+from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services.support import thread_user
+from flowpost.services.support import find_thread
 
 log = logging.getLogger(__name__)
 router = Router(name="support")
@@ -67,8 +68,9 @@ async def to_user(bot: Bot, user: User, message: Message) -> None:
 async def on_team_reply(message: Message, bot: Bot, session: AsyncSession) -> None:
     if message.from_user is None or message.from_user.is_bot or (message.text or "").startswith("/"):
         return
-    user = await thread_user(session, message.chat.id, message.message_thread_id)
-    if user is None:
+    thread = await find_thread(session, message.chat.id, message.message_thread_id)
+    user = await session.get(User, thread.user_id) if thread is not None else None
+    if thread is None or user is None:
         await message.reply("⚠️ Ця тема не пов'язана з жодним користувачем — повідомлення нікуди не надіслано.")
         return
     try:
@@ -80,6 +82,7 @@ async def on_team_reply(message: Message, bot: Bot, session: AsyncSession) -> No
         log.warning("support reply to %s failed: %s", user.tg_id, e)
         await message.reply(f"⚠️ Не вдалося доставити: {html.escape(str(e))}")
         return
+    thread.last_reply_at = utcnow()
     try:
         await bot.set_message_reaction(message.chat.id, message.message_id, [ReactionTypeEmoji(emoji="👍")])
     except TelegramAPIError:

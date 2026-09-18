@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Payment, Publication, Subscription, UsageEvent, User
+from flowpost.db.models import Channel, Payment, Publication, Subscription, SupportThread, UsageEvent, User
 
 
 async def _count(session: AsyncSession, stmt) -> int:
@@ -54,4 +54,18 @@ async def admin_stats(session: AsyncSession, now: datetime, settings: Settings) 
             session,
             select(func.count(UsageEvent.id)).where(UsageEvent.kind == "ai_call", UsageEvent.created_at >= day),
         ),
+        **await _support_stats(session, week, settings),
+    }
+
+
+async def _support_stats(session: AsyncSession, week: datetime, settings: Settings) -> dict:
+    """Users who wrote to the support group: all of them, active in the last 7 days, and still awaiting a reply."""
+    threads = select(func.count(SupportThread.id)).where(SupportThread.chat_id == settings.support_chat_id)
+    return {
+        "support_users": await _count(session, threads),
+        "support_7d": await _count(session, threads.where(SupportThread.last_user_at >= week)),
+        "support_waiting": await _count(session, threads.where(
+            SupportThread.last_user_at.is_not(None),
+            (SupportThread.last_reply_at.is_(None)) | (SupportThread.last_reply_at < SupportThread.last_user_at),
+        )),
     }
