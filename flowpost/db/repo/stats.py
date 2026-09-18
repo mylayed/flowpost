@@ -69,3 +69,23 @@ async def _support_stats(session: AsyncSession, week: datetime, settings: Settin
             (SupportThread.last_reply_at.is_(None)) | (SupportThread.last_reply_at < SupportThread.last_user_at),
         )),
     }
+
+
+async def active_chats(session: AsyncSession) -> tuple[list[tuple[Channel, User]], list[tuple[Channel, User]]]:
+    """Every active channel and every group the bot posts to (comments groups left out), each chat once, with its
+    owner — for the admin's /chats."""
+    comments = select(Channel.discussion_chat_id).where(Channel.discussion_chat_id.is_not(None))
+    rows = (await session.execute(
+        select(Channel, User).join(User, User.id == Channel.owner_id)
+        .where(Channel.is_active.is_(True), Channel.kind.in_(("channel", "group")))
+        .where((Channel.kind == "channel") | Channel.chat_id.not_in(comments))
+        .order_by(func.lower(Channel.title), Channel.id)
+    )).tuples().all()
+    seen: set[int] = set()
+    channels, groups = [], []
+    for channel, owner in rows:
+        if channel.chat_id in seen:
+            continue
+        seen.add(channel.chat_id)
+        (channels if channel.kind == "channel" else groups).append((channel, owner))
+    return channels, groups

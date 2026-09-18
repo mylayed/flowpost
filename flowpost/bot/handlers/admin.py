@@ -1,5 +1,7 @@
-"""Admin commands for the bot owner: /stats, /expire."""
+"""Admin commands for the bot owner: /stats, /chats, /expire."""
 from __future__ import annotations
+
+import html
 
 from aiogram import Router
 from aiogram.filters import BaseFilter, Command, CommandObject
@@ -7,6 +9,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
+from flowpost.db.models import Channel, User
 from flowpost.db.repo import stats as stats_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
@@ -43,6 +46,38 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
         f"🤖 AI calls / 24h: {s['ai_calls_24h']}"
         + support
     )
+
+
+def _chat_line(n: int, channel: Channel, owner: User, *, link: bool) -> str:
+    title = html.escape(channel.title or str(channel.chat_id))
+    if link and channel.username:
+        title = f'<a href="https://t.me/{channel.username}">{title}</a>'
+    elif link:
+        title += " (private)"
+    who = f"@{owner.username}" if owner.username else f"<code>{owner.tg_id}</code>"
+    return f"{n}. {title} — {who}"
+
+
+def _pages(lines: list[str], limit: int = 4000) -> list[str]:
+    """Split a long list into messages under Telegram's 4096-character limit."""
+    pages, page = [], ""
+    for line in lines:
+        if page and len(page) + len(line) + 1 > limit:
+            pages.append(page)
+            page = ""
+        page += ("\n" if page else "") + line
+    return [*pages, page] if page else pages
+
+
+@router.message(Command("chats"))
+async def cmd_chats(message: Message, session: AsyncSession) -> None:
+    channels, groups = await stats_repo.active_chats(session)
+    lines = [f"<b>📡 Channels ({len(channels)})</b>"]
+    lines += [_chat_line(i, c, o, link=True) for i, (c, o) in enumerate(channels, 1)] or ["—"]
+    lines += ["", f"<b>👥 Groups ({len(groups)})</b>"]
+    lines += [_chat_line(i, c, o, link=False) for i, (c, o) in enumerate(groups, 1)] or ["—"]
+    for page in _pages(lines):
+        await message.answer(page, disable_web_page_preview=True)
 
 
 def _args(command: CommandObject, count: int) -> list[str] | None:

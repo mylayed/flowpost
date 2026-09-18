@@ -1156,3 +1156,34 @@ async def test_admin_stats_count_channels_and_groups_apart(h: Harness):
 
     s = await h.db(lambda session: stats_repo.admin_stats(session, utcnow(), h.dp.workflow_data["settings"]))
     assert (s["channels_active"], s["groups_active"]) == (1, 1)  # the comments group isn't counted
+
+
+async def test_admin_chats_lists_channels_with_links_and_groups(h: Harness, settings: Settings):
+    await h.text("/start")
+    user = await _user(h)
+
+    async def add(s):
+        s.add_all([
+            Channel(owner_id=user.id, chat_id=CHANNEL_CHAT, kind="channel", title="Новини <Дніпра>",
+                    username="dnipro_news", discussion_chat_id=DISCUSSION_CHAT),
+            Channel(owner_id=user.id, chat_id=-1003, kind="channel", title="Закритий канал"),
+            Channel(owner_id=user.id, chat_id=DISCUSSION_CHAT, kind="group", title="Коментарі"),
+            Channel(owner_id=user.id, chat_id=-1002, kind="group", title="Чат району"),
+            Channel(owner_id=user.id, chat_id=-1001, kind="channel", title="Відключений", is_active=False),
+        ])
+        await s.commit()
+    await h.db(add)
+
+    settings.admin_ids = str(ADMIN_ID)
+    h.session.clear()
+    await h.text("/chats", uid=ADMIN_ID)
+    text = h.session.texts()
+    assert "Channels (2)" in text and "Groups (1)" in text
+    assert '<a href="https://t.me/dnipro_news">Новини &lt;Дніпра&gt;</a>' in text
+    assert "Закритий канал (private)" in text and "Чат району" in text
+    assert "Коментарі" not in text and "Відключений" not in text
+
+    # not an admin → the command isn't there
+    h.session.clear()
+    await h.text("/chats")
+    assert "Channels (" not in h.session.texts()
