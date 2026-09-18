@@ -1129,18 +1129,20 @@ async def test_a_failed_publication_keeps_the_detailed_report(h: Harness, monkey
     assert done.reply_markup is None
 
 
-async def test_admin_stats_count_only_channels_not_groups(h: Harness):
+async def test_admin_stats_count_channels_and_groups_apart(h: Harness):
     await h.text("/start")
     user = await _user(h)
 
     async def add(s):
         s.add_all([
-            Channel(owner_id=user.id, chat_id=CHANNEL_CHAT, kind="channel", title="Канал"),
+            Channel(owner_id=user.id, chat_id=CHANNEL_CHAT, kind="channel", title="Канал",
+                    discussion_chat_id=DISCUSSION_CHAT),
             Channel(owner_id=user.id, chat_id=DISCUSSION_CHAT, kind="group", title="Коментарі"),
+            Channel(owner_id=user.id, chat_id=-1002, kind="group", title="Група для постів"),
             Channel(owner_id=user.id, chat_id=-1001, kind="channel", title="Відключений", is_active=False),
         ])
         await s.commit()
     await h.db(add)
 
     s = await h.db(lambda session: stats_repo.admin_stats(session, utcnow(), h.dp.workflow_data["settings"]))
-    assert s["channels_active"] == 1
+    assert (s["channels_active"], s["groups_active"]) == (1, 1)  # the comments group isn't counted

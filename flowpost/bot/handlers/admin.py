@@ -33,6 +33,7 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
         f"💳 Active subscriptions: {s['subs_active']} ({providers})\n"
         f"📈 Conversion to paid: {s['conversion_pct']}%\n\n"
         f"📡 Active channels: {s['channels_active']}\n"
+        f"👥 Active groups: {s['groups_active']}\n"
         f"🚀 Published: {s['published_24h']} / 24h, {s['published_7d']} / 7d\n"
         f"🕒 In queue: {s['scheduled']}\n"
         f"🤖 AI calls / 24h: {s['ai_calls_24h']}"

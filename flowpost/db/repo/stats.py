@@ -36,6 +36,11 @@ async def admin_stats(session: AsyncSession, now: datetime, settings: Settings) 
         "channels_active": await _count(
             session, select(func.count(Channel.id)).where(Channel.is_active.is_(True), Channel.kind == "channel")
         ),
+        # groups the bot posts to; a channel's comments group isn't one of them
+        "groups_active": await _count(session, select(func.count(Channel.id)).where(
+            Channel.is_active.is_(True), Channel.kind == "group",
+            Channel.chat_id.not_in(select(Channel.discussion_chat_id).where(Channel.discussion_chat_id.is_not(None))),
+        )),
         "published_24h": await _count(
             session, select(func.count(Publication.id)).where(Publication.published_at >= day)
         ),
