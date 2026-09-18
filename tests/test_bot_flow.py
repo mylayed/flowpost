@@ -493,6 +493,50 @@ async def test_channel_admin_delegation(h: Harness):
     assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
 
 
+async def test_projects_hide_lost_and_delete_disconnected(h: Harness):
+    """«Мої проєкти» lists only live projects: losing admin rights hides a channel, disconnecting deletes it."""
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    channel = await h.db(lambda s: s.scalar(select(Channel)))
+    c, trial_ends_at = channel.id, channel.trial_ends_at
+
+    def buttons():
+        kb = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1].reply_markup
+        return [b.callback_data for row in kb.inline_keyboard for b in row]
+
+    # The bot is removed from the channel → the channel drops out of the list
+    def bot_status(status):
+        return {"my_chat_member": {
+            "chat": {"id": CHANNEL_CHAT, "type": "channel", "title": "Test channel"}, "from": h._from(),
+            "date": int(datetime.now().timestamp()),
+            "old_chat_member": {"status": "member", "user": {"id": BOT_ID, "is_bot": True, "first_name": "Bot"}},
+            "new_chat_member": {"status": status, "user": {"id": BOT_ID, "is_bot": True, "first_name": "Bot"}},
+        }}
+    await h.feed(**bot_status("left"))
+    h.session.clear()
+    await h.click(Pj(a="list"))
+    assert Pj(a="ch", c=c).pack() not in buttons()
+    assert (await h.db(lambda s: s.get(Channel, c))).is_active is False
+
+    # Rights back → the same project returns
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    h.session.clear()
+    await h.click(Pj(a="list"))
+    assert Pj(a="ch", c=c).pack() in buttons()
+
+    # Disconnect → the channel is deleted from the bot and gone from the list
+    await h.click(Pj(a="off", c=c))
+    h.session.clear()
+    await h.click(Pj(a="offok", c=c))
+    assert await h.db(lambda s: s.get(Channel, c)) is None
+    assert Pj(a="ch", c=c).pack() not in buttons()
+
+    # Connecting it again starts from scratch but doesn't hand out a fresh trial
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    again = await h.db(lambda s: s.scalar(select(Channel)))
+    assert again.trial_ends_at == trial_ends_at
+
+
 async def test_empty_post_blocks_schedule_and_publish(h: Harness):
     await h.text("/start")
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))

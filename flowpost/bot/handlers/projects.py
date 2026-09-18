@@ -6,13 +6,12 @@ import html
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
-from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Pj
 from flowpost.bot.handlers.channel_settings import card_kwargs, channel_card
 from flowpost.bot.keyboards.common import btn, markup
-from flowpost.db.models import Publication, User
+from flowpost.db.models import User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
@@ -21,7 +20,9 @@ router = Router(name="projects")
 
 
 async def projects_view(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
-    channels = await channels_repo.list_channels(session, user.id, active_only=False, perm="settings")
+    # Only live projects: a disconnected channel is gone, and one the bot lost admin rights in stays hidden
+    # until the rights come back (then it reappears with its settings intact).
+    channels = await channels_repo.list_channels(session, user.id, perm="settings")
     rows = [
         [btn(
             ("🤝 " if c.owner_id != user.id else ("📢 " if c.kind == "channel" else "👥 "))
@@ -84,12 +85,6 @@ async def pj_disconnect(cb: CallbackQuery, callback_data: Pj, session: AsyncSess
         ])
         await _edit(cb, t("proj.disconnect_confirm", title=html.escape(channel.title)), kb)
         return
-    channel.is_active = False
-    await session.execute(
-        update(Publication)
-        .where(Publication.channel_id == channel.id, Publication.status.in_(("pending", "paused")))
-        .values(status="cancelled")
-    )
-    await session.flush()
+    await channels_repo.delete_channel(session, channel)
     await cb.answer(t("proj.disconnected"))
     await _edit(cb, *await projects_view(session, user))

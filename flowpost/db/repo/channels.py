@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Channel, User
+from flowpost.db.models import Channel, UsageEvent, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.types import utcnow
 
@@ -89,12 +89,18 @@ async def upsert_channel(
     is_forum: bool,
     trial_days: int,
 ) -> tuple[Channel, bool]:
+    """Connect (or reconnect) a chat. `created` is True only the first time this owner ever connects it —
+    a chat deleted from «Мої проєкти» and connected again gets its old trial back, not a new one."""
     channel = await session.scalar(select(Channel).where(Channel.owner_id == owner_id, Channel.chat_id == chat_id))
     created = channel is None
     if channel is None:
         # The trial starts on the first connection only; reconnecting the same channel keeps it.
+        previous_trial = await _deleted_trial(session, owner_id, chat_id)
+        if previous_trial is not None:
+            created = False
         channel = Channel(
-            owner_id=owner_id, chat_id=chat_id, watermark={}, trial_ends_at=utcnow() + timedelta(days=trial_days)
+            owner_id=owner_id, chat_id=chat_id, watermark={},
+            trial_ends_at=previous_trial if previous_trial is not None else utcnow() + timedelta(days=trial_days),
         )
         session.add(channel)
     channel.kind = kind
@@ -104,3 +110,32 @@ async def upsert_channel(
     channel.is_active = True
     await session.flush()
     return channel, created
+
+
+async def _deleted_trial(session: AsyncSession, owner_id: int, chat_id: int) -> datetime | None:
+    """Trial end of this owner's earlier, deleted connection of `chat_id`, if there was one."""
+    events = await session.scalars(
+        select(UsageEvent.meta).where(UsageEvent.user_id == owner_id, UsageEvent.kind == "channel_deleted")
+    )
+    ends = [
+        datetime.fromisoformat(meta["trial_ends_at"]) if meta.get("trial_ends_at") else utcnow()
+        for meta in events if meta.get("chat_id") == chat_id
+    ]
+    return max(ends) if ends else None
+
+
+async def delete_channel(session: AsyncSession, channel: Channel) -> None:
+    """Remove a project from the bot along with its settings, schedule and stats (FK cascades).
+
+    Leaves a `channel_deleted` event behind so reconnecting the same chat doesn't start a fresh trial.
+    """
+    trial = channel.trial_ends_at
+    session.add(UsageEvent(
+        user_id=channel.owner_id, kind="channel_deleted",
+        meta={"chat_id": channel.chat_id, "trial_ends_at": trial.isoformat() if trial else None},
+    ))
+    owner = await session.get(User, channel.owner_id)
+    if owner is not None and channel.id in (owner.channel_order or []):
+        owner.channel_order = [c for c in owner.channel_order if c != channel.id]
+    await session.delete(channel)
+    await session.flush()

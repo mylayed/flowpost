@@ -93,7 +93,7 @@ TEXTS: dict[str, str] = {
     ),
     "addch.done": "✅ <b>{title}</b> is connected! Tap «Create post» or just send me a photo, video or text.",
     "addch.forum": "This group has topics enabled. Which topic should posts go to?",
-    "addch.lost": "⚠️ FlowPost no longer has admin rights in «{title}». Scheduled posts won't go out there — give the bot its rights back to continue.",
+    "addch.lost": "⚠️ FlowPost no longer has admin rights in «{title}». It's been removed from «My projects» and scheduled posts won't go out there. Give the bot its rights back and the channel returns with all its settings.",
     "addch.err_bot_not_admin": "The bot isn't an admin of this chat yet. Add FlowPost as an admin and try again.",
     "addch.err_no_access": "Couldn't check the chat. Make sure the bot is an admin and try again.",
     "addch.err_no_post_right": "The bot can't post messages in this channel. Enable that right in the admin settings.",
@@ -542,9 +542,9 @@ TEXTS: dict[str, str] = {
     "proj.comments_off": "💬 Comments: no group linked",
     "proj.stats_btn": "📊 Analytics",
     "proj.disconnect": "🔌 Disconnect",
-    "proj.disconnect_confirm": "Disconnect <b>{title}</b>? Scheduled publications to this channel will be cancelled.",
+    "proj.disconnect_confirm": "Disconnect <b>{title}</b>? The channel will be removed from the bot along with its settings, stats and scheduled publications. Its paid plan will be lost too — move it to another channel in «FlowPost Billing» first.",
     "proj.disconnect_yes": "🔌 Yes, disconnect",
-    "proj.disconnected": "Channel disconnected",
+    "proj.disconnected": "Channel removed from the bot",
 
     # ---- Channel administrators -----------------------------------------------------------------
     "admins.manage_btn": "👥 Administrators",

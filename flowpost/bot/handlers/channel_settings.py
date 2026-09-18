@@ -89,7 +89,7 @@ def channel_card(
             rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
     if is_owner:
         rows.append([btn(t("admins.manage_btn"), Ca(a="list", c=c))])
-    if channel.is_active and (is_owner or can_disconnect):
+    if is_owner or can_disconnect:
         rows.append([btn(t("proj.disconnect"), Pj(a="off", c=c))])
     rows.append([btn(t("btn.back"), Pj(a="list"))])
     return "\n".join(lines), markup(rows)
