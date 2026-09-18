@@ -22,6 +22,7 @@ from flowpost.bot.setup import build_dispatcher
 from flowpost.config import Settings
 from flowpost.db.models import Channel, ChannelAdmin, ChannelFolder, ChannelFolderItem, Post, PostPart, \
     PostTarget, Publication, RepeatRule, Subscription, SupportThread, User
+from flowpost.db.repo import stats as stats_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.ai import AIService
@@ -1126,3 +1127,20 @@ async def test_a_failed_publication_keeps_the_detailed_report(h: Harness, monkey
     done = [m for name, m in h.session.calls if name in ("SendMessage", "EditMessageText")][-1]
     assert t("pub.result_title", locale="uk") in done.text
     assert done.reply_markup is None
+
+
+async def test_admin_stats_count_only_channels_not_groups(h: Harness):
+    await h.text("/start")
+    user = await _user(h)
+
+    async def add(s):
+        s.add_all([
+            Channel(owner_id=user.id, chat_id=CHANNEL_CHAT, kind="channel", title="Канал"),
+            Channel(owner_id=user.id, chat_id=DISCUSSION_CHAT, kind="group", title="Коментарі"),
+            Channel(owner_id=user.id, chat_id=-1001, kind="channel", title="Відключений", is_active=False),
+        ])
+        await s.commit()
+    await h.db(add)
+
+    s = await h.db(lambda session: stats_repo.admin_stats(session, utcnow(), h.dp.workflow_data["settings"]))
+    assert s["channels_active"] == 1

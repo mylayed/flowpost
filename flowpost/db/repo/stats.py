@@ -33,7 +33,9 @@ async def admin_stats(session: AsyncSession, now: datetime, settings: Settings) 
         "subs_active": paid_total,
         "subs_by_provider": subs_by_provider,
         "conversion_pct": round(100 * paying_ever / users_total, 1) if users_total else 0.0,
-        "channels_active": await _count(session, select(func.count(Channel.id)).where(Channel.is_active.is_(True))),
+        "channels_active": await _count(
+            session, select(func.count(Channel.id)).where(Channel.is_active.is_(True), Channel.kind == "channel")
+        ),
         "published_24h": await _count(
             session, select(func.count(Publication.id)).where(Publication.published_at >= day)
         ),
