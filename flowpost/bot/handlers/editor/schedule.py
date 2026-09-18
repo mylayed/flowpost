@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import html
-from datetime import date
+from collections import Counter
+from datetime import date, time, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ed
@@ -15,7 +17,7 @@ from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callba
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.keyboards.editor import schedule_kb
 from flowpost.bot.states import Editor
-from flowpost.db.models import Post, User
+from flowpost.db.models import Post, UsageEvent, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
@@ -34,12 +36,33 @@ from flowpost.services.slots import (
     generate_slots,
     is_future,
     local_now,
+    on_grid,
     to_utc,
     tz_of,
 )
 from flowpost.services.smart_time import SlotSuggestion, best_slots
 
 router = Router(name="editor_schedule")
+
+# A typed time that isn't among the regular slots (e.g. «10:02») joins them once it's been used
+# this many times within the window; at most FAVORITE_MAX such times, the most used first.
+FAVORITE_MIN_USES = 3
+FAVORITE_WINDOW = timedelta(days=60)
+FAVORITE_MAX = 6
+
+
+async def favorite_times(session: AsyncSession, user_id: int) -> list[time]:
+    rows = await session.scalars(
+        select(UsageEvent.meta).where(
+            UsageEvent.user_id == user_id, UsageEvent.kind == "custom_time",
+            UsageEvent.created_at >= utcnow() - FAVORITE_WINDOW,
+        )
+    )
+    uses = Counter(meta.get("hm") for meta in rows if meta.get("hm"))
+    return [
+        time(int(hm[:2]), int(hm[3:]))
+        for hm, n in uses.most_common(FAVORITE_MAX) if n >= FAVORITE_MIN_USES
+    ]
 
 
 async def day_overview(session: AsyncSession, user: User, day: date, current_post_id: int | None = None) -> list[str]:
@@ -81,7 +104,7 @@ async def show_schedule(
     await state.set_state(Editor.schedule)
     await state.update_data(sch_day=day.toordinal())
     overview = await day_overview(session, user, day, post.id)
-    slots, has_more = generate_slots(day, now_local, page)
+    slots, has_more = generate_slots(day, now_local, page, extra=await favorite_times(session, user.id))
     busy = {line.split(" ", 1)[0] for line in overview}
     suggestions = await best_slots(session, user.id, post.channel_ids, user.tz)
     recommended = {f"{s.hour:02d}:00" for s in suggestions if s.weekday == day.weekday()}
@@ -162,9 +185,7 @@ async def ed_slot(
         await cb.answer()
         return
     hour, minute = int(hhmm[:2]), int(hhmm[2:])
-    from datetime import time as dtime
-
-    if not is_future(day, dtime(hour, minute), user.tz):
+    if not is_future(day, time(hour, minute), user.tz):
         await cb.answer(t("sch.past"), show_alert=True)
         return
     await cb.answer()
@@ -213,9 +234,7 @@ async def ed_schedule_confirm(
     if not post.targets:
         await cb.answer(t("post.no_channels"), show_alert=True)
         return
-    from datetime import time as dtime
-
-    when = dtime(int(hhmm[:2]), int(hhmm[2:]))
+    when = time(int(hhmm[:2]), int(hhmm[2:]))
     run_at = to_utc(day, when, user.tz)
     if run_at <= utcnow():
         await cb.answer(t("sch.past"), show_alert=True)
@@ -224,6 +243,8 @@ async def ed_schedule_confirm(
     await pubs_repo.create_publications(session, post, run_at)
     post.status = "scheduled"
     analytics.track(session, user.id, "post_scheduled", post_id=post.id)
+    if not on_grid(when):
+        analytics.track(session, user.id, "custom_time", hm=fmt_hm(when))
     await session.flush()
     await cb.answer(t("sch.done_short"))
     text, kb = await done_screen(session, user, post)

@@ -33,6 +33,14 @@ def test_slots_late_evening_and_past_day():
     assert generate_slots(date(2026, 9, 10), now) == ([], False)
 
 
+def test_slots_include_favourite_times():
+    """Frequently used off-grid times sit among the regular slots; today only while still ahead."""
+    tomorrow = generate_slots(date(2026, 9, 12), datetime(2026, 9, 11, 22, 0), extra=[time(9, 2), time(7, 30)])[0]
+    assert tomorrow[:4] == [time(7, 30), time(9, 0), time(9, 2), time(9, 5)]
+    today = generate_slots(date(2026, 9, 11), datetime(2026, 9, 11, 10, 2), extra=[time(10, 2), time(10, 3)])[0]
+    assert today[:2] == [time(10, 3), time(10, 5)]
+
+
 def test_timezone_conversion():
     assert to_utc(date(2026, 9, 11), time(14, 35), "Europe/Kyiv") == datetime(2026, 9, 11, 11, 35, tzinfo=timezone.utc)
     start, end = day_bounds_utc(date(2026, 9, 11), "Europe/Kyiv")

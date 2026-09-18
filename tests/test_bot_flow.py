@@ -493,6 +493,32 @@ async def test_channel_admin_delegation(h: Harness):
     assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
 
 
+async def test_frequent_custom_time_becomes_a_slot(h: Harness):
+    """A typed time like 10:02 shows up among the schedule slots after it's been used a few times."""
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    ordinal = (local_now("Europe/Kyiv").date() + timedelta(days=1)).toordinal()
+
+    def slot_values():
+        kb = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1].reply_markup
+        return [Ed.unpack(b.callback_data).v for row in kb.inline_keyboard for b in row if b.callback_data.startswith("ed:slot")]
+
+    for i in range(3):
+        await h.text(f"Пост {i}")
+        p = (await _post(h)).id
+        h.session.clear()
+        await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))
+        assert f"{ordinal}_1002" not in slot_values()
+        await h.text("10:02")
+        await h.click(Ed(a="schok", p=p, v=f"{ordinal}_1002"))
+
+    await h.text("Пост 3")
+    p = (await _post(h)).id
+    h.session.clear()
+    await h.click(Ed(a="sch", p=p, v=f"{ordinal}_1"))  # page 2: 10:00 … 10:50
+    assert slot_values()[:3] == [f"{ordinal}_1000", f"{ordinal}_1002", f"{ordinal}_1005"]
+
+
 async def test_projects_hide_lost_and_delete_disconnected(h: Harness):
     """«Мої проєкти» lists only live projects: losing admin rights hides a channel, disconnecting deletes it."""
     await h.text("/start")

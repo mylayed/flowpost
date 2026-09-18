@@ -1,6 +1,7 @@
 """Date formatting and time-slot generation for the scheduling screen."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -69,14 +70,23 @@ def _ceil_to_step(dt: datetime, step: int) -> datetime:
     return dt
 
 
+def on_grid(t: time, step: int = SLOT_STEP_MINUTES) -> bool:
+    """Whether `t` is one of the slots the schedule screen offers anyway (on a future day)."""
+    return t.minute % step == 0 and (t.hour, t.minute) >= (DAY_START.hour, DAY_START.minute)
+
+
 def generate_slots(
     day: date,
     now_local: datetime,
     page: int = 0,
     step: int = SLOT_STEP_MINUTES,
     per_page: int = SLOTS_PER_PAGE,
+    extra: Iterable[time] = (),
 ) -> tuple[list[time], bool]:
-    """Return a page of future time slots for `day` and whether more pages exist."""
+    """Return a page of future time slots for `day` and whether more pages exist.
+
+    `extra` are off-grid times (e.g. the user's favourite «10:02») slotted in among the regular ones.
+    """
     if day < now_local.date():
         return [], False
     if day == now_local.date():
@@ -84,9 +94,15 @@ def generate_slots(
         if first.date() != day:
             return [], False
         start_minutes = first.hour * 60 + first.minute
+        # Extras aren't on the step grid, so compare them with "now" itself rather than the next slot.
+        earliest_extra = now_local.hour * 60 + now_local.minute + 1
     else:
         start_minutes = DAY_START.hour * 60 + DAY_START.minute
-    all_minutes = list(range(start_minutes, 24 * 60, step))
+        earliest_extra = 0
+    extra_minutes = {t.hour * 60 + t.minute for t in extra}
+    all_minutes = sorted(
+        set(range(start_minutes, 24 * 60, step)) | {m for m in extra_minutes if m >= earliest_extra}
+    )
     chunk = all_minutes[page * per_page:(page + 1) * per_page]
     has_more = len(all_minutes) > (page + 1) * per_page
     return [time(m // 60, m % 60) for m in chunk], has_more
