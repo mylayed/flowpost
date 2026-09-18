@@ -14,6 +14,7 @@ class Editor(StatesGroup):
     delete_hours = State()   # custom auto-delete delay
     pin_hours = State()      # custom pin duration
     confirm = State()        # yes/no confirmation screen: text input is ignored, only buttons act
+    hidden_text = State()    # «Прихований текст» for subscribers only
 
 
 class ChannelInput(StatesGroup):
@@ -38,3 +39,10 @@ class FolderInput(StatesGroup):
 
 class EditPublished(StatesGroup):
     waiting_forward = State()
+
+
+class ProInput(StatesGroup):
+    link_name = State()   # name of a new tracked invite link
+    link_cost = State()   # what the ad behind a tracked link cost
+    welcome = State()     # welcome message for people who ask to join
+    feed_url = State()    # address of a new RSS source

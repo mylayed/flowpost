@@ -58,9 +58,10 @@ async def run(settings: Settings) -> None:
         Watermarker(settings.ffmpeg_bin, settings.watermark_font, settings.watermark_concurrency),
         premium_emoji=settings.premium_emoji,
     )
-    worker = Worker(bot, sessionmaker, publisher, settings)
+    ai = AIService(settings)
+    worker = Worker(bot, sessionmaker, publisher, settings, ai=ai)
     dp = build_dispatcher(settings, sessionmaker, make_storage(settings))
-    dp.workflow_data.update(settings=settings, publisher=publisher, worker=worker, ai=AIService(settings))
+    dp.workflow_data.update(settings=settings, publisher=publisher, worker=worker, ai=ai)
 
     try:
         me = await bot.get_me()

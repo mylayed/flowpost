@@ -64,10 +64,7 @@ async def _support_stats(session: AsyncSession, week: datetime, settings: Settin
     return {
         "support_users": await _count(session, threads),
         "support_7d": await _count(session, threads.where(SupportThread.last_user_at >= week)),
-        "support_waiting": await _count(session, threads.where(
-            SupportThread.last_user_at.is_not(None),
-            (SupportThread.last_reply_at.is_(None)) | (SupportThread.last_reply_at < SupportThread.last_user_at),
-        )),
+        "support_waiting": await _count(session, threads.where(SupportThread.awaiting.is_(True))),
     }
 
 

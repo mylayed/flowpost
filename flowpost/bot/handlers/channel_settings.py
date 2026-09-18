@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.callbacks import Ca, Cs, Ed, Pj
+from flowpost.bot.callbacks import Ca, Cs, Ed, Pj, Px
 from flowpost.bot.handlers.editor.view import render_editor
 from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.bot.keyboards.main_menu import link_discussion_kb
@@ -75,6 +75,7 @@ def channel_card(
         rows.append([btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))])
     rows.append([btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))])
     if can_settings:
+        rows.append([btn(t("pro.btn"), Px(a="menu", c=c))])
         rows.append(
             [btn(t("proj.notify_toggle_on") if channel.notify_published else t("proj.notify_toggle_off"), Cs(a="notify_def", c=c))]
         )

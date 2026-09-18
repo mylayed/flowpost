@@ -15,7 +15,7 @@ from flowpost.bot.handlers.editor.view import open_editor, safe_delete
 from flowpost.bot.keyboards.common import add_channel_inline_kb
 from flowpost.bot.keyboards.editor import channels_pick_kb
 from flowpost.bot.states import FolderInput
-from flowpost.db.models import Channel, User
+from flowpost.db.models import User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import folders as folders_repo
@@ -26,32 +26,16 @@ from flowpost.services.posts import (
     TEXT_LIMIT,
     channel_defaults,
     group_error,
+    initial_options,
     media_from_message,
     message_text,
     poll_from_message,
 )
 from flowpost.services.publisher import Publisher
-from flowpost.services.watermark import wm_configured, wm_settings
 
 router = Router(name="create_post")
 
 CONTENT = F.photo | F.video | F.animation | F.document | F.audio | F.text | F.poll
-
-
-def initial_options(channel: Channel, is_ad: bool) -> dict:
-    """Channel toggles, overridden by whatever «Зберегти форматування та налаштування» stored."""
-    wm = wm_settings(channel.watermark)
-    configured = wm_configured(channel.watermark)
-    opts = {
-        "signature": bool(channel.signature_on),
-        "watermark": bool(wm.get("enabled")) and configured,
-    }
-    opts.update(channel_defaults(channel)["options"])
-    # A saved default can't turn on a watermark the channel no longer has set up.
-    opts["watermark"] = bool(opts["watermark"]) and configured
-    if is_ad:
-        opts.update({"signature": False, "ad_label": True, "auto_delete_hours": 24})
-    return opts
 
 
 def extract_source_signature(messages: list[Message], text: str) -> str:

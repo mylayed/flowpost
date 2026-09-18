@@ -128,7 +128,8 @@ async def test_worker_postpones_to_next_day_when_post_limit_is_used_up(fake_bot,
             pub = await session.get(Publication, pub_id)
             assert pub.status == "pending" and pub.attempts == 0
             assert pub.run_at > utcnow() + timedelta(hours=23)
-    assert not any(call[1] == seeded.chat_id for call in fake_bot.calls)
+    # nothing went into the channel (reading its subscriber count for the weekly report isn't posting)
+    assert not any(call[1] == seeded.chat_id for call in fake_bot.calls if call[0] != "get_chat_member_count")
     notices = [call for call in fake_bot.calls if call[0] == "send_message" and call[1] == seeded.tg_id]
     assert len(notices) == 1 and "ліміт постів" in notices[0][2]
 

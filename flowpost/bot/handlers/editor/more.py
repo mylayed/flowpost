@@ -1,5 +1,7 @@
-"""Editor → «Більше налаштувань»: silent, protect, link preview, pin, auto-delete, ad label, topic."""
+"""Editor → «Більше налаштувань»: silent, protect, link preview, pin, auto-delete, hidden text, ad label, topic."""
 from __future__ import annotations
+
+import html
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -14,7 +16,7 @@ from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 from flowpost.services.parsing import ParseError, parse_positive_int
-from flowpost.services.posts import options_of
+from flowpost.services.posts import MAX_HIDDEN, options_of
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_more")
@@ -46,6 +48,7 @@ def more_menu(post: Post, primary: Channel | None) -> tuple[str, object]:
         [btn(on(opts["comments"]) + t("more.comments"), Ed(a="mo_t", p=p, v="comments"))],
         [btn(_pin_label(opts), Ed(a="mo_pin", p=p)), btn(t("more.custom"), Ed(a="mo_pinc", p=p))],
         [btn(_delete_label(opts), Ed(a="mo_del", p=p)), btn(t("more.custom"), Ed(a="mo_delc", p=p))],
+        [btn(on(bool(opts["hidden_text"])) + t("more.hidden"), Ed(a="mo_hid", p=p))],
     ]
     if post.is_ad:
         rows.append([btn(on(opts["ad_label"]) + t("more.ad_label"), Ed(a="mo_t", p=p, v="ad_label"))])
@@ -127,3 +130,46 @@ async def in_hours(
         note = t("more.delete_hours", hours=hours)
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note="✅ " + note)
+
+
+@router.callback_query(Ed.filter(F.a.in_({"mo_hid", "mo_hidx"})))
+async def ed_hidden(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+) -> None:
+    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    if callback_data.a == "mo_hidx":
+        post.options = {**(post.options or {}), "hidden_text": None}
+        await session.flush()
+        await cb.answer(t("more.hidden_removed"))
+        await state.set_state(Editor.content)
+        await _show(bot, cb.from_user.id, session, state, user, post)
+        return
+    await cb.answer()
+    await state.set_state(Editor.hidden_text)
+    current = options_of(post)["hidden_text"]
+    rows = [[btn(t("more.hidden_remove"), Ed(a="mo_hidx", p=post.id))]] if current else []
+    rows.append([btn(t("btn.back"), Ed(a="more", p=post.id))])
+    prompt = t("more.hidden_prompt", max=MAX_HIDDEN)
+    if current:
+        prompt += "\n\n" + t("more.hidden_current", text=html.escape(current))
+    await show_panel(bot, cb.from_user.id, state, prompt, markup(rows))
+
+
+@router.message(Editor.hidden_text, F.text)
+async def in_hidden(
+    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher
+) -> None:
+    post, _ = await load_editor_post(session, user, state)
+    if post is None:
+        await state.clear()
+        await message.answer(t("err.post_not_found"))
+        return
+    text = (message.text or "").strip()
+    if not text or len(text) > MAX_HIDDEN:
+        await message.answer(t("more.hidden_prompt", max=MAX_HIDDEN))
+        return
+    post.options = {**(post.options or {}), "hidden_text": text}
+    await session.flush()
+    await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=t("more.hidden_saved"))

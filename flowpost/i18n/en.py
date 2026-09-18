@@ -6,7 +6,9 @@ TEXTS: dict[str, str] = {
         "👋 I'm FlowPost — an SMM assistant that never takes a day off and never forgets a post.\n\n"
         "✍️ I build beautiful posts with photos, videos, buttons and an auto-signature\n"
         "🕒 I publish on schedule — even while you sleep\n"
-        "🤖 I turn raw text or a screenshot into a ready post with AI\n\n"
+        "🤖 I turn raw text or a screenshot into a ready post with AI\n"
+        "⭐ PRO: ad links that count subscribers, auto-approved join requests, RSS autoposting, "
+        "an AI content plan, auto-translation and a weekly report\n\n"
         "Tap /start — let's go!"
     ),
     "bot.short_description": "Autoposting for Telegram channels: scheduling, AI, watermarks, buttons.",
@@ -55,7 +57,15 @@ TEXTS: dict[str, str] = {
         "🔁 duplicate protection — warns if similar text or media was already published\n"
         "🎯 smart posting time — suggests the best slots based on subscriber activity\n"
         "📊 polls & quizzes — a post type of their own (just send a poll like any other content)\n"
-        "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)"
+        "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)\n\n"
+        "<b>⭐ PRO tools</b> (My projects → channel → «⭐ PRO tools»; paid plan or trial):\n"
+        "🔗 ad links — a link per ad: how many came, how many left, and the cost per subscriber\n"
+        "🚪 join requests & welcome — the bot approves join requests and greets new people in private\n"
+        "📰 RSS autoposting — new items from sites become posts, rewritten by AI in the channel's style\n"
+        "🧠 AI content plan — 7 ready posts for the week, each opens in the editor\n"
+        "🌐 auto-translation — in multiposting a post comes out in each channel's language\n"
+        "📊 weekly report — every Monday: growth, best posts, best time and days without posts\n"
+        "🔒 hidden text — only subscribers can see it (editor → More settings)"
     ),
     "btn.create_post": "✍️ Create post",
     "btn.content_plan": "🗓 Content plan",
@@ -721,4 +731,149 @@ TEXTS: dict[str, str] = {
     "warn.wm_too_big": "the file is larger than 20 MB — published without a watermark",
     "warn.wm_no_quota": "watermark quota used up — published without it. Top up limits in billing",
     "warn.wm_plan": "watermarks aren't included in the free plan — the post goes out without them",
+
+    # ---- PRO tools ----------------------------------------------------------------------------
+    "pro.btn": "⭐ PRO tools",
+    "pro.title": "⭐ <b>PRO tools · {title}</b>",
+    "pro.help": (
+        "Tools to grow the channel: ad links that count subscribers, auto-approving join requests with a "
+        "welcome, autoposting from RSS, an AI content plan, auto-translation and a weekly report."
+    ),
+    "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
+    "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
+    "pro.links": "🔗 Ad links",
+    "pro.join": "🚪 Join requests & welcome",
+    "pro.rss": "📰 Autoposting from RSS",
+    "pro.plan": "🧠 AI content plan for the week",
+    "pro.translate": "🌐 Auto-translation: {lang}",
+    "pro.translate_off": "off",
+    "pro.report": "📊 Weekly report",
+
+    "lnk.title": "🔗 <b>Ad links · {title}</b>",
+    "lnk.help": (
+        "Create a separate invite link for each ad. The bot counts how many people came through it, how many "
+        "left, and what one subscriber cost."
+    ),
+    "lnk.new": "➕ New link",
+    "lnk.row": "{n}. <b>{name}</b> — came {joined}, stayed {stayed}",
+    "lnk.row_price": " · {price} per subscriber",
+    "lnk.name_prompt": "What should the link be called? For example: <i>Ad in @kyiv_news 18.09</i> (up to 32 characters).",
+    "lnk.too_many": "You can have up to {max} active links. Revoke old ones.",
+    "lnk.err_create": "⚠️ Couldn't create the link. Make sure the bot is an admin allowed to invite users.",
+    "lnk.created": "✅ Link created. Give it to the advertiser.",
+    "lnk.detail_title": "🔗 <b>{name}</b>",
+    "lnk.detail_stats": "Came: {joined} · Left: {left} · Stayed: {stayed}",
+    "lnk.detail_cost": "💰 Ad cost: {cost}",
+    "lnk.detail_price": "👤 Cost per subscriber: {price}",
+    "lnk.detail_help": "The numbers update by themselves as people join or leave.",
+    "lnk.set_cost": "💰 Set the ad cost",
+    "lnk.cost_prompt": "How much did this ad cost? Send a number, e.g. <code>1500</code>. Any currency — the bot just divides it by the number of subscribers.",
+    "lnk.revoke": "🗑 Revoke link",
+    "lnk.revoke_confirm": "Revoke «{name}»? Nobody will be able to join through it, and its numbers leave the list.",
+    "lnk.revoke_yes": "🗑 Yes, revoke",
+    "lnk.revoked": "Link revoked",
+
+    "jr.title": "🚪 <b>Join requests · {title}</b>",
+    "jr.help": (
+        "The bot can approve join requests for you and send new people a welcome message in private right away. "
+        "Requests come when someone joins through a «join request» link (you can create one below) or when a "
+        "group approves new members."
+    ),
+    "jr.approve_line": "✅ Auto-approve: {value}",
+    "jr.approve_btn": "Auto-approve: {value} ▸",
+    "jr.approve_off": "off",
+    "jr.approve_now": "right away",
+    "jr.approve_after": "after {minutes}",
+    "jr.welcome_on": "👋 Welcome: on",
+    "jr.welcome_off": "👋 Welcome: off",
+    "jr.welcome_btn": "Welcome",
+    "jr.welcome_text_btn": "✏️ Welcome text",
+    "jr.welcome_preview": "<b>Welcome text:</b>",
+    "jr.welcome_default": "👋 Welcome, {name}! Thanks for your interest in «{title}». We've got your request.",
+    "jr.welcome_prompt": (
+        "Send the welcome text (up to {max} characters). Formatting is kept. "
+        "You can use <code>{{name}}</code> for the person's name and <code>{{title}}</code> for the channel name."
+    ),
+    "jr.welcome_saved": "✅ Welcome saved and turned on.",
+    "jr.link_btn": "🔗 Create a join request link",
+    "jr.link_line": "🔗 Join request link: <code>{url}</code>",
+
+    "rss.title": "📰 <b>Autoposting from RSS · {title}</b>",
+    "rss.help": (
+        "Add a site's or blog's RSS feed. The bot turns new items into posts, rewritten by AI in the channel's "
+        "style. Get them for approval or publish them right away. Each rewrite uses 1 AI text of the channel's limits."
+    ),
+    "rss.add": "➕ Add a source",
+    "rss.url_prompt": "Send the address of an RSS or Atom feed, e.g. <code>https://example.com/feed</code>.",
+    "rss.checking": "⏳ Checking the feed…",
+    "rss.added": "✅ Source added ({n} items in the feed now). The bot will only post new ones that appear from now on.",
+    "rss.feed_title": "📰 <b>{title}</b>",
+    "rss.mode_line": "Mode: {mode}",
+    "rss.mode_draft": "for approval",
+    "rss.mode_auto": "publish right away",
+    "rss.mode_btn": "🔁 Switch mode",
+    "rss.ai_on": "🧠 AI rewrite: on",
+    "rss.ai_off": "🧠 AI rewrite: off (title, summary and link)",
+    "rss.ai_btn": "AI rewrite",
+    "rss.active": "▶️ Running",
+    "rss.paused": "⏸ Paused",
+    "rss.pause_btn": "⏸ Pause",
+    "rss.resume_btn": "▶️ Resume",
+    "rss.delete_btn": "🗑 Delete",
+    "rss.deleted": "Source deleted",
+    "rss.err_url": "Invalid address. A public http(s) link is needed.",
+    "rss.err_fetch": "Couldn't download the feed. Check the address.",
+    "rss.err_too_big": "The feed is too big (over 2 MB).",
+    "rss.err_parse": "There's no RSS or Atom feed at this address.",
+    "rss.err_plan": "The source isn't checked: the channel has no paid plan or trial.",
+    "rss.read_more": "Read more",
+    "rss.draft_title": "📰 New item from «{feed}» — publish it?",
+    "rss.draft_publish": "✅ Publish",
+    "rss.draft_edit": "✏️ Edit",
+    "rss.draft_skip": "✖️ Skip",
+    "rss.draft_gone": "This item has already been published or skipped.",
+    "rss.skipped": "Skipped",
+
+    "plan.title": "🧠 <b>Content plan for the week · {title}</b>",
+    "plan.working": "🧠 Putting the content plan together… This may take up to a minute.",
+    "plan.help": "Tap a number to open the post in the editor, where you can polish, schedule or publish it.",
+    "plan.again": "🔄 Another plan",
+    "plan.expired": "This plan is out of date. Generate a new one.",
+    "plan.opened": "🧠 Post #{n} from the content plan",
+
+    "tr.title": "🌐 <b>Auto-translation · {title}</b>",
+    "tr.help": (
+        "When a post goes to several channels (multiposting), it comes out in this channel translated into the "
+        "chosen language. Each new translation uses 1 AI text of the channel's limits."
+    ),
+
+    "wr.title": "📊 <b>Weekly report · {title}</b>",
+    "wr.period": "{start} — {end}",
+    "wr.members": "👥 Subscribers: {n}{change}",
+    "wr.summary": "📝 Posts: {posts} · ❤️ reactions: {reactions} · 💬 comments: {comments}",
+    "wr.top": "🏆 <b>Best posts of the week:</b>",
+    "wr.top_row": "{n}. {title} — ❤️ {reactions} · 💬 {comments}",
+    "wr.links": "🔗 <b>Came through links:</b>",
+    "wr.link_row": "• {name}: +{n}",
+    "wr.best_time": "⏰ Best time to post: {slots}",
+    "wr.plan_full": "🗓 The content plan for the week is full — great!",
+    "wr.plan_gaps": "🗓 No posts scheduled for: {days}",
+    "wr.off_btn": "🔕 Turn off the report for this channel",
+    "wr.off_done": "The weekly report for this channel is off. Turn it back on in «⭐ PRO tools».",
+
+    "hidden.btn": "🔒 Show hidden text",
+    "hidden.subscribe": "🔒 Only subscribers can see this text. Subscribe to the channel and tap again.",
+    "hidden.gone": "The hidden text is no longer available.",
+    "more.hidden": "🔒 Hidden text for subscribers",
+    "more.hidden_prompt": (
+        "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "
+        "button appears under the post. Works on a paid plan or during the trial."
+    ),
+    "more.hidden_current": "Now: <i>{text}</i>",
+    "more.hidden_remove": "🗑 Remove hidden text",
+    "more.hidden_removed": "Hidden text removed",
+    "more.hidden_saved": "✅ Hidden text added",
+    "ed.sum_hidden": "🔒 hidden text",
+    "warn.translate_failed": "couldn't translate the post — published in the original language",
+    "warn.translate_no_quota": "AI text limit used up — the post went out untranslated",
 }

@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from flowpost.db.models import Channel, Post, PostPart
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import has_custom_emoji, visible_len
+from flowpost.services.watermark import wm_configured, wm_settings
 
 MAX_MEDIA = 10
 CAPTION_LIMIT = 1024
@@ -24,13 +25,16 @@ DEFAULT_OPTIONS: dict = {
     "signature": True,
     "ad_label": False,
     "comments": True,
+    "hidden_text": None,  # shown only to channel subscribers, behind a button under the post
 }
 
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}
 WATERMARKABLE = {"photo", "video", "animation"}
 
-# «Реклама» belongs to the /ad flow, so it is never carried over into ordinary posts.
-DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k != "ad_label")
+# «Реклама» belongs to the /ad flow and a hidden text to its own post, so neither is carried over into other posts.
+DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text"))
+HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
+MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 
 
 def options_of(post: Post) -> dict:
@@ -55,6 +59,22 @@ def channel_defaults(channel: Channel) -> dict:
         "options": {k: v for k, v in options.items() if k in DEFAULTABLE_OPTIONS},
         "buttons": [list(row) for row in (data.get("buttons") or [])],
     }
+
+
+def initial_options(channel: Channel, is_ad: bool) -> dict:
+    """Channel toggles, overridden by whatever «Зберегти форматування та налаштування» stored."""
+    wm = wm_settings(channel.watermark)
+    configured = wm_configured(channel.watermark)
+    opts = {
+        "signature": bool(channel.signature_on),
+        "watermark": bool(wm.get("enabled")) and configured,
+    }
+    opts.update(channel_defaults(channel)["options"])
+    # A saved default can't turn on a watermark the channel no longer has set up.
+    opts["watermark"] = bool(opts["watermark"]) and configured
+    if is_ad:
+        opts.update({"signature": False, "ad_label": True, "auto_delete_hours": 24})
+    return opts
 
 
 def media_from_message(m: Message) -> dict | None:
@@ -188,11 +208,25 @@ def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: 
 
 
 def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | None:
+    """Link buttons ({"text", "url"}) and bot buttons ({"text", "callback"})."""
     if not buttons:
         return None
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=b["text"], url=b["url"]) for b in row] for row in buttons]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=b["text"], callback_data=b["callback"]) if "callback" in b
+            else InlineKeyboardButton(text=b["text"], url=b["url"])
+            for b in row
+        ]
+        for row in buttons
+    ])
+
+
+def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
+    """A part's buttons plus, under the last part, the «show hidden text» button when the post has one."""
+    buttons = [list(row) for row in (post.parts[idx].buttons or [])]
+    if hidden and idx == len(post.parts) - 1 and options_of(post).get("hidden_text"):
+        buttons.append([{"text": t("hidden.btn", locale=lang), "callback": f"{HIDDEN_PREFIX}{post.id}"}])
+    return buttons
 
 
 def part_is_empty(part: PostPart) -> bool:

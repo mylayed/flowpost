@@ -83,6 +83,7 @@ async def on_team_reply(message: Message, bot: Bot, session: AsyncSession) -> No
         await message.reply(f"⚠️ Не вдалося доставити: {html.escape(str(e))}")
         return
     thread.last_reply_at = utcnow()
+    thread.awaiting = False
     try:
         await bot.set_message_reaction(message.chat.id, message.message_id, [ReactionTypeEmoji(emoji="👍")])
     except TelegramAPIError:

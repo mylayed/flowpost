@@ -12,7 +12,7 @@ from flowpost.services.html_sanitize import sanitize_html
 
 log = logging.getLogger(__name__)
 
-ACTIONS = ("format", "shorten", "fix", "emoji", "custom", "screenshot")
+ACTIONS = ("format", "shorten", "fix", "emoji", "custom", "screenshot", "translate", "rss")
 
 BASE_PROMPT = """You are the editor inside FlowPost, a Telegram channel autoposting bot. You prepare posts that go straight into a Telegram channel.
 
@@ -30,10 +30,25 @@ TASKS = {
     "fix": "Fix spelling, grammar and punctuation only. Keep the wording, structure and formatting otherwise unchanged.",
     "emoji": "Add fitting emoji to make the post livelier. Do not change the wording.",
     "custom": "Edit the post following the channel owner's instruction.",
+    "translate": "Translate the post into the language named in the instruction; this overrides the rule about writing in the source language. Keep the HTML formatting, links, emoji, line breaks and meaning; translate naturally, not word for word. If the post is already in that language, return it unchanged.",
+    "rss": "The post is an item from a news feed: its title, summary and link. Write a ready-to-publish Telegram post about it for this channel: a bold first line, then a few short paragraphs with the key facts from the summary, and finish with the item's link as a short «read more» <a href> in the post's language. Use only what the item says.",
     "screenshot": "The image is a screenshot (for example a news item, a message or an announcement). Extract its meaningful content and write a ready-to-publish Telegram post based on it. Ignore interface elements, timestamps and usernames unless they matter. If a draft post is also given, use it as extra context.",
 }
 
-LANG_NAMES = {"uk": "Ukrainian", "en": "English"}
+LANG_NAMES = {
+    "uk": "Ukrainian", "en": "English", "pl": "Polish", "de": "German",
+    "es": "Spanish", "fr": "French", "it": "Italian", "pt": "Portuguese",
+}
+
+PLAN_SEPARATOR = "====="
+PLAN_PROMPT = f"""You are the content strategist inside FlowPost, a Telegram channel autoposting bot. You plan a week of posts for one channel.
+
+Output rules:
+- Write exactly the requested number of ready-to-publish posts, separated by a line containing only {PLAN_SEPARATOR}.
+- No numbering, preamble or explanations: only the posts and the separators.
+- Each post is Telegram HTML (<b>, <i>, <u>, <s>, <a href="...">, <blockquote>), starts with a bold first line that works as its title, and fits in 900 characters.
+- Vary the formats across the week: news or useful tips, a question to the audience, a list, a story, a behind-the-scenes post and so on.
+- Match the channel's topic, language and tone from its title, style guide and example posts. Do not invent specific facts, prices, dates or links; where a post needs one, leave a clear placeholder like [дата] in the post's language."""
 
 
 class AIError(Exception):
@@ -89,18 +104,7 @@ class AIService:
                 "source": {"type": "base64", "media_type": media_type, "data": base64.standard_b64encode(data).decode()},
             })
         content.append({"type": "text", "text": request})
-
-        kwargs: dict = {
-            "model": self.settings.anthropic_model,
-            "max_tokens": 16000,
-            "system": system,
-            "messages": [{"role": "user", "content": content}],
-            "output_config": {"effort": self.settings.ai_effort},
-        }
-        if self.settings.ai_fallbacks:
-            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
-            kwargs["fallbacks"] = "default"
-        return kwargs
+        return self._kwargs(system, content)
 
     async def generate(
         self,
@@ -120,8 +124,59 @@ class AIService:
         kwargs = self._build_request(
             action, text=text, lang=lang, limit=limit, style=style, instruction=instruction, image=image
         )
+        result = sanitize_html(await self._complete(kwargs))
+        if not result:
+            raise AIError("ai.empty")
+        return result
+
+    async def translate(self, text: str, target_lang: str, *, limit: int) -> str:
+        return await self.generate(
+            "translate", text=text, lang=target_lang, limit=limit,
+            instruction=f"Target language: {LANG_NAMES.get(target_lang, target_lang)}.",
+        )
+
+    async def content_plan(
+        self, *, channel_title: str, style: str | None, examples: list[str], lang: str, count: int = 7,
+    ) -> list[str]:
+        """`count` draft posts for the channel's coming week, written in the spirit of its best recent posts."""
+        if self.client is None:
+            raise AIError("ai.disabled")
+        system: list[dict] = [{"type": "text", "text": PLAN_PROMPT, "cache_control": {"type": "ephemeral"}}]
+        if style and style.strip():
+            system.append({"type": "text", "text": f"Channel style guide from the channel owner:\n{style.strip()}"})
+        request = (
+            f"<channel>{channel_title}</channel>\n"
+            f"<count>{count}</count>\n"
+            f"<fallback_language>{LANG_NAMES.get(lang, 'Ukrainian')}</fallback_language>\n"
+        )
+        if examples:
+            request += "<best_recent_posts>\n" + "\n---\n".join(e.strip() for e in examples) + "\n</best_recent_posts>"
+        else:
+            request += "<best_recent_posts>(none yet)</best_recent_posts>"
+        raw = await self._complete(self._kwargs(system, [{"type": "text", "text": request}]))
+        posts = [sanitize_html(chunk) for chunk in raw.split(PLAN_SEPARATOR)]
+        posts = [p for p in posts if p]
+        if not posts:
+            raise AIError("ai.empty")
+        return posts[:count]
+
+    def _kwargs(self, system: list[dict], content: list[dict]) -> dict:
+        kwargs: dict = {
+            "model": self.settings.anthropic_model,
+            "max_tokens": 16000,
+            "system": system,
+            "messages": [{"role": "user", "content": content}],
+            "output_config": {"effort": self.settings.ai_effort},
+        }
+        if self.settings.ai_fallbacks:
+            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+            kwargs["fallbacks"] = "default"
+        return kwargs
+
+    async def _complete(self, kwargs: dict) -> str:
+        """Run one request and return the reply's text; failures become AIError with an i18n key."""
         try:
-            response = await self.client.beta.messages.create(**kwargs)
+            response = await self.client.beta.messages.create(**kwargs)  # type: ignore[union-attr]
         except anthropic.RateLimitError as e:
             log.warning("Anthropic rate limit: %s", e)
             raise AIError("ai.busy") from e
@@ -131,11 +186,6 @@ class AIService:
         except anthropic.APIConnectionError as e:
             log.error("Anthropic connection error: %s", e)
             raise AIError("ai.failed") from e
-
         if response.stop_reason == "refusal":
             raise AIError("ai.refused")
-        raw = "".join(block.text for block in response.content if block.type == "text").strip()
-        result = sanitize_html(raw)
-        if not result:
-            raise AIError("ai.empty")
-        return result
+        return "".join(block.text for block in response.content if block.type == "text").strip()

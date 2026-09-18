@@ -107,6 +107,16 @@ class FakeBot:
         self.calls.append(("download", file_id, kw))
         return io.BytesIO(b"")
 
+    async def get_chat_member_count(self, chat_id, **kw):
+        self.calls.append(("get_chat_member_count", chat_id, kw))
+        return self.member_count
+
+    async def approve_chat_join_request(self, chat_id, user_id, **kw):
+        self.calls.append(("approve_chat_join_request", chat_id, user_id, kw))
+        return True
+
+    member_count = 1000
+
 
 @pytest.fixture
 def fake_bot() -> FakeBot:

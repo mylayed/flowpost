@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     terms_url: str = ""  # empty = the built-in terms page (the /terms text)
     privacy_url: str = "https://telegram.org/privacy-tpa"
 
+    # --- PRO tools ---
+    rss_interval_minutes: int = 15  # how often each RSS source is checked
+    rss_items_per_check: int = 3  # new items taken from a source per check, so a busy feed can't flood a channel
+
     # --- Media / worker ---
     ffmpeg_bin: str = "ffmpeg"
     watermark_font: str | None = None

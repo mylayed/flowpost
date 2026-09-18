@@ -1,6 +1,7 @@
 """Delivering a single publication into its channel: send, pin, schedule deletion and repeats."""
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -14,7 +15,9 @@ from sqlalchemy.orm.attributes import flag_modified
 from flowpost.db.models import Channel, Post, Publication, User
 from flowpost.db.repo import posts as posts_repo
 from flowpost.services import analytics
-from flowpost.services.posts import message_link, options_of, post_is_empty
+from flowpost.services.ai import AIError, AIService
+from flowpost.services.billing import limits
+from flowpost.services.posts import CAPTION_LIMIT, TEXT_LIMIT, message_link, options_of, post_is_empty
 from flowpost.services.publisher import Publisher
 
 log = logging.getLogger(__name__)
@@ -116,11 +119,50 @@ async def _schedule_repeat(session: AsyncSession, post: Post, pub: Publication, 
     )
 
 
+def _translation_key(lang: str, text: str) -> str:
+    return f"{lang}:{hashlib.sha1(text.encode()).hexdigest()[:16]}"
+
+
+async def translated_texts(
+    session: AsyncSession, ai: AIService | None, post: Post, channel: Channel, warnings: list[str],
+) -> dict[int, str]:
+    """A multiposted post's texts in the channel's own language, by part index. Each translation is made once
+    (it costs the channel one AI text) and kept on the post; whatever can't be translated goes out as written."""
+    lang = channel.translate_lang
+    if not lang or len(post.targets) < 2 or ai is None or not ai.enabled:
+        return {}
+    cache = dict((post.options or {}).get("tr") or {})
+    texts: dict[int, str] = {}
+    for idx, part in enumerate(post.parts):
+        source = (part.text_html or "").strip()
+        if part.poll or not source:
+            continue
+        key = _translation_key(lang, source)
+        if key not in cache:
+            if not await limits.take(session, channel.id, "ai_text"):
+                if "warn.translate_no_quota" not in warnings:
+                    warnings.append("warn.translate_no_quota")
+                continue
+            try:
+                cache[key] = await ai.translate(source, lang, limit=CAPTION_LIMIT if part.media else TEXT_LIMIT)
+            except AIError:
+                await limits.add(session, channel.id, "ai_text", 1)
+                if "warn.translate_failed" not in warnings:
+                    warnings.append("warn.translate_failed")
+                continue
+        texts[idx] = cache[key]
+    if cache != (post.options or {}).get("tr"):
+        post.options = {**(post.options or {}), "tr": cache}
+    return texts
+
+
 async def deliver_publication(
     session: AsyncSession, publisher: Publisher, pub: Publication, *, now: datetime, extras: bool = True,
+    ai: AIService | None = None,
 ) -> DeliveryOutcome:
     """Send `pub`. Telegram exceptions propagate so the caller can decide about retries.
-    Without `extras` (the free plan) the post goes out without watermarks and schedules no further repeats."""
+    Without `extras` (the free plan) the post goes out without watermarks, hidden text or translation, and
+    schedules no further repeats."""
     owner = await session.get(User, pub.owner_id)
     post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
     channel = await session.get(Channel, pub.channel_id)
@@ -142,10 +184,11 @@ async def deliver_publication(
     sent_parts: list[dict] = list((pub.message_ids or {}).get("parts", []))
     warnings: list[str] = list((pub.message_ids or {}).get("warnings", []))
     remaining = list(range(len(sent_parts), len(post.parts)))
+    texts = await translated_texts(session, ai, post, channel, warnings) if extras and remaining else {}
 
     for idx in remaining:
         result = await publisher.publish_post(
-            post, channel, owner.lang, part_indexes=[idx], session=session, wm_allowed=extras,
+            post, channel, owner.lang, part_indexes=[idx], session=session, wm_allowed=extras, texts=texts,
         )
         sent_parts = [*sent_parts, result.parts[0].to_dict()]
         for w in result.warnings:

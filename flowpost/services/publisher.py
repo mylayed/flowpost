@@ -20,7 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from flowpost.db.models import Channel, Post
 from flowpost.services.billing import limits
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of
+from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of, part_buttons
 from flowpost.services.watermark import Watermarker, WatermarkSkipped, item_wm, wm_cache_key
 
 log = logging.getLogger(__name__)
@@ -281,8 +281,11 @@ class Publisher:
         part_indexes: list[int] | None = None,
         session: AsyncSession | None = None,
         wm_allowed: bool = True,
+        texts: dict[int, str] | None = None,
     ) -> PublishResult:
-        """Send all (or selected) parts of `post`. With `preview=True` sends to `chat_id` without channel options."""
+        """Send all (or selected) parts of `post`. With `preview=True` sends to `chat_id` without channel options.
+        `wm_allowed` is False on the free plan: no watermarks and no hidden text. `texts` replaces a part's text
+        (a translation) by part index."""
         opts = options_of(post)
         target = chat_id if chat_id is not None else channel.chat_id  # type: ignore[union-attr]
         send_opts = SendOptions(
@@ -299,15 +302,18 @@ class Publisher:
             if part.poll:
                 force_anonymous = not preview and channel is not None and channel.kind == "channel"
                 sent = await send_poll_part(
-                    self.bot, target, part.poll, part.buttons, send_opts, force_anonymous=force_anonymous,
+                    self.bot, target, part.poll, part_buttons(post, idx, lang, hidden=wm_allowed), send_opts,
+                    force_anonymous=force_anonymous,
                 )
                 result.parts.append(sent)
                 continue
-            text = final_text(part.text_html, opts, channel, is_last=idx == last_index, lang=lang)
+            source = (texts or {}).get(idx, part.text_html)
+            text = final_text(source, opts, channel, is_last=idx == last_index, lang=lang)
             media, warnings = await self.resolve_media(
                 part.media, channel, opts, session, charge=not preview, wm_allowed=wm_allowed,
             )
-            sent = await send_part(self.bot, target, text, media, part.buttons, send_opts)
+            buttons = part_buttons(post, idx, lang, hidden=wm_allowed)
+            sent = await send_part(self.bot, target, text, media, buttons, send_opts)
             if self.remember_uploads(media, sent):
                 flag_modified(part, "media")
             result.parts.append(sent)

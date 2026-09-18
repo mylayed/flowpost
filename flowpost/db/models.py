@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -44,6 +44,7 @@ class SupportThread(Base):
     topic_id: Mapped[int] = mapped_column(Integer)
     last_user_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # the user's latest message
     last_reply_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # the team's latest delivered reply
+    awaiting: Mapped[bool] = mapped_column(Boolean, default=False)  # the user wrote last, nobody has answered yet
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -74,7 +75,85 @@ class Channel(Base):
     # «Зберегти форматування та налаштування»: {"options": {...}, "buttons": [[{"text","url"}]]}
     post_defaults: Mapped[dict] = mapped_column(JSONType, default=dict)
     trial_ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Join requests: {"approve": "off"|"now"|"<minutes>", "welcome": bool, "welcome_html": str, "link": str}
+    join_settings: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # Multiposted posts are translated into this language (uk, en, ...) for this channel; None = as written.
+    translate_lang: Mapped[str | None] = mapped_column(String(8))
+    weekly_report: Mapped[bool] = mapped_column(Boolean, default=True)
+    report_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class InviteLink(Base):
+    """A tracked invite link, e.g. one per ad campaign: who joined through it and what it cost."""
+
+    __tablename__ = "invite_links"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(32))
+    url: Mapped[str] = mapped_column(String(128), index=True)
+    cost: Mapped[float | None] = mapped_column(Float)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class InviteJoin(Base):
+    """Someone who joined through a tracked link; `left_at` is set if they later left."""
+
+    __tablename__ = "invite_joins"
+    __table_args__ = (UniqueConstraint("link_id", "user_tg_id", name="uq_invite_joins_link_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    link_id: Mapped[int] = mapped_column(ForeignKey("invite_links.id", ondelete="CASCADE"), index=True)
+    user_tg_id: Mapped[int] = mapped_column(BigInteger)
+    joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    left_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class JoinRequest(Base):
+    """A request to join a channel the bot approves on the owner's behalf, right away or after a delay."""
+
+    __tablename__ = "join_requests"
+    __table_args__ = (UniqueConstraint("channel_id", "user_tg_id", name="uq_join_requests_channel_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    user_tg_id: Mapped[int] = mapped_column(BigInteger)
+    invite_url: Mapped[str | None] = mapped_column(String(128))
+    requested_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    approve_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class Feed(Base):
+    """An RSS/Atom source whose new items become posts in a channel (drafts to review, or published right away)."""
+
+    __tablename__ = "feeds"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    url: Mapped[str] = mapped_column(String(512))
+    title: Mapped[str] = mapped_column(String(256), default="")
+    mode: Mapped[str] = mapped_column(String(8), default="draft")  # draft | auto
+    rewrite: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    seen: Mapped[list] = mapped_column(JSONType, default=list)  # ids of the latest items already handled
+    checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class MemberCount(Base):
+    """A channel's subscriber count, one reading per day, for growth in the weekly report."""
+
+    __tablename__ = "channel_member_counts"
+    __table_args__ = (UniqueConstraint("channel_id", "day", name="uq_channel_member_counts_channel_day"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    count: Mapped[int] = mapped_column(Integer)
 
 
 class ChannelFolder(Base):

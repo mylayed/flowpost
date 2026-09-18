@@ -1,4 +1,5 @@
-"""Background worker: due publications, auto-repeat, auto-delete, unpin and trial reminders."""
+"""Background worker: due publications, auto-repeat, auto-delete, unpin, reminders, join requests, RSS sources,
+subscriber counts and weekly reports."""
 from __future__ import annotations
 
 import asyncio
@@ -16,16 +17,21 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 from aiogram.types import InlineKeyboardMarkup
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from flowpost.bot.keyboards.common import pay_btn
+from flowpost.bot.callbacks import Px
+from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Post, Publication, Subscription, User
+from flowpost.db.models import Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.repo import posts as posts_repo
+from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics
+from flowpost.services import analytics, growth, rss
+from flowpost.services.ai import AIError, AIService
+from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
 from flowpost.services.billing.subscriptions import get_access
 from flowpost.services.delivery import (
@@ -35,13 +41,19 @@ from flowpost.services.delivery import (
     deliver_publication,
     publication_message_ids,
 )
+from flowpost.services.html_sanitize import visible_len
+from flowpost.services.posts import TEXT_LIMIT, channel_defaults, initial_options, render_signature
 from flowpost.services.publisher import EmptyPostError, Publisher
+from flowpost.services.reports import report_due_since, weekly_report
 from flowpost.services.slots import day_bounds_utc, tz_of
 
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 BATCH = 20
+FEEDS_PER_TICK = 5
+MEMBERS_EVERY = timedelta(hours=1)
+REPORTS_EVERY = timedelta(minutes=10)
 
 
 def next_day_same_time(run_at: datetime, tz_name: str, now: datetime) -> datetime:
@@ -52,12 +64,18 @@ def next_day_same_time(run_at: datetime, tz_name: str, now: datetime) -> datetim
 
 
 class Worker:
-    def __init__(self, bot: Bot, sessionmaker: async_sessionmaker, publisher: Publisher, settings: Settings):
+    def __init__(
+        self, bot: Bot, sessionmaker: async_sessionmaker, publisher: Publisher, settings: Settings,
+        ai: AIService | None = None,
+    ):
         self.bot = bot
         self.sessionmaker = sessionmaker
         self.publisher = publisher
         self.settings = settings
+        self.ai = ai
         self._wake = asyncio.Event()
+        self._members_at: datetime | None = None
+        self._reports_at: datetime | None = None
 
     def wake(self) -> None:
         self._wake.set()
@@ -84,6 +102,10 @@ class Worker:
         await self.process_deletes(now)
         await self.trial_reminders(now)
         await self.subscription_reminders(now)
+        await self.process_join_approvals(now)
+        await self.poll_feeds(now)
+        await self.snapshot_members(now)
+        await self.weekly_reports(now)
 
     async def recover_stale(self) -> None:
         """Publications stuck in 'publishing' after a crash are marked failed instead of risking duplicates."""
@@ -170,7 +192,7 @@ class Worker:
             else:
                 try:
                     outcome = await deliver_publication(
-                        session, self.publisher, pub, now=now, extras=entitlements.has_extras(entitlement),
+                        session, self.publisher, pub, now=now, extras=entitlements.has_extras(entitlement), ai=self.ai,
                     )
                     notify_key = "notify.published" if pub.notify and channel is not None and channel.notify_published else None
                 except TelegramRetryAfter as e:
@@ -387,3 +409,169 @@ class Worker:
                 await self.bot.send_message(tg_id, t("notify.sub_ending", locale=lang), reply_markup=markup)
             except TelegramAPIError as e:
                 log.info("subscription reminder not delivered: %s", e)
+
+    # ---- PRO tools --------------------------------------------------------------------------
+
+    async def _has_extras(self, session: AsyncSession, channel: Channel, now: datetime) -> User | None:
+        """The channel's owner if the channel is on a paid plan or trial (PRO tools only work then), else None."""
+        owner = await session.get(User, channel.owner_id)
+        if owner is None:
+            return None
+        entitlement = await entitlements.for_channel(session, self.settings, channel, owner, now)
+        return owner if entitlements.has_extras(entitlement) else None
+
+    async def process_join_approvals(self, now: datetime) -> None:
+        async with self.sessionmaker() as session:
+            rows = (await session.scalars(
+                select(JoinRequest)
+                .where(JoinRequest.approve_at.is_not(None), JoinRequest.approve_at <= now, JoinRequest.approved_at.is_(None))
+                .limit(BATCH)
+            )).all()
+            for row in rows:
+                channel = await session.get(Channel, row.channel_id)
+                if channel is None or not channel.is_active or await self._has_extras(session, channel, now) is None:
+                    row.approve_at = None  # left for the channel's admins to handle by hand
+                    continue
+                await growth.approve_request(self.bot, session, channel, row, now)
+            await session.commit()
+
+    async def poll_feeds(self, now: datetime) -> None:
+        due_before = now - timedelta(minutes=self.settings.rss_interval_minutes)
+        async with self.sessionmaker() as session:
+            feed_ids = list((await session.scalars(
+                select(Feed.id)
+                .join(Channel, Channel.id == Feed.channel_id)
+                .where(Feed.active.is_(True), Channel.is_active.is_(True),
+                       or_(Feed.checked_at.is_(None), Feed.checked_at < due_before))
+                .order_by(Feed.checked_at.nulls_first())
+                .limit(FEEDS_PER_TICK)
+            )).all())
+        for feed_id in feed_ids:
+            try:
+                await self.poll_feed(feed_id, now)
+            except Exception:  # noqa: BLE001 - one broken source mustn't stop the others
+                log.exception("feed %s failed", feed_id)
+
+    async def poll_feed(self, feed_id: int, now: datetime) -> None:
+        drafts: list[tuple[Post, str]] = []
+        async with self.sessionmaker() as session:
+            feed = await session.get(Feed, feed_id)
+            channel = await session.get(Channel, feed.channel_id) if feed is not None else None
+            if feed is None or channel is None:
+                return
+            feed.checked_at = now
+            owner = await self._has_extras(session, channel, now)
+            if owner is None:
+                feed.last_error = "rss.err_plan"
+                await session.commit()
+                return
+            try:
+                parsed = rss.parse(await rss.fetch(feed.url))
+            except rss.FeedError as e:
+                feed.last_error = e.key
+                await session.commit()
+                return
+            feed.last_error = None
+            fresh, feed.seen = rss.new_items(list(feed.seen or []), parsed.items, self.settings.rss_items_per_check)
+            for item in fresh:
+                text = await self._feed_text(session, channel, owner, feed, item)
+                post = await posts_repo.create_post(
+                    session, owner.id, [channel.id], options=initial_options(channel, False), text=text,
+                    buttons=channel_defaults(channel)["buttons"],
+                )
+                if feed.mode == "auto":
+                    await pubs_repo.create_publications(session, post, now)
+                    await refresh_post_status(session, post)
+                else:
+                    drafts.append((post, text))
+            await session.commit()
+            title, owner_tg, lang, blocked = feed.title or feed.url, owner.tg_id, owner.lang, owner.is_blocked
+        if fresh and feed.mode == "auto":
+            self.wake()
+        for post, text in drafts if not blocked else []:
+            header = t("rss.draft_title", locale=lang, feed=html.escape(title))
+            body = f"{header}\n\n{text}" if visible_len(text) + len(header) < 3900 else text
+            kb = markup([
+                [btn(t("rss.draft_publish", locale=lang), Px(a="rss_pub", id=post.id)),
+                 btn(t("rss.draft_edit", locale=lang), Px(a="rss_edit", id=post.id))],
+                [btn(t("rss.draft_skip", locale=lang), Px(a="rss_skip", id=post.id))],
+            ])
+            try:
+                await self.bot.send_message(owner_tg, body, reply_markup=kb)
+            except TelegramAPIError as e:
+                log.info("RSS draft for %s not delivered: %s", owner_tg, e)
+
+    async def _feed_text(self, session: AsyncSession, channel: Channel, owner: User, feed: Feed, item: rss.FeedItem) -> str:
+        """The item rewritten by AI in the channel's style when the source asks for it and the channel has AI texts
+        left; otherwise title, summary and link as they are."""
+        plain = rss.item_post(item, t("rss.read_more", locale=owner.lang))
+        if not feed.rewrite or self.ai is None or not self.ai.enabled:
+            return plain
+        if not await limits.take(session, channel.id, "ai_text"):
+            return plain
+        limit = TEXT_LIMIT - (visible_len(render_signature(channel)) + 2 if channel.signature_on else 0)
+        try:
+            text = await self.ai.generate(
+                "rss", text=rss.item_source(item), lang=owner.lang, limit=max(500, limit),
+                style=channel.ai_style_prompt,
+            )
+        except AIError:
+            await limits.add(session, channel.id, "ai_text", 1)
+            return plain
+        analytics.track(session, owner.id, "ai_call", action="rss")
+        return text
+
+    async def snapshot_members(self, now: datetime) -> None:
+        """Once a day per channel: its subscriber count, for the weekly report's growth line."""
+        if self._members_at is not None and now - self._members_at < MEMBERS_EVERY:
+            return
+        self._members_at = now
+        today = now.date()
+        async with self.sessionmaker() as session:
+            channels = (await session.scalars(
+                select(Channel)
+                .where(Channel.is_active.is_(True), Channel.weekly_report.is_(True),
+                       Channel.id.not_in(select(MemberCount.channel_id).where(MemberCount.day == today)))
+                .limit(100)
+            )).all()
+            for channel in channels:
+                try:
+                    count = await self.bot.get_chat_member_count(channel.chat_id)
+                except TelegramAPIError as e:
+                    log.info("member count of %s unavailable: %s", channel.chat_id, e)
+                    continue
+                session.add(MemberCount(channel_id=channel.id, day=today, count=count))
+            await session.commit()
+
+    async def weekly_reports(self, now: datetime) -> None:
+        if self._reports_at is not None and now - self._reports_at < REPORTS_EVERY:
+            return
+        self._reports_at = now
+        outbox: list[tuple[User, int, str]] = []
+        async with self.sessionmaker() as session:
+            rows = (await session.execute(
+                select(Channel, User)
+                .join(User, User.id == Channel.owner_id)
+                .where(
+                    Channel.is_active.is_(True), Channel.weekly_report.is_(True), User.is_blocked.is_(False),
+                    Channel.created_at < now - timedelta(days=3),
+                    or_(Channel.report_sent_at.is_(None), Channel.report_sent_at < now - timedelta(days=6)),
+                )
+            )).tuples().all()
+            for channel, owner in rows:
+                due = report_due_since(owner, now)
+                if due is None or (channel.report_sent_at is not None and channel.report_sent_at >= due):
+                    continue
+                if await self._has_extras(session, channel, now) is None:
+                    continue
+                outbox.append((owner, channel.id, await weekly_report(session, channel, owner, now)))
+                channel.report_sent_at = now
+            await session.commit()
+        for owner, channel_id, text in outbox:
+            kb = markup([[btn(t("wr.off_btn", locale=owner.lang), Px(a="rep_off", c=channel_id))]])
+            try:
+                await self.bot.send_message(owner.tg_id, text, reply_markup=kb, disable_web_page_preview=True)
+            except TelegramForbiddenError:
+                await self._mark_blocked(owner)
+            except TelegramAPIError as e:
+                log.info("weekly report for %s not delivered: %s", owner.tg_id, e)

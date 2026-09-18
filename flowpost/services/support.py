@@ -85,6 +85,7 @@ async def to_support(bot: Bot, session: AsyncSession, chat_id: int, user: User, 
                 raise
             await _copy(bot, chat_id, thread.topic_id, messages)
         thread.last_user_at = utcnow()
+        thread.awaiting = True
         return True
     except TelegramAPIError as e:
         log.warning("support message from %s not delivered: %s", user.tg_id, e)

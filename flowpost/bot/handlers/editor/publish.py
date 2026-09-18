@@ -34,7 +34,7 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.delivery import DeliveryOutcome
 from flowpost.services.duplicates import find_duplicates, warning_lines
-from flowpost.services.posts import build_markup, final_text, options_of, part_warnings, post_is_empty
+from flowpost.services.posts import build_markup, final_text, options_of, part_buttons, part_warnings, post_is_empty
 from flowpost.services.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -153,9 +153,11 @@ async def ed_cancel(
     await bot.send_message(cb.from_user.id, t(key), reply_markup=main_menu_kb())
 
 
-async def _edit_published_part(bot: Bot, channel: Channel, rec: dict, part, text: str, warnings: list[str]) -> None:
+async def _edit_published_part(
+    bot: Bot, channel: Channel, rec: dict, part, text: str, warnings: list[str], buttons: list[list[dict]],
+) -> None:
     chat_id = channel.chat_id
-    markup = build_markup(part.buttons)
+    markup = build_markup(buttons)
     media_msgs = rec.get("media_msgs") or []
     host = rec.get("caption_msg") or rec.get("text_msg")
     markup_host = rec.get("markup_msg") or (host if markup else None)
@@ -224,7 +226,8 @@ async def ed_save_published(
                     warnings.append("save.poll_not_editable")
                     continue
                 text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang)
-                await _edit_published_part(bot, channel, records[i], part, text, warnings)
+                buttons = part_buttons(post, i, user.lang)
+                await _edit_published_part(bot, channel, records[i], part, text, warnings, buttons)
             flag_modified(pub, "message_ids")
             lines.append(t("save.ok_line", title=html.escape(channel.title)))
         except TelegramAPIError as e:

@@ -15,6 +15,7 @@ from flowpost.bot.handlers import (
     channel_admins,
     channel_settings,
     channels,
+    chat_events,
     content_plan,
     create_post,
     discussion,
@@ -22,6 +23,7 @@ from flowpost.bot.handlers import (
     folders,
     menu,
     payments,
+    pro,
     projects,
     reactions,
     settings as settings_handlers,
@@ -71,6 +73,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
     # and the "send content to start a post" catch-all last.
     dp.include_routers(
         support.router,  # swallows everything in the support group, so it never reaches the private-chat flows
+        chat_events.router,
         admin.router,
         payments.router,
         billing.router,
@@ -86,6 +89,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
         folders.router,
         channel_settings.router,
         channel_admins.router,
+        pro.router,
         content.router,
         buttons.router,
         media.router,
