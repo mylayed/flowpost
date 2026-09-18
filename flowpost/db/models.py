@@ -29,6 +29,22 @@ class User(Base):
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class SupportThread(Base):
+    """A user's topic in the support group: their messages land there and the team's replies go back to them."""
+
+    __tablename__ = "support_threads"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "user_id", name="uq_support_threads_chat_user"),
+        Index("ix_support_threads_chat_topic", "chat_id", "topic_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    topic_id: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Channel(Base):
     """A connected channel or group ("project")."""
 

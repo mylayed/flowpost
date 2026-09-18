@@ -26,6 +26,7 @@ from flowpost.bot.handlers import (
     reactions,
     settings as settings_handlers,
     start,
+    support,
 )
 from flowpost.bot.handlers.editor import (
     ai,
@@ -69,6 +70,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
     # Order matters: menu buttons and commands first, state-specific inputs later,
     # and the "send content to start a post" catch-all last.
     dp.include_routers(
+        support.router,  # swallows everything in the support group, so it never reaches the private-chat flows
         admin.router,
         payments.router,
         billing.router,

@@ -19,6 +19,7 @@ from flowpost.db.models import User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANG_TITLES, set_locale, t
+from flowpost.services import support
 from flowpost.services.billing.subscriptions import Access, get_access
 from flowpost.services.slots import fmt_date, fmt_hm, local_now, tz_of
 
@@ -241,29 +242,42 @@ async def in_tz(message: Message, session: AsyncSession, state: FSMContext, user
 
 
 @router.callback_query(St.filter(F.a == "support"))
-async def st_support(cb: CallbackQuery, state: FSMContext, settings: Settings) -> None:
+async def st_support(cb: CallbackQuery, callback_data: St, state: FSMContext, settings: Settings) -> None:
     await cb.answer()
     if cb.message is None:
         return
-    if not settings.admin_id_set:
+    if settings.support_chat_id is None and not settings.admin_id_set:
         await cb.message.answer(t("set.support_text", contact=html.escape(settings.support_contact or "—")))
         return
     await state.set_state(SettingsInput.support)
-    await cb.message.answer(t("set.support_prompt"), reply_markup=markup([[btn(t("btn.back"), St(a="back"))]]))
+    # «✍️ Відповісти» under a reply from support continues the conversation instead of starting a new one
+    prompt = t("set.support_reply_prompt") if callback_data.v == "reply" else t("set.support_prompt")
+    await cb.message.answer(prompt, reply_markup=markup([[btn(t("btn.back"), St(a="back"))]]))
 
 
-@router.message(SettingsInput.support, F.text)
+@router.message(SettingsInput.support, F.chat.type == "private")
 async def in_support_message(
-    message: Message, bot: Bot, state: FSMContext, user: User, settings: Settings
+    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, settings: Settings,
+    album: list[Message] | None = None,
 ) -> None:
     await state.clear()
+    if settings.support_chat_id is not None:
+        sent = await support.to_support(bot, session, settings.support_chat_id, user, album or [message])
+    else:
+        sent = await _support_to_admins(bot, user, settings, album or [message])
+    await message.answer(t("set.support_sent") if sent else t("set.support_failed"))
+
+
+async def _support_to_admins(bot: Bot, user: User, settings: Settings, messages: list[Message]) -> bool:
+    """Without a support group the message goes to every admin in private; they answer from their own account."""
     who = f"@{user.username}" if user.username else html.escape(user.first_name or str(user.tg_id))
     header = f"🆘 Звернення в підтримку від {who} (id {user.tg_id}):"
     sent = False
     for admin_id in settings.admin_id_set:
         try:
-            await bot.send_message(admin_id, header + "\n\n" + html.escape(message.text or ""))
+            await bot.send_message(admin_id, header)
+            await bot.copy_messages(admin_id, messages[0].chat.id, [m.message_id for m in messages])
             sent = True
         except TelegramAPIError:
             pass
-    await message.answer(t("set.support_sent") if sent else t("set.support_failed"))
+    return sent

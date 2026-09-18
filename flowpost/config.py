@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     bot_token: SecretStr
     admin_ids: str = ""
     support_contact: str = ""
+    # Supergroup with Topics where every user who writes to «Підтримка» gets their own topic; whatever the team
+    # writes in that topic goes back to the user from the bot. Empty = support messages go to ADMIN_IDS in private.
+    support_chat_id: int | None = None
     # Premium (custom) emoji in posts. Telegram lets only bots that bought a username on Fragment send
     # them; while this is off every <tg-emoji> is replaced by the plain emoji inside it at send time.
     premium_emoji: bool = False

@@ -10,6 +10,7 @@ import pytest
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
@@ -20,7 +21,7 @@ from flowpost.bot.handlers.channel_settings import stats_view
 from flowpost.bot.setup import build_dispatcher
 from flowpost.config import Settings
 from flowpost.db.models import Channel, ChannelAdmin, ChannelFolder, ChannelFolderItem, Post, PostPart, \
-    PostTarget, Publication, RepeatRule, Subscription, User
+    PostTarget, Publication, RepeatRule, Subscription, SupportThread, User
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.ai import AIService
@@ -35,6 +36,7 @@ USER_ID = 777
 ADMIN_ID = 888
 CHANNEL_CHAT = -1009876543210
 DISCUSSION_CHAT = -1005551234567
+SUPPORT_CHAT = -1004443332221
 
 
 class MockSession(BaseSession):
@@ -42,6 +44,7 @@ class MockSession(BaseSession):
         super().__init__()
         self.calls: list = []
         self._ids = itertools.count(1000)
+        self.errors: dict[str, list[Exception]] = {}  # method name -> errors to raise on its next calls
 
     def _message(self, chat_id, **extra) -> Message:
         return Message(
@@ -54,6 +57,8 @@ class MockSession(BaseSession):
     async def make_request(self, bot, method, timeout=None):
         name = type(method).__name__
         self.calls.append((name, method))
+        if self.errors.get(name):
+            raise self.errors[name].pop(0)
         chat_id = getattr(method, "chat_id", USER_ID)
         if name == "SendPhoto":
             return self._message(chat_id, photo=[PhotoSize(file_id="sent-photo", file_unique_id="u", width=10, height=10)])
@@ -78,6 +83,10 @@ class MockSession(BaseSession):
             return SimpleNamespace(status="creator")
         if name == "GetChat":
             return SimpleNamespace(id=method.chat_id, type="channel", title="Test Channel", username="testchan", is_forum=False)
+        if name == "CreateForumTopic":
+            return SimpleNamespace(message_thread_id=next(self._ids), name=method.name, icon_color=0)
+        if name == "CopyMessage":
+            return SimpleNamespace(message_id=next(self._ids))
         if name == "CreateInvoiceLink":
             return "https://t.me/$invoice"
         return True
@@ -122,6 +131,14 @@ class Harness:
 
     async def photo(self, file_id="user-photo", uid: int = USER_ID):
         await self.feed(message=self._message(uid, photo=[{"file_id": file_id, "file_unique_id": file_id, "width": 800, "height": 600}]))
+
+    async def in_topic(self, topic_id: int, uid: int = ADMIN_ID, chat_id: int = SUPPORT_CHAT, **fields):
+        """A message from the support team inside a topic of the support group."""
+        await self.feed(message={
+            "message_id": next(self._msg_ids), "date": int(datetime.now().timestamp()),
+            "chat": {"id": chat_id, "type": "supergroup", "title": "Support", "is_forum": True},
+            "from": self._from(uid), "message_thread_id": topic_id, "is_topic_message": True, **fields,
+        })
 
     async def click(self, data: CallbackData, uid: int = USER_ID):
         """Press an inline button; fails the test if no handler picked the callback up."""
@@ -890,16 +907,107 @@ async def test_support_message_is_forwarded_to_admins(h: Harness, settings: Sett
 
     h.session.clear()
     await h.text("У мене проблема з оплатою")
-    # the admin gets a SendMessage call addressed to ADMIN_ID with the user's text inside
+    # without a support group the admin gets a header with the user's id and a copy of their message
     sent = [c for name, c in h.session.calls if name == "SendMessage"]
     admin_call = next(c for c in sent if getattr(c, "chat_id", None) == ADMIN_ID)
-    assert "проблема" in admin_call.text and str(USER_ID) in admin_call.text
+    assert str(USER_ID) in admin_call.text
+    copy = next(c for name, c in h.session.calls if name == "CopyMessages")
+    assert copy.chat_id == ADMIN_ID and copy.from_chat_id == USER_ID
     assert "надіслано" in h.session.texts()
 
     # no new post was created out of the support message
     async def count_posts(s):
         return len((await s.scalars(select(Post))).all())
     assert await h.db(count_posts) == 0
+
+
+async def _support_topic(h: Harness) -> int:
+    return (await h.db(lambda s: s.scalar(select(SupportThread)))).topic_id
+
+
+async def test_support_group_gives_each_user_a_topic_and_relays_team_replies(h: Harness, settings: Settings):
+    settings.support_chat_id = SUPPORT_CHAT
+    await h.text("/start")
+
+    # the first message opens a topic named after the user, with a card about them, and lands in it
+    await h.click(St(a="support"))
+    h.session.clear()
+    await h.text("Не публікується пост")
+    created = next(m for name, m in h.session.calls if name == "CreateForumTopic")
+    assert created.chat_id == SUPPORT_CHAT and str(USER_ID) in created.name and "Олена" in created.name
+    topic = await _support_topic(h)
+    card = next(m for name, m in h.session.calls if name == "SendMessage" and m.chat_id == SUPPORT_CHAT)
+    assert card.message_thread_id == topic and str(USER_ID) in card.text
+    copy = next(m for name, m in h.session.calls if name == "CopyMessage")
+    assert (copy.chat_id, copy.from_chat_id, copy.message_thread_id) == (SUPPORT_CHAT, USER_ID, topic)
+    assert "надіслано" in h.session.texts()
+
+    # a later message goes into the same topic
+    await h.click(St(a="support"))
+    h.session.clear()
+    await h.photo()
+    assert "CreateForumTopic" not in h.session.names()
+    assert next(m for name, m in h.session.calls if name == "CopyMessage").message_thread_id == topic
+
+    # the team's reply in the topic reaches the user from the bot, with a button to answer back
+    h.session.clear()
+    await h.in_topic(topic, text="Перевірте, чи бот адмін у каналі")
+    answer = next(m for name, m in h.session.calls if name == "SendMessage" and m.chat_id == USER_ID)
+    assert "Відповідь підтримки" in answer.text and "бот адмін" in answer.text
+    assert answer.reply_markup.inline_keyboard[0][0].callback_data == St(a="support", v="reply").pack()
+    assert "SetMessageReaction" in h.session.names()
+
+    # a photo reply is copied with the header in its caption
+    h.session.clear()
+    await h.in_topic(topic, photo=[{"file_id": "shot", "file_unique_id": "shot", "width": 10, "height": 10}],
+                     caption="Ось де налаштування")
+    copied = next(m for name, m in h.session.calls if name == "CopyMessage")
+    assert copied.chat_id == USER_ID and "Відповідь підтримки" in copied.caption and "налаштування" in copied.caption
+
+    # «/...» is a note for the team and stays in the group
+    h.session.clear()
+    await h.in_topic(topic, text="/note користувач на пробному періоді")
+    assert not [m for _, m in h.session.calls if getattr(m, "chat_id", None) == USER_ID]
+
+    # the user answers back through the button
+    h.session.clear()
+    await h.click(St(a="support", v="reply"))
+    assert "Напишіть відповідь" in h.session.texts()
+    await h.text("Дякую, допомогло")
+    assert next(m for name, m in h.session.calls if name == "CopyMessage").message_thread_id == topic
+
+    async def count_posts(s):
+        return len((await s.scalars(select(Post))).all())
+    assert await h.db(count_posts) == 0
+
+
+async def test_support_topic_is_recreated_when_deleted_and_blocked_users_are_reported(h: Harness, settings: Settings):
+    settings.support_chat_id = SUPPORT_CHAT
+    await h.text("/start")
+    await h.click(St(a="support"))
+    await h.text("Питання")
+    old_topic = await _support_topic(h)
+
+    # the team deleted the topic: the next message opens a new one instead of getting lost
+    h.session.errors["CopyMessage"] = [TelegramBadRequest(method=None, message="Bad Request: message thread not found")]
+    await h.click(St(a="support"))
+    h.session.clear()
+    await h.text("Ще питання")
+    new_topic = await _support_topic(h)
+    assert new_topic != old_topic and "CreateForumTopic" in h.session.names()
+    assert [m.message_thread_id for name, m in h.session.calls if name == "CopyMessage"][-1] == new_topic
+    assert "надіслано" in h.session.texts()
+
+    # the user blocked the bot: the team is told the reply didn't arrive
+    h.session.errors["SendMessage"] = [TelegramForbiddenError(method=None, message="Forbidden: bot was blocked by the user")]
+    h.session.clear()
+    await h.in_topic(new_topic, text="Відповідь")
+    assert "заблокував" in h.session.texts()
+
+    # a topic nobody is attached to
+    h.session.clear()
+    await h.in_topic(424242, text="Привіт")
+    assert "не пов'язана" in h.session.texts()
 
 
 async def test_restart_clears_a_stuck_state_and_returns_the_keyboard(h: Harness, settings: Settings):
