@@ -554,10 +554,15 @@ TEXTS: dict[str, str] = {
     "admins.remove_confirm": "Remove {name} from the administrators of «{title}»?",
     "admins.remove_yes": "❌ Yes, remove",
     "admins.removed": "Administrator removed",
-    "admins.perm_posts": "📝 Posts (create, edit, publish, schedule)",
-    "admins.perm_settings": "⚙️ Channel settings (signature, watermark, AI style)",
-    "admins.perm_disconnect": "🔌 Disconnect the channel",
-    "admins.new_title": "Choose what to allow the administrator to do in «{title}»:",
+    "admins.perm_posts": "📝 Posts",
+    "admins.perm_settings": "⚙️ Settings",
+    "admins.perm_disconnect": "🔌 Disconnect",
+    "admins.new_title": (
+        "Choose what to allow the administrator to do in «{title}»:\n\n"
+        "📝 <b>Posts</b> — create, edit, publish, schedule\n"
+        "⚙️ <b>Settings</b> — signature, watermark, AI style\n"
+        "🔌 <b>Disconnect</b> — disconnect the channel from the bot"
+    ),
     "admins.new_create": "🔗 Create invite link",
     "admins.new_need_one": "Pick at least one permission.",
     "admins.invite_created": (
