@@ -60,14 +60,43 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
     )
 
 
-def _chat_line(n: int, channel: Channel, owner: User, *, link: bool) -> str:
+# Invite links the bot made for private channels, so /chats doesn't create a new one each time.
+_invite_links: dict[int, str] = {}
+
+
+async def _channel_url(bot: Bot, channel: Channel) -> str | None:
+    """A link that opens the channel: its public address, or for a private one its primary invite link — or, when
+    there's none, a separate link the bot creates (exporting a new primary one would revoke the owner's)."""
+    if channel.username:
+        return f"https://t.me/{channel.username}"
+    if channel.chat_id in _invite_links:
+        return _invite_links[channel.chat_id]
+    try:
+        url = getattr(await bot.get_chat(channel.chat_id), "invite_link", None)
+        if not url:
+            url = (await bot.create_chat_invite_link(channel.chat_id, name="FlowPost")).invite_link
+    except TelegramAPIError as e:
+        log.info("no invite link for %s: %s", channel.chat_id, e)
+        return None
+    _invite_links[channel.chat_id] = url
+    return url
+
+
+def _owner_link(owner: User) -> str:
+    """Opens a private chat with the owner: by @username, or by id for those who have none."""
+    if owner.username:
+        return f'<a href="https://t.me/{owner.username}">@{owner.username}</a>'
+    name = html.escape(owner.first_name or str(owner.tg_id))
+    return f'<a href="tg://user?id={owner.tg_id}">{name}</a> (<code>{owner.tg_id}</code>)'
+
+
+def _chat_line(n: int, channel: Channel, owner: User, url: str | None = None, *, private: bool = False) -> str:
     title = html.escape(channel.title or str(channel.chat_id))
-    if link and channel.username:
-        title = f'<a href="https://t.me/{channel.username}">{title}</a>'
-    elif link:
+    if url:
+        title = f'<a href="{html.escape(url)}">{title}</a>'
+    elif private:
         title += " (private)"
-    who = f"@{owner.username}" if owner.username else f"<code>{owner.tg_id}</code>"
-    return f"{n}. {title} — {who}"
+    return f"{n}. {title} — {_owner_link(owner)}"
 
 
 def _pages(lines: list[str], limit: int = 4000) -> list[str]:
@@ -82,12 +111,15 @@ def _pages(lines: list[str], limit: int = 4000) -> list[str]:
 
 
 @router.message(Command("chats"))
-async def cmd_chats(message: Message, session: AsyncSession) -> None:
+async def cmd_chats(message: Message, session: AsyncSession, bot: Bot) -> None:
     channels, groups = await stats_repo.active_chats(session)
+    urls = await asyncio.gather(*(_channel_url(bot, c) for c, _ in channels))
     lines = [f"<b>📡 Channels ({len(channels)})</b>"]
-    lines += [_chat_line(i, c, o, link=True) for i, (c, o) in enumerate(channels, 1)] or ["—"]
+    lines += [
+        _chat_line(i, c, o, url, private=True) for i, ((c, o), url) in enumerate(zip(channels, urls), 1)
+    ] or ["—"]
     lines += ["", f"<b>👥 Groups ({len(groups)})</b>"]
-    lines += [_chat_line(i, c, o, link=False) for i, (c, o) in enumerate(groups, 1)] or ["—"]
+    lines += [_chat_line(i, c, o) for i, (c, o) in enumerate(groups, 1)] or ["—"]
     for page in _pages(lines):
         await message.answer(page, disable_web_page_preview=True)
 

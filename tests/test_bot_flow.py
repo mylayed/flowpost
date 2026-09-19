@@ -1273,8 +1273,16 @@ async def test_admin_chats_lists_channels_with_links_and_groups(h: Harness, sett
     text = h.session.texts()
     assert "Channels (2)" in text and "Groups (1)" in text
     assert '<a href="https://t.me/dnipro_news">Новини &lt;Дніпра&gt;</a>' in text
-    assert "Закритий канал (private)" in text and "Чат району" in text
+    # a private channel links through an invite link the bot makes once, not its owner's primary one
+    private = re.search(r'<a href="(https://t\.me/\+link\d+)">Закритий канал</a>', text)
+    assert private and "ExportChatInviteLink" not in h.session.names()
+    assert "Чат району" in text
     assert "Коментарі" not in text and "Відключений" not in text
+    # the owner has no @username: a link that opens a chat with them by id
+    assert f'<a href="tg://user?id={USER_ID}">Олена</a>' in text
+    h.session.clear()
+    await h.text("/chats", uid=ADMIN_ID)
+    assert "CreateChatInviteLink" not in h.session.names() and private.group(1) in h.session.texts()
 
     # not an admin → the command isn't there
     h.session.clear()
