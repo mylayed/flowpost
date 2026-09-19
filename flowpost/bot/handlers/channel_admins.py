@@ -4,13 +4,13 @@ from __future__ import annotations
 import html
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ca, Pj
-from flowpost.bot.keyboards.common import btn, markup
+from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.db.models import Channel, ChannelAdmin, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.i18n import t
@@ -31,8 +31,8 @@ async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -
             await cb.message.answer(text, reply_markup=kb)
 
 
-def _perm_labels(bits: str) -> list[str]:
-    return [t(f"admins.perm_{key}") for key, bit in zip(PERM_KEYS, bits) if bit == "1"]
+def _perm_labels(bits: str, locale: str | None = None) -> list[str]:
+    return [t(f"admins.perm_{key}", locale=locale) for key, bit in zip(PERM_KEYS, bits) if bit == "1"]
 
 
 def _admin_name(user: User) -> str:
@@ -49,10 +49,9 @@ async def list_screen(session: AsyncSession, channel: Channel) -> tuple[str, Inl
     rows: list[list] = []
     if admins:
         for grant, admin_user in admins:
-            bits = "".join("1" if getattr(grant, f"can_{k}") else "0" for k in PERM_KEYS)
             name = _admin_name(admin_user)
-            lines.append(f"👤 {name} — {', '.join(_perm_labels(bits)) or '—'}")
-            rows.append([btn(f"❌ {name}", Ca(a="remove", c=channel.id, id=grant.id))])
+            lines.append(f"👤 {name} — {', '.join(_perm_labels(_grant_bits(grant))) or '—'}")
+            rows.append([btn(f"👤 {name}", Ca(a="admin", c=channel.id, id=grant.id))])
     else:
         lines.append(t("admins.list_empty"))
     rows.append([btn(t("admins.invite_btn"), Ca(a="new", c=channel.id, v=DEFAULT_PERMS))])
@@ -67,7 +66,37 @@ def new_screen(channel: Channel, bits: str) -> tuple[str, InlineKeyboardMarkup]:
     ]
     rows.append([btn(t("admins.new_create"), Ca(a="create", c=channel.id, v=bits))])
     rows.append([btn(t("btn.back"), Ca(a="list", c=channel.id))])
-    return t("admins.new_title", title=html.escape(channel.title)), markup(rows)
+    return t("admins.new_title", title=html.escape(channel.title)) + "\n\n" + t("admins.perms_help"), markup(rows)
+
+
+def _grant_bits(grant: ChannelAdmin) -> str:
+    return "".join("1" if getattr(grant, f"can_{k}") else "0" for k in PERM_KEYS)
+
+
+def admin_screen(channel: Channel, grant: ChannelAdmin, admin_user: User | None) -> tuple[str, InlineKeyboardMarkup]:
+    """One administrator: their permissions toggle right here, and a way to take access away."""
+    bits = _grant_bits(grant)
+    rows = [
+        [btn(on(bits[i] == "1") + t(f"admins.perm_{key}"), Ca(a="perm", c=channel.id, id=grant.id, v=key))]
+        for i, key in enumerate(PERM_KEYS)
+    ]
+    rows.append([btn(t("admins.remove_btn"), Ca(a="remove", c=channel.id, id=grant.id))])
+    rows.append([btn(t("btn.back"), Ca(a="list", c=channel.id))])
+    name = _admin_name(admin_user) if admin_user else "?"
+    text = t("admins.edit_title", name=name, title=html.escape(channel.title)) + "\n\n" + t("admins.perms_help")
+    return text, markup(rows)
+
+
+async def _channel_grant(
+    cb: CallbackQuery, session: AsyncSession, user: User, callback_data: Ca
+) -> tuple[Channel, ChannelAdmin] | None:
+    """The owner's channel and one of its administrators, or None after telling the user it's gone."""
+    channel = await _owner_channel(session, user, callback_data.c)
+    grant = await session.get(ChannelAdmin, callback_data.id) if channel is not None else None
+    if channel is None or grant is None or grant.channel_id != channel.id:
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return None
+    return channel, grant
 
 
 @router.callback_query(Ca.filter(F.a == "list"))
@@ -124,23 +153,58 @@ async def ca_create(cb: CallbackQuery, callback_data: Ca, bot: Bot, session: Asy
     await _edit(cb, text, markup([[btn(t("btn.back"), Ca(a="list", c=channel.id))]]))
 
 
+@router.callback_query(Ca.filter(F.a == "admin"))
+async def ca_admin(cb: CallbackQuery, callback_data: Ca, session: AsyncSession, user: User) -> None:
+    found = await _channel_grant(cb, session, user, callback_data)
+    if found is None:
+        return
+    channel, grant = found
+    await cb.answer()
+    await _edit(cb, *admin_screen(channel, grant, await session.get(User, grant.user_id)))
+
+
+@router.callback_query(Ca.filter(F.a == "perm"))
+async def ca_perm(cb: CallbackQuery, callback_data: Ca, bot: Bot, session: AsyncSession, user: User) -> None:
+    """Turn one permission of an existing administrator on or off; they're told what they can do now."""
+    found = await _channel_grant(cb, session, user, callback_data)
+    if found is None or callback_data.v not in PERM_KEYS:
+        return
+    channel, grant = found
+    column = f"can_{callback_data.v}"
+    setattr(grant, column, not getattr(grant, column))
+    bits = _grant_bits(grant)
+    if "1" not in bits:
+        setattr(grant, column, True)
+        await cb.answer(t("admins.edit_need_one"), show_alert=True)
+        return
+    await session.flush()
+    await cb.answer()
+    admin_user = await session.get(User, grant.user_id)
+    await _edit(cb, *admin_screen(channel, grant, admin_user))
+    if admin_user is not None and not admin_user.is_blocked:
+        perms = ", ".join(_perm_labels(bits, admin_user.lang))
+        try:
+            await bot.send_message(
+                admin_user.tg_id,
+                t("admins.perms_changed", locale=admin_user.lang, title=html.escape(channel.title), perms=perms),
+            )
+        except TelegramAPIError:
+            pass
+
+
 @router.callback_query(Ca.filter(F.a.in_({"remove", "removeok"})))
 async def ca_remove(cb: CallbackQuery, callback_data: Ca, session: AsyncSession, user: User) -> None:
-    channel = await _owner_channel(session, user, callback_data.c)
-    if channel is None:
-        await cb.answer(t("err.not_found"), show_alert=True)
+    found = await _channel_grant(cb, session, user, callback_data)
+    if found is None:
         return
-    grant = await session.get(ChannelAdmin, callback_data.id)
-    if grant is None or grant.channel_id != channel.id:
-        await cb.answer(t("err.not_found"), show_alert=True)
-        return
+    channel, grant = found
     admin_user = await session.get(User, grant.user_id)
     name = _admin_name(admin_user) if admin_user else "?"
     if callback_data.a == "remove":
         await cb.answer()
         kb = markup([
             [btn(t("admins.remove_yes"), Ca(a="removeok", c=channel.id, id=grant.id))],
-            [btn(t("btn.back"), Ca(a="list", c=channel.id))],
+            [btn(t("btn.back"), Ca(a="admin", c=channel.id, id=grant.id))],
         ])
         await _edit(cb, t("admins.remove_confirm", name=name, title=html.escape(channel.title)), kb)
         return

@@ -482,9 +482,27 @@ async def test_channel_admin_delegation(h: Harness):
     await h.click(Pj(a="off", c=c), uid=ADMIN_ID)
     assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
 
-    # Owner revokes access; the ex-admin can no longer reach that post
+    # Owner opens the admin later and grants disconnect too; the admin is told what they can do now
     await h.click(Pj(a="ch", c=c))
     await h.click(Ca(a="list", c=c))
+    await h.click(Ca(a="admin", c=c, id=grant.id))
+    h.session.clear()
+    await h.click(Ca(a="perm", c=c, id=grant.id, v="disconnect"))
+    grant = await h.db(lambda s: s.get(ChannelAdmin, grant.id))
+    assert grant.can_posts and grant.can_settings and grant.can_disconnect
+    changed = next(m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == ADMIN_ID)
+    assert "змінив ваші права" in changed.text and "Відключення" in changed.text
+
+    # ...and takes settings and disconnect away again; the last permission can't be switched off
+    await h.click(Ca(a="perm", c=c, id=grant.id, v="settings"))
+    await h.click(Ca(a="perm", c=c, id=grant.id, v="disconnect"))
+    h.session.clear()
+    await h.click(Ca(a="perm", c=c, id=grant.id, v="posts"))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+    grant = await h.db(lambda s: s.get(ChannelAdmin, grant.id))
+    assert (grant.can_posts, grant.can_settings, grant.can_disconnect) == (True, False, False)
+
+    # Owner revokes access; the ex-admin can no longer reach that post
     await h.click(Ca(a="remove", c=c, id=grant.id))
     await h.click(Ca(a="removeok", c=c, id=grant.id))
     assert await h.db(lambda s: s.get(ChannelAdmin, grant.id)) is None

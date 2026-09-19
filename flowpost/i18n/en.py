@@ -557,8 +557,12 @@ TEXTS: dict[str, str] = {
     "admins.perm_posts": "📝 Posts",
     "admins.perm_settings": "⚙️ Settings",
     "admins.perm_disconnect": "🔌 Disconnect",
-    "admins.new_title": (
-        "Choose what to allow the administrator to do in «{title}»:\n\n"
+    "admins.new_title": "Choose what to allow the administrator to do in «{title}»:",
+    "admins.edit_title": "👤 <b>{name}</b> — administrator of «{title}».\n\nTick what they may do:",
+    "admins.remove_btn": "❌ Remove from administrators",
+    "admins.edit_need_one": "At least one permission is needed. To take access away completely, tap «Remove from administrators».",
+    "admins.perms_changed": "The owner of «{title}» changed your permissions.\nYou can now: {perms}",
+    "admins.perms_help": (
         "📝 <b>Posts</b> — create, edit, publish, schedule\n"
         "⚙️ <b>Settings</b> — signature, watermark, AI style\n"
         "🔌 <b>Disconnect</b> — disconnect the channel from the bot"
