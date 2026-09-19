@@ -1292,8 +1292,18 @@ async def test_admin_chats_lists_channels_with_links_and_groups(h: Harness, sett
 
 async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harness, settings: Settings, monkeypatch):
     from flowpost.bot.callbacks import Bc
-    from flowpost.bot.handlers import admin as admin_handlers
-    monkeypatch.setattr(admin_handlers, "BROADCAST_DELAY", 0)
+    from flowpost.db.models import Broadcast
+    from flowpost.services import broadcast as broadcast_service
+    monkeypatch.setattr(broadcast_service, "BROADCAST_DELAY", 0)
+    worker = h.dp.workflow_data["worker"]
+
+    async def run_due(now=None):
+        await worker.process_broadcasts(now or utcnow())
+        await worker.wait_broadcasts()
+
+    def copies():
+        return [m.chat_id for name, m in h.session.calls if name == "CopyMessage"]
+
     await h.text("/start")                 # channel owner
     await h.text("/start", uid=999)        # no channels
     await h.text("/start", uid=555)        # owns a channel but blocks the bot
@@ -1310,11 +1320,6 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
         await s.commit()
     await h.db(add)
 
-    # not an admin → nothing happens
-    h.session.clear()
-    await h.text("/broadcast")
-    assert "Розсилка" not in h.session.texts()
-
     settings.admin_ids = str(ADMIN_ID)
     await h.text("/broadcast", uid=ADMIN_ID)
     await h.text("Оновлення: <b>нова функція</b>", uid=ADMIN_ID)
@@ -1323,30 +1328,64 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     # owners: 777 and 555; plus their admins: 444; without channels: 999 and the admin, who is a bot user too
     assert [label[-3:] for label in labels[:4]] == ["(2)", "(3)", "(2)", "(5)"]
 
-    # the first recipient (the owner) has blocked the bot: marked as blocked, the rest still get it
+    # send now: the first recipient (the owner) has blocked the bot — marked as blocked, the rest still get it
+    await h.click(Bc(a="aud", v="channels"), uid=ADMIN_ID)
     h.session.clear()
     h.session.errors["CopyMessage"] = [TelegramForbiddenError(method=None, message="blocked")]
-    await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
-    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [USER_ID, 555, 444]
+    await h.click(Bc(a="now", v="channels"), uid=ADMIN_ID)
+    await run_due()
+    assert copies() == [USER_ID, 555, 444]
     text = h.session.texts()
     assert "Розсилку завершено" in text and "Доставлено: 2 / 3" in text and "Заблокували бота: 1" in text
     assert (await _user(h)).is_blocked
 
     # pressing the button again doesn't send it twice
     h.session.clear()
-    await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
-    assert "CopyMessage" not in h.session.names()
+    await h.click(Bc(a="now", v="channels"), uid=ADMIN_ID)
+    await run_due()
+    assert copies() == []
 
-    # those who haven't connected a channel yet
+    # scheduled for later: to those who haven't connected a channel yet; nothing goes out before the time
     await h.text("/broadcast", uid=ADMIN_ID)
     await h.text("Підключіть свій перший канал 👇", uid=ADMIN_ID)
+    await h.click(Bc(a="aud", v="nochannels"), uid=ADMIN_ID)
+    await h.click(Bc(a="later", v="nochannels"), uid=ADMIN_ID)
     h.session.clear()
-    await h.click(Bc(a="send", v="nochannels"), uid=ADMIN_ID)
-    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [999, ADMIN_ID]
+    await h.text("вчора", uid=ADMIN_ID)
+    assert "Не вдалося розпізнати" in h.session.texts()
+    await h.text("25.12.2099 10:00", uid=ADMIN_ID)
+    assert "заплановано на 25.12.2099 о 10:00" in h.session.texts()
+    scheduled = await h.db(lambda s: s.scalar(select(Broadcast).where(Broadcast.status == "pending")))
+    assert scheduled.audience == "nochannels"
+    h.session.clear()
+    await run_due()
+    assert copies() == []
+    await run_due(scheduled.send_at)
+    assert copies() == [999, ADMIN_ID]
 
-    # only the owners, without the admins they've added (777 has blocked the bot by now)
+    # /broadcasts lists what's queued, and a scheduled one can be cancelled
     await h.text("/broadcast", uid=ADMIN_ID)
     await h.text("Для власників каналів", uid=ADMIN_ID)
+    await h.click(Bc(a="aud", v="owners"), uid=ADMIN_ID)
+    await h.click(Bc(a="later", v="owners"), uid=ADMIN_ID)
+    await h.text("01.01.2099 09:00", uid=ADMIN_ID)
     h.session.clear()
-    await h.click(Bc(a="send", v="owners"), uid=ADMIN_ID)
-    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [555]
+    await h.text("/broadcasts", uid=ADMIN_ID)
+    assert "01.01.2099 о 09:00" in h.session.texts() and "Лише власникам каналів" in h.session.texts()
+    pending = await h.db(lambda s: s.scalar(select(Broadcast).where(Broadcast.status == "pending")))
+    await h.click(Bc(a="stop", v=str(pending.id)), uid=ADMIN_ID)
+    h.session.clear()
+    await run_due(pending.send_at)
+    assert copies() == []
+
+    # a broadcast cut off by a restart after the first user resumes with the next one
+    async def interrupted(s):
+        bc = Broadcast(created_by=ADMIN_ID, from_chat_id=ADMIN_ID, message_id=1, audience="all", send_at=utcnow(),
+                       status="sending", last_user_id=owner.id, total=5, sent=1)
+        s.add(bc)
+        await s.commit()
+    await h.db(interrupted)
+    h.session.clear()
+    await run_due()
+    assert copies() == [999, 555, 444, ADMIN_ID]
+    assert "Доставлено: 5 / 5" in h.session.texts()

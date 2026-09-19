@@ -379,3 +379,27 @@ class ChannelInvite(Base):
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Broadcast(Base):
+    """The bot owner's message to many users at once (/broadcast): copied from `from_chat_id`/`message_id` to
+    everyone in `audience`, now or at `send_at`. Recipients go in user id order and `last_user_id` marks progress,
+    so a broadcast interrupted by a restart picks up where it stopped."""
+
+    __tablename__ = "broadcasts"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    created_by: Mapped[int] = mapped_column(BigInteger)  # the admin's Telegram id; reports go there
+    from_chat_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[int] = mapped_column(Integer)
+    audience: Mapped[str] = mapped_column(String(16))  # owners | channels | nochannels | all
+    send_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | sending | done | cancelled
+    status_message_id: Mapped[int | None] = mapped_column(Integer)  # the admin's progress message
+    last_user_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    sent: Mapped[int] = mapped_column(Integer, default=0)
+    blocked: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

@@ -23,13 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from flowpost.bot.callbacks import Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.models import Broadcast, Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics, growth, rss
+from flowpost.services import analytics, broadcast, growth, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -76,6 +76,7 @@ class Worker:
         self._wake = asyncio.Event()
         self._members_at: datetime | None = None
         self._reports_at: datetime | None = None
+        self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
 
     def wake(self) -> None:
         self._wake.set()
@@ -98,6 +99,7 @@ class Worker:
         now = now or utcnow()
         await self.recover_stale()
         await self.process_due(now)
+        await self.process_broadcasts(now)
         await self.process_unpins(now)
         await self.process_deletes(now)
         await self.trial_reminders(now)
@@ -118,6 +120,35 @@ class Worker:
                 pub.status = "failed"
                 pub.last_error = "interrupted"
             await session.commit()
+
+    # ---- broadcasts --------------------------------------------------------------------------
+
+    async def process_broadcasts(self, now: datetime) -> None:
+        """Start the owner's broadcasts that are due, and pick up ones a restart cut off. Each runs as its own task,
+        so a long broadcast doesn't hold up publishing."""
+        async with self.sessionmaker() as session:
+            due = (await session.scalars(
+                select(Broadcast).where(Broadcast.status == "pending", Broadcast.send_at <= now)
+            )).all()
+            for bc in due:
+                bc.status = "sending"
+            await session.commit()
+            ids = (await session.scalars(select(Broadcast.id).where(Broadcast.status == "sending"))).all()
+        for bc_id in ids:
+            if bc_id not in self._broadcasts:
+                task = asyncio.create_task(broadcast.run(self.bot, self.sessionmaker, bc_id))
+                self._broadcasts[bc_id] = task
+                task.add_done_callback(lambda done, bc_id=bc_id: self._broadcast_done(bc_id, done))
+
+    def _broadcast_done(self, bc_id: int, task: asyncio.Task) -> None:
+        self._broadcasts.pop(bc_id, None)
+        if not task.cancelled() and task.exception() is not None:
+            log.error("broadcast %s failed", bc_id, exc_info=task.exception())
+
+    async def wait_broadcasts(self) -> None:
+        """For tests: let the running broadcasts finish."""
+        while self._broadcasts:
+            await asyncio.gather(*self._broadcasts.values(), return_exceptions=True)
 
     # ---- publishing -------------------------------------------------------------------------
 

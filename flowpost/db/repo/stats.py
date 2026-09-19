@@ -88,11 +88,13 @@ async def active_chats(session: AsyncSession) -> tuple[list[tuple[Channel, User]
     return channels, groups
 
 
-async def broadcast_recipients(session: AsyncSession, audience: str) -> list[tuple[int, int]]:
+async def broadcast_recipients(
+    session: AsyncSession, audience: str, *, after_user_id: int = 0
+) -> list[tuple[int, int]]:
     """(user id, Telegram id) of everyone a /broadcast goes to: "all" — every user who hasn't blocked the bot,
     "owners" — those who own an active channel or group, "channels" — owners plus the admins they've added,
-    "nochannels" — everyone else."""
-    stmt = select(User.id, User.tg_id).where(User.is_blocked.is_(False))
+    "nochannels" — everyone else. `after_user_id` skips those a resumed broadcast has already reached."""
+    stmt = select(User.id, User.tg_id).where(User.is_blocked.is_(False), User.id > after_user_id)
     is_owner = User.id.in_(select(Channel.owner_id).where(Channel.is_active.is_(True)))
     active = select(Channel.id).where(Channel.is_active.is_(True))
     has_channels = is_owner | User.id.in_(select(ChannelAdmin.user_id).where(ChannelAdmin.channel_id.in_(active)))
