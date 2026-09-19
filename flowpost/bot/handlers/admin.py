@@ -120,7 +120,8 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
 BROADCAST_DELAY = 0.05
 PROGRESS_EVERY = 100
 AUDIENCES = {
-    "channels": "👥 Адмінам активних каналів",
+    "owners": "👑 Лише власникам каналів",
+    "channels": "👥 Власникам і адмінам каналів",
     "nochannels": "🆕 Тим, хто ще не підключив канал",
     "all": "👤 Усім користувачам",
 }

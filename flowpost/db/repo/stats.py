@@ -90,13 +90,16 @@ async def active_chats(session: AsyncSession) -> tuple[list[tuple[Channel, User]
 
 async def broadcast_recipients(session: AsyncSession, audience: str) -> list[tuple[int, int]]:
     """(user id, Telegram id) of everyone a /broadcast goes to: "all" — every user who hasn't blocked the bot,
-    "channels" — only those who own or co-administer an active channel or group, "nochannels" — everyone else."""
+    "owners" — those who own an active channel or group, "channels" — owners plus the admins they've added,
+    "nochannels" — everyone else."""
     stmt = select(User.id, User.tg_id).where(User.is_blocked.is_(False))
-    if audience in ("channels", "nochannels"):
-        active = select(Channel.id).where(Channel.is_active.is_(True))
-        has_channels = (
-            User.id.in_(select(Channel.owner_id).where(Channel.is_active.is_(True)))
-            | User.id.in_(select(ChannelAdmin.user_id).where(ChannelAdmin.channel_id.in_(active)))
-        )
-        stmt = stmt.where(has_channels if audience == "channels" else ~has_channels)
+    is_owner = User.id.in_(select(Channel.owner_id).where(Channel.is_active.is_(True)))
+    active = select(Channel.id).where(Channel.is_active.is_(True))
+    has_channels = is_owner | User.id.in_(select(ChannelAdmin.user_id).where(ChannelAdmin.channel_id.in_(active)))
+    if audience == "owners":
+        stmt = stmt.where(is_owner)
+    elif audience == "channels":
+        stmt = stmt.where(has_channels)
+    elif audience == "nochannels":
+        stmt = stmt.where(~has_channels)
     return [tuple(row) for row in (await session.execute(stmt.order_by(User.id))).all()]

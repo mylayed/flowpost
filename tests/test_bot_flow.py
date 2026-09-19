@@ -1271,13 +1271,16 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     await h.text("/start")                 # channel owner
     await h.text("/start", uid=999)        # no channels
     await h.text("/start", uid=555)        # owns a channel but blocks the bot
-    owner, blocker = await _user(h), await h.db(lambda s: s.scalar(select(User).where(User.tg_id == 555)))
+    await h.text("/start", uid=444)        # an admin the owner added to their channel
+    owner, blocker, co_admin = await _user(h), *[
+        await h.db(lambda s, uid=uid: s.scalar(select(User).where(User.tg_id == uid))) for uid in (555, 444)
+    ]
 
     async def add(s):
-        s.add_all([
-            Channel(owner_id=owner.id, chat_id=CHANNEL_CHAT, kind="channel", title="Новини"),
-            Channel(owner_id=blocker.id, chat_id=-1003, kind="channel", title="Інший"),
-        ])
+        channel = Channel(owner_id=owner.id, chat_id=CHANNEL_CHAT, kind="channel", title="Новини")
+        s.add_all([channel, Channel(owner_id=blocker.id, chat_id=-1003, kind="channel", title="Інший")])
+        await s.flush()
+        s.add(ChannelAdmin(channel_id=channel.id, user_id=co_admin.id))
         await s.commit()
     await h.db(add)
 
@@ -1291,16 +1294,16 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     await h.text("Оновлення: <b>нова функція</b>", uid=ADMIN_ID)
     kb = next(m for name, m in h.session.calls if name == "SendMessage" and "Кому надіслати" in m.text).reply_markup
     labels = [row[0].text for row in kb.inline_keyboard]
-    # with channels: 777 and 555; without: 999 and the admin, who is a bot user too
-    assert [label[-3:] for label in labels[:3]] == ["(2)", "(2)", "(4)"]
+    # owners: 777 and 555; plus their admins: 444; without channels: 999 and the admin, who is a bot user too
+    assert [label[-3:] for label in labels[:4]] == ["(2)", "(3)", "(2)", "(5)"]
 
     # the first recipient (the owner) has blocked the bot: marked as blocked, the rest still get it
     h.session.clear()
     h.session.errors["CopyMessage"] = [TelegramForbiddenError(method=None, message="blocked")]
     await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
-    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [USER_ID, 555]
+    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [USER_ID, 555, 444]
     text = h.session.texts()
-    assert "Розсилку завершено" in text and "Доставлено: 1 / 2" in text and "Заблокували бота: 1" in text
+    assert "Розсилку завершено" in text and "Доставлено: 2 / 3" in text and "Заблокували бота: 1" in text
     assert (await _user(h)).is_blocked
 
     # pressing the button again doesn't send it twice
@@ -1314,3 +1317,10 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     h.session.clear()
     await h.click(Bc(a="send", v="nochannels"), uid=ADMIN_ID)
     assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [999, ADMIN_ID]
+
+    # only the owners, without the admins they've added (777 has blocked the bot by now)
+    await h.text("/broadcast", uid=ADMIN_ID)
+    await h.text("Для власників каналів", uid=ADMIN_ID)
+    h.session.clear()
+    await h.click(Bc(a="send", v="owners"), uid=ADMIN_ID)
+    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [555]
