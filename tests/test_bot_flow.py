@@ -1291,7 +1291,8 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     await h.text("Оновлення: <b>нова функція</b>", uid=ADMIN_ID)
     kb = next(m for name, m in h.session.calls if name == "SendMessage" and "Кому надіслати" in m.text).reply_markup
     labels = [row[0].text for row in kb.inline_keyboard]
-    assert labels[0].endswith("(2)") and labels[1].endswith("(4)")  # the admin is a bot user too
+    # with channels: 777 and 555; without: 999 and the admin, who is a bot user too
+    assert [label[-3:] for label in labels[:3]] == ["(2)", "(2)", "(4)"]
 
     # the first recipient (the owner) has blocked the bot: marked as blocked, the rest still get it
     h.session.clear()
@@ -1306,3 +1307,10 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     h.session.clear()
     await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
     assert "CopyMessage" not in h.session.names()
+
+    # those who haven't connected a channel yet
+    await h.text("/broadcast", uid=ADMIN_ID)
+    await h.text("Підключіть свій перший канал 👇", uid=ADMIN_ID)
+    h.session.clear()
+    await h.click(Bc(a="send", v="nochannels"), uid=ADMIN_ID)
+    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [999, ADMIN_ID]

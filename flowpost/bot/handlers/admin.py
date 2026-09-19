@@ -119,7 +119,11 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
 # Telegram lets a bot send about 30 messages a second to different users; stay a little below that.
 BROADCAST_DELAY = 0.05
 PROGRESS_EVERY = 100
-AUDIENCES = {"channels": "👥 Адмінам активних каналів", "all": "👤 Усім користувачам"}
+AUDIENCES = {
+    "channels": "👥 Адмінам активних каналів",
+    "nochannels": "🆕 Тим, хто ще не підключив канал",
+    "all": "👤 Усім користувачам",
+}
 
 
 @router.message(Command("broadcast"))

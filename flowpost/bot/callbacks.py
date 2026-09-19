@@ -96,7 +96,7 @@ class Px(CallbackData, prefix="px"):
 
 
 class Bc(CallbackData, prefix="bc"):
-    """The owner's /broadcast. `a` — send|cancel, `v` — audience: all|channels."""
+    """The owner's /broadcast. `a` — send|cancel, `v` — audience: channels|nochannels|all."""
 
     a: str
     v: str = ""
