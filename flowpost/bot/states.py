@@ -50,4 +50,5 @@ class ProInput(StatesGroup):
 
 class BroadcastInput(StatesGroup):
     message = State()  # the owner's message to send to many users at once
+    buttons = State()  # link buttons to put under it, as «Текст — посилання» lines
     when = State()     # the date and time to send it at, typed

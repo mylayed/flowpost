@@ -79,6 +79,7 @@ TEXTS: dict[str, str] = {
     "btn.add_channel": "➕ Connect a channel or group",
     "btn.back": "↩️ Back",
     "btn.pay": "💳 Subscribe",
+    "btn.manage_sub": "💳 Manage subscription",
     "btn.topic_general": "💬 General topic",
     "btn.topic_set": "🧵 Choose topic",
 

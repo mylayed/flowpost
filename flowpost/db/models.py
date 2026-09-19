@@ -396,6 +396,8 @@ class Broadcast(Base):
     send_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | sending | done | cancelled
     status_message_id: Mapped[int | None] = mapped_column(Integer)  # the admin's progress message
+    # rows of {"text", "url"} link buttons; {"add_channel": true} and {"manage_sub": true} are template buttons
+    buttons: Mapped[list] = mapped_column(JSONType, default=list)
     last_user_id: Mapped[int] = mapped_column(BigInteger, default=0)
     total: Mapped[int] = mapped_column(Integer, default=0)
     sent: Mapped[int] = mapped_column(Integer, default=0)

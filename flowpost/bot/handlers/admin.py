@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Bc
-from flowpost.bot.keyboards.common import btn, markup
+from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.bot.states import BroadcastInput
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, User
@@ -24,8 +24,9 @@ from flowpost.db.repo import stats as stats_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.services.billing.subscriptions import get_subscription
-from flowpost.services.broadcast import AUDIENCES, audience_label
-from flowpost.services.parsing import ParseError, parse_time
+from flowpost.i18n import t
+from flowpost.services.broadcast import AUDIENCES, audience_label, build_markup
+from flowpost.services.parsing import ParseError, parse_buttons, parse_time
 from flowpost.services.slots import fmt_hm, local_now, to_utc, tz_of
 from flowpost.services.worker import Worker
 
@@ -194,8 +195,46 @@ async def _audience_kb(session: AsyncSession):
     counts = {a: len(await stats_repo.broadcast_recipients(session, a)) for a in AUDIENCES}
     return markup([
         *[[btn(f"{label} ({counts[a]})", Bc(a="aud", v=a))] for a, label in AUDIENCES.items()],
+        [btn("↩️ Назад до кнопок", Bc(a="compose"))],
         [btn("✖️ Скасувати", Bc(a="cancel"))],
     ])
+
+
+# template buttons the owner can put under a broadcast; each recipient gets them in their own language
+TEMPLATES = {"add_channel": "➕ Кнопка «Підключити канал»", "manage_sub": "💳 Кнопка «Керувати підпискою»"}
+
+
+def _buttons(data: dict) -> list:
+    """What goes under the broadcast: the link rows, then the template buttons that are switched on."""
+    return [*data.get("links", []), *[{key: True} for key in TEMPLATES if data.get(key)]]
+
+
+COMPOSE_TEXT = (
+    "👆 Так виглядатиме повідомлення.\n\n"
+    "Під ним можна додати кнопки-посилання і готові кнопки: «Підключити канал» відкриває отримувачу "
+    "екран підключення каналу, «Керувати підпискою» — міні-застосунок оплати. Потім оберіть, кому надіслати."
+)
+
+
+def _compose_kb(data: dict):
+    links = data.get("links")
+    return markup([
+        [btn("✏️ Змінити кнопки-посилання" if links else "🔗 Додати кнопки-посилання", Bc(a="links"))],
+        [btn("🗑 Прибрати кнопки-посилання", Bc(a="nolinks"))] if links else [],
+        *[[btn(on(bool(data.get(key))) + label, Bc(a="tpl", v=key))] for key, label in TEMPLATES.items()],
+        [btn("➡️ Далі: кому надіслати", Bc(a="next"))],
+        [btn("✖️ Скасувати", Bc(a="cancel"))],
+    ])
+
+
+async def _show_draft(bot: Bot, settings: Settings, chat_id: int, state: FSMContext) -> None:
+    """A fresh preview of the message with its buttons, and the panel to change them under it."""
+    data = await state.get_data()
+    preview = await bot.copy_message(
+        chat_id, data["chat_id"], data["message_id"], reply_markup=build_markup(_buttons(data), settings, "uk")
+    )
+    await state.update_data(preview_id=preview.message_id)
+    await bot.send_message(chat_id, COMPOSE_TEXT, reply_markup=_compose_kb(data))
 
 
 @router.message(Command("broadcast"))
@@ -220,10 +259,9 @@ async def broadcast_album(message: Message) -> None:
 
 
 @router.message(StateFilter(BroadcastInput.message), ~F.text.startswith("/"))
-async def broadcast_message(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+async def broadcast_message(message: Message, state: FSMContext, bot: Bot, settings: Settings) -> None:
     await state.update_data(chat_id=message.chat.id, message_id=message.message_id)
-    await bot.copy_message(message.chat.id, message.chat.id, message.message_id)
-    await message.answer("👆 Так виглядатиме повідомлення. Кому надіслати?", reply_markup=await _audience_kb(session))
+    await _show_draft(bot, settings, message.chat.id, state)
 
 
 @router.callback_query(Bc.filter(F.a == "cancel"))
@@ -241,6 +279,79 @@ async def _draft(call: CallbackQuery, state: FSMContext) -> dict | None:
         await call.answer("Повідомлення вже розіслане або скасоване — почніть знову з /broadcast.", show_alert=True)
         return None
     return data
+
+
+@router.callback_query(Bc.filter(F.a == "tpl"))
+async def broadcast_template_button(
+    call: CallbackQuery, callback_data: Bc, state: FSMContext, bot: Bot, settings: Settings
+) -> None:
+    data = await _draft(call, state)
+    if data is None or callback_data.v not in TEMPLATES:
+        return
+    data[callback_data.v] = not data.get(callback_data.v)
+    await state.update_data({callback_data.v: data[callback_data.v]})
+    await call.answer()
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=call.message.chat.id, message_id=data["preview_id"],
+            reply_markup=build_markup(_buttons(data), settings, "uk"),
+        )
+    except TelegramAPIError:
+        pass  # the preview is gone; the panel still shows what's on
+    await call.message.edit_text(COMPOSE_TEXT, reply_markup=_compose_kb(data))
+
+
+@router.callback_query(Bc.filter(F.a == "links"))
+async def broadcast_links(call: CallbackQuery, state: FSMContext) -> None:
+    if await _draft(call, state) is None:
+        return
+    await state.set_state(BroadcastInput.buttons)
+    await call.answer()
+    await call.message.edit_text(
+        "🔗 Надішліть кнопки: кожен ряд — з нового рядка, кілька кнопок в ряду — через <code>|</code>:\n\n"
+        "<code>Наш канал — https://t.me/flowpost_news</code>\n"
+        "<code>Інструкція — https://example.com | Підтримка — https://t.me/support</code>",
+        reply_markup=markup([[btn("↩️ Назад", Bc(a="compose"))]]),
+    )
+
+
+@router.message(StateFilter(BroadcastInput.buttons), ~F.text.startswith("/"))
+async def broadcast_links_input(message: Message, state: FSMContext, bot: Bot, settings: Settings) -> None:
+    try:
+        links = parse_buttons(message.text or "")
+    except ParseError as e:
+        await message.answer(t(e.key, locale="uk", **e.params) + "\n\n" + t("btn_menu.example", locale="uk"))
+        return
+    await state.set_state(BroadcastInput.message)
+    await state.update_data(links=links)
+    await _show_draft(bot, settings, message.chat.id, state)
+
+
+@router.callback_query(Bc.filter(F.a == "nolinks"))
+async def broadcast_no_links(call: CallbackQuery, state: FSMContext, bot: Bot, settings: Settings) -> None:
+    if await _draft(call, state) is None:
+        return
+    await state.update_data(links=[])
+    await call.answer("Кнопки-посилання прибрано")
+    await _show_draft(bot, settings, call.message.chat.id, state)
+
+
+@router.callback_query(Bc.filter(F.a == "compose"))
+async def broadcast_compose(call: CallbackQuery, state: FSMContext) -> None:
+    data = await _draft(call, state)
+    if data is None:
+        return
+    await state.set_state(BroadcastInput.message)
+    await call.answer()
+    await call.message.edit_text(COMPOSE_TEXT, reply_markup=_compose_kb(data))
+
+
+@router.callback_query(Bc.filter(F.a == "next"))
+async def broadcast_next(call: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if await _draft(call, state) is None:
+        return
+    await call.answer()
+    await call.message.edit_text("Кому надіслати?", reply_markup=await _audience_kb(session))
 
 
 @router.callback_query(Bc.filter(F.a == "aud"))
@@ -266,9 +377,7 @@ async def broadcast_back(call: CallbackQuery, state: FSMContext, session: AsyncS
         return
     await state.set_state(BroadcastInput.message)
     await call.answer()
-    await call.message.edit_text(
-        "👆 Так виглядатиме повідомлення. Кому надіслати?", reply_markup=await _audience_kb(session)
-    )
+    await call.message.edit_text("Кому надіслати?", reply_markup=await _audience_kb(session))
 
 
 async def _create(
@@ -276,7 +385,7 @@ async def _create(
 ) -> Broadcast:
     bc = Broadcast(
         created_by=data["chat_id"], from_chat_id=data["chat_id"], message_id=data["message_id"],
-        audience=audience, send_at=send_at, status_message_id=status_message_id,
+        audience=audience, send_at=send_at, status_message_id=status_message_id, buttons=_buttons(data),
     )
     session.add(bc)
     await session.commit()

@@ -7,12 +7,17 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from flowpost.bot.callbacks import Pj
+from flowpost.bot.keyboards.common import pay_btn
+from flowpost.config import Settings
 from flowpost.db.models import Broadcast, User
 from flowpost.db.repo import stats as stats_repo
 from flowpost.db.types import utcnow
+from flowpost.i18n import t
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +32,21 @@ AUDIENCES = {
     "nochannels": "🆕 Тим, хто ще не підключив канал",
     "all": "👤 Усім користувачам",
 }
+
+
+def build_markup(buttons: list, settings: Settings, lang: str | None = None) -> InlineKeyboardMarkup | None:
+    """The broadcast's buttons for one recipient: link rows as they are, and the templates in their language —
+    «Підключити канал» opens the same add-channel screen as the menu, «Керувати підпискою» the billing Mini App."""
+    rows = []
+    for row in buttons or []:
+        if isinstance(row, dict) and row.get("add_channel"):
+            text = t("btn.add_channel", locale=lang)
+            rows.append([InlineKeyboardButton(text=text, callback_data=Pj(a="add").pack())])
+        elif isinstance(row, dict) and row.get("manage_sub"):
+            rows.append([pay_btn(settings, t("btn.manage_sub", locale=lang))])
+        elif isinstance(row, list):
+            rows.append([InlineKeyboardButton(text=b["text"], url=b["url"]) for b in row])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def audience_label(audience: str) -> str:
@@ -47,11 +67,13 @@ def _progress_text(bc: Broadcast, done: int) -> str:
     return f"📣 Розсилка: {done} / {bc.total}…\n{audience_label(bc.audience)}"
 
 
-async def _copy(bot: Bot, bc: Broadcast, tg_id: int) -> str:
+async def _copy(bot: Bot, settings: Settings, bc: Broadcast, tg_id: int, lang: str) -> str:
     """"sent", "blocked" or "failed"."""
     for attempt in range(2):
         try:
-            await bot.copy_message(tg_id, bc.from_chat_id, bc.message_id)
+            await bot.copy_message(
+                tg_id, bc.from_chat_id, bc.message_id, reply_markup=build_markup(bc.buttons, settings, lang)
+            )
             return "sent"
         except TelegramRetryAfter as e:
             if attempt == 0:
@@ -80,7 +102,7 @@ async def _status_message(bot: Bot, bc: Broadcast, text: str) -> None:
                 pass
 
 
-async def run(bot: Bot, sessionmaker: async_sessionmaker, broadcast_id: int) -> None:
+async def run(bot: Bot, sessionmaker: async_sessionmaker, settings: Settings, broadcast_id: int) -> None:
     """Send a broadcast the worker has marked "sending", from where it left off."""
     async with sessionmaker() as session:
         bc = await session.get(Broadcast, broadcast_id)
@@ -93,8 +115,8 @@ async def run(bot: Bot, sessionmaker: async_sessionmaker, broadcast_id: int) -> 
         await session.commit()
 
         blocked: list[int] = []
-        for n, (user_id, tg_id) in enumerate(recipients, 1):
-            outcome = await _copy(bot, bc, tg_id)
+        for n, (user_id, tg_id, lang) in enumerate(recipients, 1):
+            outcome = await _copy(bot, settings, bc, tg_id, lang)
             if outcome == "sent":
                 bc.sent += 1
             elif outcome == "blocked":

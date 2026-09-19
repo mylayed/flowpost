@@ -136,7 +136,7 @@ class Worker:
             ids = (await session.scalars(select(Broadcast.id).where(Broadcast.status == "sending"))).all()
         for bc_id in ids:
             if bc_id not in self._broadcasts:
-                task = asyncio.create_task(broadcast.run(self.bot, self.sessionmaker, bc_id))
+                task = asyncio.create_task(broadcast.run(self.bot, self.sessionmaker, self.settings, bc_id))
                 self._broadcasts[bc_id] = task
                 task.add_done_callback(lambda done, bc_id=bc_id: self._broadcast_done(bc_id, done))
 

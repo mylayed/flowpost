@@ -1323,7 +1323,26 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     settings.admin_ids = str(ADMIN_ID)
     await h.text("/broadcast", uid=ADMIN_ID)
     await h.text("Оновлення: <b>нова функція</b>", uid=ADMIN_ID)
-    kb = next(m for name, m in h.session.calls if name == "SendMessage" and "Кому надіслати" in m.text).reply_markup
+
+    # buttons under it: a wrong line is explained, then link rows and the «Підключити канал» template
+    await h.click(Bc(a="links"), uid=ADMIN_ID)
+    h.session.clear()
+    await h.text("просто текст", uid=ADMIN_ID)
+    assert "Текст — посилання" in h.session.texts()
+    h.session.clear()
+    await h.text("Наш канал — t.me/flowpost_news", uid=ADMIN_ID)
+    preview = next(m for name, m in h.session.calls if name == "CopyMessage")
+    assert preview.chat_id == ADMIN_ID and preview.reply_markup.inline_keyboard[0][0].url == "https://t.me/flowpost_news"
+    h.session.clear()
+    await h.click(Bc(a="tpl", v="add_channel"), uid=ADMIN_ID)
+    await h.click(Bc(a="tpl", v="manage_sub"), uid=ADMIN_ID)
+    edited = [m for name, m in h.session.calls if name == "EditMessageReplyMarkup"][-1].reply_markup
+    assert edited.inline_keyboard[1][0].callback_data == Pj(a="add").pack()
+    assert edited.inline_keyboard[2][0].web_app.url == settings.webapp_url
+
+    h.session.clear()
+    await h.click(Bc(a="next"), uid=ADMIN_ID)
+    kb = next(m for name, m in h.session.calls if name == "EditMessageText" and "Кому надіслати" in m.text).reply_markup
     labels = [row[0].text for row in kb.inline_keyboard]
     # owners: 777 and 555; plus their admins: 444; without channels: 999 and the admin, who is a bot user too
     assert [label[-3:] for label in labels[:4]] == ["(2)", "(3)", "(2)", "(5)"]
@@ -1335,6 +1354,11 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     await h.click(Bc(a="now", v="channels"), uid=ADMIN_ID)
     await run_due()
     assert copies() == [USER_ID, 555, 444]
+    await h.click(Pj(a="add"), uid=444)  # the recipient's «Підключити канал» leads to the add-channel screen
+    sent_kb = [m for name, m in h.session.calls if name == "CopyMessage"][-1].reply_markup.inline_keyboard
+    assert sent_kb[0][0].url == "https://t.me/flowpost_news"
+    assert sent_kb[1][0].text == t("btn.add_channel", locale="uk") and sent_kb[1][0].callback_data == Pj(a="add").pack()
+    assert sent_kb[2][0].text == "💳 Керувати підпискою" and sent_kb[2][0].web_app.url == settings.webapp_url
     text = h.session.texts()
     assert "Розсилку завершено" in text and "Доставлено: 2 / 3" in text and "Заблокували бота: 1" in text
     assert (await _user(h)).is_blocked
