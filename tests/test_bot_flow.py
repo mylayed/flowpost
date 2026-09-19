@@ -1262,3 +1262,47 @@ async def test_admin_chats_lists_channels_with_links_and_groups(h: Harness, sett
     h.session.clear()
     await h.text("/chats")
     assert "Channels (" not in h.session.texts()
+
+
+async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harness, settings: Settings, monkeypatch):
+    from flowpost.bot.callbacks import Bc
+    from flowpost.bot.handlers import admin as admin_handlers
+    monkeypatch.setattr(admin_handlers, "BROADCAST_DELAY", 0)
+    await h.text("/start")                 # channel owner
+    await h.text("/start", uid=999)        # no channels
+    await h.text("/start", uid=555)        # owns a channel but blocks the bot
+    owner, blocker = await _user(h), await h.db(lambda s: s.scalar(select(User).where(User.tg_id == 555)))
+
+    async def add(s):
+        s.add_all([
+            Channel(owner_id=owner.id, chat_id=CHANNEL_CHAT, kind="channel", title="Новини"),
+            Channel(owner_id=blocker.id, chat_id=-1003, kind="channel", title="Інший"),
+        ])
+        await s.commit()
+    await h.db(add)
+
+    # not an admin → nothing happens
+    h.session.clear()
+    await h.text("/broadcast")
+    assert "Розсилка" not in h.session.texts()
+
+    settings.admin_ids = str(ADMIN_ID)
+    await h.text("/broadcast", uid=ADMIN_ID)
+    await h.text("Оновлення: <b>нова функція</b>", uid=ADMIN_ID)
+    kb = next(m for name, m in h.session.calls if name == "SendMessage" and "Кому надіслати" in m.text).reply_markup
+    labels = [row[0].text for row in kb.inline_keyboard]
+    assert labels[0].endswith("(2)") and labels[1].endswith("(4)")  # the admin is a bot user too
+
+    # the first recipient (the owner) has blocked the bot: marked as blocked, the rest still get it
+    h.session.clear()
+    h.session.errors["CopyMessage"] = [TelegramForbiddenError(method=None, message="blocked")]
+    await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
+    assert [m.chat_id for name, m in h.session.calls if name == "CopyMessage"] == [USER_ID, 555]
+    text = h.session.texts()
+    assert "Розсилку завершено" in text and "Доставлено: 1 / 2" in text and "Заблокували бота: 1" in text
+    assert (await _user(h)).is_blocked
+
+    # pressing the button again doesn't send it twice
+    h.session.clear()
+    await h.click(Bc(a="send", v="channels"), uid=ADMIN_ID)
+    assert "CopyMessage" not in h.session.names()

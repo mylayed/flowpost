@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Payment, Publication, Subscription, SupportThread, UsageEvent, User
+from flowpost.db.models import Channel, ChannelAdmin, Payment, Publication, Subscription, SupportThread, UsageEvent, User
 
 
 async def _count(session: AsyncSession, stmt) -> int:
@@ -86,3 +86,16 @@ async def active_chats(session: AsyncSession) -> tuple[list[tuple[Channel, User]
         seen.add(channel.chat_id)
         (channels if channel.kind == "channel" else groups).append((channel, owner))
     return channels, groups
+
+
+async def broadcast_recipients(session: AsyncSession, audience: str) -> list[tuple[int, int]]:
+    """(user id, Telegram id) of everyone a /broadcast goes to: "all" — every user who hasn't blocked the bot,
+    "channels" — only those who own or co-administer an active channel or group."""
+    stmt = select(User.id, User.tg_id).where(User.is_blocked.is_(False))
+    if audience == "channels":
+        active = select(Channel.id).where(Channel.is_active.is_(True))
+        stmt = stmt.where(
+            User.id.in_(select(Channel.owner_id).where(Channel.is_active.is_(True)))
+            | User.id.in_(select(ChannelAdmin.user_id).where(ChannelAdmin.channel_id.in_(active)))
+        )
+    return [tuple(row) for row in (await session.execute(stmt.order_by(User.id))).all()]

@@ -93,3 +93,10 @@ class Px(CallbackData, prefix="px"):
     c: int = 0
     id: int = 0
     v: str = ""
+
+
+class Bc(CallbackData, prefix="bc"):
+    """The owner's /broadcast. `a` — send|cancel, `v` — audience: all|channels."""
+
+    a: str
+    v: str = ""

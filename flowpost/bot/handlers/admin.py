@@ -1,13 +1,21 @@
-"""Admin commands for the bot owner: /stats, /chats, /expire."""
+"""Admin commands for the bot owner: /stats, /chats, /expire, /broadcast."""
 from __future__ import annotations
 
+import asyncio
 import html
+import logging
 
-from aiogram import Router
-from aiogram.filters import BaseFilter, Command, CommandObject
-from aiogram.types import Message
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.filters import BaseFilter, Command, CommandObject, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flowpost.bot.callbacks import Bc
+from flowpost.bot.keyboards.common import btn, markup
+from flowpost.bot.states import BroadcastInput
 from flowpost.config import Settings
 from flowpost.db.models import Channel, User
 from flowpost.db.repo import stats as stats_repo
@@ -16,13 +24,17 @@ from flowpost.db.types import utcnow
 from flowpost.services.billing.subscriptions import get_subscription
 
 
+log = logging.getLogger(__name__)
+
+
 class IsAdmin(BaseFilter):
-    async def __call__(self, message: Message, settings: Settings) -> bool:
-        return bool(message.from_user and message.from_user.id in settings.admin_id_set)
+    async def __call__(self, event: Message | CallbackQuery, settings: Settings) -> bool:
+        return bool(event.from_user and event.from_user.id in settings.admin_id_set)
 
 
 router = Router(name="admin")
 router.message.filter(IsAdmin())
+router.callback_query.filter(IsAdmin())
 
 
 @router.message(Command("stats"))
@@ -102,3 +114,105 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
         sub.current_period_end = now
         sub.status = "expired"
     await message.answer(f"⛔ Access of {args[0]} expired (trial and subscription).")
+
+
+# Telegram lets a bot send about 30 messages a second to different users; stay a little below that.
+BROADCAST_DELAY = 0.05
+PROGRESS_EVERY = 100
+AUDIENCES = {"channels": "👥 Адмінам активних каналів", "all": "👤 Усім користувачам"}
+
+
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: Message, state: FSMContext) -> None:
+    await state.set_state(BroadcastInput.message)
+    await message.answer(
+        "📣 <b>Розсилка</b>\n\nНадішліть повідомлення, яке отримають адміни: текст, фото, відео, файл — "
+        "з форматуванням і емодзі. Воно піде від імені бота, без підпису «Переслано».\n\n/cancel — скасувати."
+    )
+
+
+@router.message(StateFilter(BroadcastInput.message), Command("cancel"))
+async def cancel_broadcast_input(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Розсилку скасовано.")
+
+
+@router.message(StateFilter(BroadcastInput.message), F.media_group_id)
+async def broadcast_album(message: Message) -> None:
+    await message.answer("Альбом розіслати не вийде — надішліть одне повідомлення (одне фото чи відео з підписом).")
+
+
+@router.message(StateFilter(BroadcastInput.message), ~F.text.startswith("/"))
+async def broadcast_message(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    await state.update_data(chat_id=message.chat.id, message_id=message.message_id)
+    counts = {a: len(await stats_repo.broadcast_recipients(session, a)) for a in AUDIENCES}
+    await bot.copy_message(message.chat.id, message.chat.id, message.message_id)
+    await message.answer(
+        "👆 Так виглядатиме повідомлення. Кому надіслати?",
+        reply_markup=markup([
+            *[[btn(f"{label} ({counts[a]})", Bc(a="send", v=a))] for a, label in AUDIENCES.items()],
+            [btn("✖️ Скасувати", Bc(a="cancel"))],
+        ]),
+    )
+
+
+@router.callback_query(Bc.filter(F.a == "cancel"))
+async def cancel_broadcast(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await call.message.edit_text("Розсилку скасовано.")
+    await call.answer()
+
+
+@router.callback_query(Bc.filter(F.a == "send"))
+async def send_broadcast(
+    call: CallbackQuery, callback_data: Bc, state: FSMContext, session: AsyncSession, bot: Bot
+) -> None:
+    data = await state.get_data()
+    await state.clear()
+    if "message_id" not in data or callback_data.v not in AUDIENCES:
+        await call.answer("Повідомлення вже розіслане або скасоване — почніть знову з /broadcast.", show_alert=True)
+        return
+    await call.answer()
+    recipients = await stats_repo.broadcast_recipients(session, callback_data.v)
+    await call.message.edit_text(f"📣 Розсилка: 0 / {len(recipients)}…")
+    sent, blocked, failed = await _deliver(bot, data["chat_id"], data["message_id"], recipients, call.message)
+    if blocked:
+        await session.execute(update(User).where(User.id.in_(blocked)).values(is_blocked=True))
+    await call.message.edit_text(
+        f"✅ <b>Розсилку завершено</b>\n\n"
+        f"Доставлено: {sent} / {len(recipients)}\n"
+        f"Заблокували бота: {len(blocked)}\n"
+        f"Помилки: {failed}"
+    )
+
+
+async def _deliver(
+    bot: Bot, chat_id: int, message_id: int, recipients: list[tuple[int, int]], status: Message
+) -> tuple[int, list[int], int]:
+    """Copy the message to each recipient; returns (delivered, ids of users who blocked the bot, other failures)."""
+    sent, blocked, failed = 0, [], 0
+    for n, (user_id, tg_id) in enumerate(recipients, 1):
+        for attempt in range(2):
+            try:
+                await bot.copy_message(tg_id, chat_id, message_id)
+                sent += 1
+            except TelegramRetryAfter as e:
+                if attempt == 0:
+                    await asyncio.sleep(e.retry_after)
+                    continue
+                failed += 1
+            except TelegramForbiddenError:
+                blocked.append(user_id)
+            except TelegramAPIError as e:
+                log.warning("broadcast to %s failed: %s", tg_id, e)
+                failed += 1
+            break
+        if n % PROGRESS_EVERY == 0 and n < len(recipients):
+            try:
+                await bot.edit_message_text(
+                    chat_id=status.chat.id, message_id=status.message_id, text=f"📣 Розсилка: {n} / {len(recipients)}…"
+                )
+            except TelegramAPIError:
+                pass
+        await asyncio.sleep(BROADCAST_DELAY)
+    return sent, blocked, failed
