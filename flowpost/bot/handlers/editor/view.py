@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import time
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
@@ -248,13 +249,17 @@ async def _finish_wm_preview(
 ) -> None:
     """Render the deferred watermarks, then redraw the editor with them — unless the user has moved on from the
     editor screen they were shown, in which case the render is still kept and the next preview is quick."""
+    started = time.monotonic()
     try:
         await publisher.warm_watermarks(deferred)
+        rendered = time.monotonic() - started
         data = await state.get_data()
-        if (
-            data.get("post_id") != post_id or data.get("panel_id") != panel_id
-            or await state.get_state() != Editor.content.state
-        ):
+        current = await state.get_state()
+        if data.get("post_id") != post_id or data.get("panel_id") != panel_id or current != Editor.content.state:
+            log.info(
+                "watermarked preview of post %s rendered in %.1fs but not shown: the user moved on (state %s, post %s, panel %s≠%s)",
+                post_id, rendered, current, data.get("post_id"), data.get("panel_id"), panel_id,
+            )
             return
         async with publisher.sessionmaker() as session:  # type: ignore[misc]
             user = await session.get(User, user_id)
@@ -264,6 +269,7 @@ async def _finish_wm_preview(
             set_locale(user.lang)
             await render_editor(bot, chat_id, session, state, user, post, publisher, defer_wm=False)
             await session.commit()
+        log.info("watermarked preview of post %s shown after %.1fs (render %.1fs)", post_id, time.monotonic() - started, rendered)
     except Exception:  # noqa: BLE001 - nobody awaits this task
         log.exception("finishing the watermarked preview of post %s failed", post_id)
 

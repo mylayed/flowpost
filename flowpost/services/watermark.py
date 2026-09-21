@@ -207,7 +207,7 @@ class Watermarker:
             cmd = [
                 self.ffmpeg_bin, "-y", "-loglevel", "error", "-i", inp, "-i", png,
                 "-filter_complex", f"[0:v][1:v]overlay={x}:{y},scale=trunc(iw/2)*2:trunc(ih/2)*2[v]",
-                "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
+                "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "superfast", "-crf", "27",
                 "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", out,
             ]
             proc = await asyncio.create_subprocess_exec(
