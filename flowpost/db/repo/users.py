@@ -12,6 +12,10 @@ from flowpost.db.models import User
 from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang
 
+# `last_seen_at` only feeds the «active this week» stat, so it's written at most this often: without it
+# every single update — every keystroke in the editor, every photo of an album — is a write to `users`.
+LAST_SEEN_PRECISION = timedelta(minutes=5)
+
 
 async def get_by_tg(session: AsyncSession, tg_id: int) -> User | None:
     return await session.scalar(select(User).where(User.tg_id == tg_id))
@@ -23,7 +27,8 @@ async def get_or_create(session: AsyncSession, tg_user: TgUser, settings: Settin
     if user is not None:
         user.username = tg_user.username
         user.first_name = tg_user.first_name
-        user.last_seen_at = now
+        if user.last_seen_at is None or now - user.last_seen_at >= LAST_SEEN_PRECISION:
+            user.last_seen_at = now
         if user.is_blocked:
             user.is_blocked = False
         return user, False

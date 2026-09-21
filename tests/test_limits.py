@@ -4,6 +4,8 @@ Every limit is checked from both sides — it's allowed while there's something 
 spent and nothing sent) once it runs out or the plan doesn't include it."""
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -20,6 +22,7 @@ from flowpost.services.ai import AIError
 from flowpost.services.billing import channel_subs, entitlements, limits
 from flowpost.services.billing.wallet import credit
 from flowpost.services.publisher import Publisher
+from flowpost.services.watermark import WatermarkSkipped
 from flowpost.services.worker import Worker
 
 from test_bot_flow import ADMIN_ID, CHANNEL_CHAT, USER_ID, Harness, _post, h  # noqa: F401 - `h` is a fixture
@@ -387,6 +390,42 @@ async def test_watermark_quota_and_plan(fake_bot, sessionmaker, seeded, settings
     own = {**PHOTO, "wm_mode": "on", "wm_custom": {"type": "text", "text": "моє"}}
     assert await resolve([PHOTO, own], wm_allowed=False) == (["orig", "orig"], ["warn.wm_plan"])
     assert stub.calls == calls and (await _quota(sessionmaker, seeded.channel_id))["wm_photo"] == 5
+
+
+async def test_album_watermarks_are_rendered_together_and_keep_their_order(fake_bot, sessionmaker, seeded):
+    """The items of an album are watermarked concurrently; one that can't be drawn keeps its original file
+    and leaves the rest of the album in place."""
+    started = 0
+
+    class SlowWatermarker:
+        async def apply(self, bot, item, settings):
+            nonlocal started
+            started += 1
+            await asyncio.sleep(0.05)
+            if item["file_id"] == "bad":
+                raise WatermarkSkipped("warn.wm_too_big")
+            return b"watermarked-" + item["file_id"].encode(), "photo.jpg"
+
+    publisher = Publisher(fake_bot, SlowWatermarker())
+    await _set(sessionmaker, Channel, seeded.channel_id, watermark=WM)
+    items = [{"type": "photo", "file_id": fid} for fid in ("a", "b", "bad", "d")]
+    async with sessionmaker() as session:
+        await limits.add(session, seeded.channel_id, "wm_photo", 10)
+        await session.commit()
+        channel = await session.get(Channel, seeded.channel_id)
+        start = time.perf_counter()
+        media, warnings = await publisher.resolve_media(items, channel, {"watermark": True}, session)
+        elapsed = time.perf_counter() - start
+        await session.commit()
+
+    assert [m.media if isinstance(m.media, str) else m.media.data for m in media] == [
+        b"watermarked-a", b"watermarked-b", "bad", b"watermarked-d"
+    ]
+    assert warnings == ["warn.wm_too_big"]
+    assert started == 4
+    # Four 50 ms renders overlap instead of running one after another (the real Watermarker caps how
+    # many at once with its own semaphore; this stub has none, so all four go together).
+    assert elapsed < 0.15
 
 
 async def test_worker_publishes_without_watermarks_on_the_free_plan(fake_bot, sessionmaker, seeded, settings):

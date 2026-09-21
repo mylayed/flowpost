@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     watermark_concurrency: int = 2
     worker_interval: int = 10
     missed_grace_hours: int = 2
+    slow_update_seconds: float = 3.0  # an update slower than this is logged with what it was handling
 
     @field_validator("database_url")
     @classmethod

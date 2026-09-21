@@ -1,6 +1,7 @@
 """Builds and sends posts to Telegram (channels and preview chats)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 
@@ -213,43 +214,62 @@ class Publisher:
     ) -> tuple[list[OutMedia], list[str]]:
         """Media to send, watermarked where the post asks for it and the plan allows (`wm_allowed`). With a session
         a watermark needs the channel's quota: publishing spends it (`charge`), previews only check some is left.
-        Without a session (unit tests) quotas aren't checked."""
-        out: list[OutMedia] = []
+        Without a session (unit tests) quotas aren't checked.
+
+        Every item starts out as its untouched file, so a watermark that can't be made (no quota, too big,
+        no ffmpeg) simply leaves the original in place. Quotas are settled first, in order, because they
+        share the session; the renders that survive that then run together rather than one after another,
+        which is what an album of ten photos used to spend its time on."""
+        out = [OutMedia(item["type"], item["file_id"], item) for item in media_items]
         warnings: list[str] = []
         channel_wm = channel.watermark if channel is not None else None
-        for item in media_items:
+        jobs: list[tuple[int, dict, dict, str]] = []  # slot, item, watermark settings, cache key
+        for i, item in enumerate(media_items):
             raw = None
             if self.watermarker and item["type"] in WATERMARKABLE:
                 raw = item_wm(item, bool(opts.get("watermark")), channel_wm)
-            if raw is not None and not wm_allowed:
+            if raw is None:
+                continue
+            if not wm_allowed:
                 if "warn.wm_plan" not in warnings:
                     warnings.append("warn.wm_plan")
-            elif raw is not None:
-                kind = "wm_photo" if item["type"] == "photo" else "wm_video"
-                if session is None:
-                    has_quota = True
-                elif channel is None:
-                    has_quota = False
-                elif charge:
-                    has_quota = await limits.take(session, channel.id, kind)
-                else:
-                    has_quota = (await limits.remaining(session, channel.id))[kind] > 0
-                if has_quota:
-                    key = wm_cache_key(channel.id if channel is not None else 0, raw)
-                    cached = (item.get("wm") or {}).get(key)
-                    if cached:
-                        out.append(OutMedia(item["type"], cached, item, key))
-                        continue
-                    try:
-                        data, filename = await self.watermarker.apply(self.bot, item, raw)
-                        out.append(OutMedia(item["type"], BufferedInputFile(data, filename), item, key))
-                        continue
-                    except WatermarkSkipped as e:
-                        if e.key not in warnings:
-                            warnings.append(e.key)
-                elif "warn.wm_no_quota" not in warnings:
+                continue
+            kind = "wm_photo" if item["type"] == "photo" else "wm_video"
+            if session is None:
+                has_quota = True
+            elif channel is None:
+                has_quota = False
+            elif charge:
+                has_quota = await limits.take(session, channel.id, kind)
+            else:
+                has_quota = (await limits.remaining(session, channel.id))[kind] > 0
+            if not has_quota:
+                if "warn.wm_no_quota" not in warnings:
                     warnings.append("warn.wm_no_quota")
-            out.append(OutMedia(item["type"], item["file_id"], item))
+                continue
+            key = wm_cache_key(channel.id if channel is not None else 0, raw)
+            cached = (item.get("wm") or {}).get(key)
+            if cached:
+                out[i] = OutMedia(item["type"], cached, item, key)
+                continue
+            jobs.append((i, item, raw, key))
+
+        if not jobs:
+            return out, warnings
+        assert self.watermarker is not None
+        rendered = await asyncio.gather(
+            *(self.watermarker.apply(self.bot, item, raw) for _, item, raw, _ in jobs),
+            return_exceptions=True,
+        )
+        for (i, item, _, key), result in zip(jobs, rendered):
+            if isinstance(result, WatermarkSkipped):
+                if result.key not in warnings:
+                    warnings.append(result.key)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            data, filename = result
+            out[i] = OutMedia(item["type"], BufferedInputFile(data, filename), item, key)
         return out, warnings
 
     async def preview_item(

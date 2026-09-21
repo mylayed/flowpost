@@ -1,8 +1,10 @@
 """End-to-end: real Dispatcher + handlers + DB, with Telegram API calls answered by a mocked session."""
 from __future__ import annotations
 
+import asyncio
 import itertools
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -343,6 +345,31 @@ async def test_full_editor_flow(h: Harness):
     h.session.clear()
     await h.click(Ed(a="save", p=p))
     assert {"EditMessageMedia", "EditMessageText"} & set(h.session.names())
+
+
+async def test_media_group_opens_one_editor_without_waiting_out_the_window(h: Harness):
+    """Telegram sends an album as separate updates; they must end up as one post, and the wait for the
+    stragglers has to end as soon as they've arrived rather than after a fixed pause."""
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    h.session.clear()
+
+    started = time.perf_counter()
+    await asyncio.gather(*[
+        h.feed(message=h._message(
+            USER_ID, media_group_id="mg-1", caption="Новина дня" if i == 0 else None,
+            photo=[{"file_id": f"alb{i}", "file_unique_id": f"alb{i}", "width": 800, "height": 600}],
+        ))
+        for i in range(4)
+    ])
+    elapsed = time.perf_counter() - started
+
+    post = await _post(h)
+    assert [m["file_id"] for m in post.parts[0].media] == ["alb0", "alb1", "alb2", "alb3"]
+    assert post.parts[0].text_html == "Новина дня"
+    # one album preview plus the editor panel, not four separate posts
+    assert h.session.names() == ["SendMediaGroup", "SendMessage"]
+    assert elapsed < 0.7  # the quiet window, not the 2 s cap
 
 
 async def test_album_screen_orders_replaces_and_watermarks_items(h: Harness):

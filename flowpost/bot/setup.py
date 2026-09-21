@@ -48,6 +48,7 @@ from flowpost.bot.handlers.editor import (
 from flowpost.bot.middlewares.access import AccessMiddleware
 from flowpost.bot.middlewares.album import AlbumMiddleware
 from flowpost.bot.middlewares.db import DbSessionMiddleware
+from flowpost.bot.middlewares.timing import TimingMiddleware
 from flowpost.bot.middlewares.user import UserMiddleware
 from flowpost.config import Settings
 from flowpost.i18n import LANGS, t
@@ -63,9 +64,12 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
     # can watch a linked discussion group for its auto-forwarded channel posts.
     dp.message.filter(F.chat.type.in_({"private", "group", "supergroup"}))
 
+    dp.update.outer_middleware(TimingMiddleware(settings.slow_update_seconds))
+    # Albums before the session: the wait for the rest of a media group happens before a DB connection is
+    # taken, and the messages that merely join the group are dropped without a session or a user lookup.
+    dp.update.outer_middleware(AlbumMiddleware())
     dp.update.outer_middleware(DbSessionMiddleware(sessionmaker))
     dp.update.outer_middleware(UserMiddleware(settings))
-    dp.message.outer_middleware(AlbumMiddleware())
     dp.message.middleware(AccessMiddleware())
     dp.callback_query.middleware(AccessMiddleware())
 
