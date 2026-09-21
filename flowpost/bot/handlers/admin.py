@@ -1,4 +1,4 @@
-"""Admin commands for the bot owner: /stats, /chats, /expire, /broadcast."""
+"""Admin commands for the bot owner: /stats, /chats, /expire, /trial, /broadcast."""
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +20,7 @@ from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.bot.states import BroadcastInput
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, User
+from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import stats as stats_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
@@ -138,6 +139,9 @@ def _args(command: CommandObject, count: int) -> list[str] | None:
 
 @router.message(Command("expire"))
 async def cmd_expire(message: Message, command: CommandObject, session: AsyncSession) -> None:
+    """End a user's access for real: their subscription, their account trial and the trial of every chat
+    they have connected — a chat trial outlives the connection, so leaving it alone would let a reconnect
+    bring the access back."""
     args = _args(command, 1)
     if not args or not args[0].isdigit():
         await message.answer("Usage: /expire tg_id")
@@ -152,7 +156,39 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
     if sub is not None:
         sub.current_period_end = now
         sub.status = "expired"
-    await message.answer(f"⛔ Access of {args[0]} expired (trial and subscription).")
+    chats = set((await session.scalars(select(Channel.chat_id).where(Channel.owner_id == user.id))).all())
+    for chat_id in chats:
+        await channels_repo.reset_chat_trial(session, chat_id, days=0)
+    await message.answer(
+        f"⛔ Access of {args[0]} expired (trial and subscription), including {len(chats)} chat trial(s)."
+    )
+
+
+@router.message(Command("trial"))
+async def cmd_trial(message: Message, command: CommandObject, session: AsyncSession, settings: Settings) -> None:
+    """/trial chat_id [days] — hand a chat a fresh trial (support's escape hatch), or end it with 0 days."""
+    parts = (command.args or "").split()
+    ok = 1 <= len(parts) <= 2 and parts[0].lstrip("-").isdigit() and (len(parts) == 1 or parts[1].isdigit())
+    if not ok:
+        await message.answer("Usage: /trial chat_id [days]")
+        return
+    chat_id = int(parts[0])
+    days = int(parts[1]) if len(parts) == 2 else settings.trial_days
+    trial = await channels_repo.get_chat_trial(session, chat_id)
+    if trial is None:
+        await message.answer("This chat has never been connected — it gets its trial on the first connection.")
+        return
+    used, before = trial.posts_used, trial.trial_ends_at
+    starter = await session.get(User, trial.first_owner_id) if trial.first_owner_id else None
+    await channels_repo.reset_chat_trial(session, chat_id, days)
+    if days:
+        await message.answer(
+            f"🎁 Trial of <code>{chat_id}</code> (first connected by {starter.tg_id if starter else '?'}):"
+            f" ran until {before:%d.%m.%Y} with {used} post(s) booked onto it"
+            f" → now until {trial.trial_ends_at:%d.%m.%Y}, counted from scratch."
+        )
+    else:
+        await message.answer(f"⛔ Trial of <code>{chat_id}</code> ended.")
 
 
 # ---- /broadcast: a message to many users at once, now or later -----------------------------------

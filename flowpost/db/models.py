@@ -84,6 +84,24 @@ class Channel(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ChatTrial(Base):
+    """The single trial a chat ever gets, kept per `chat_id` rather than per connection.
+
+    Deleting the project, losing the bot's rights or connecting the chat from another account all reuse
+    this row, so the trial can't be restarted by disconnecting and connecting the chat again.
+    """
+
+    __tablename__ = "chat_trials"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    trial_ends_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    # Trial posts already published through connections that have since been deleted.
+    posts_used: Mapped[int] = mapped_column(Integer, default=0)
+    first_owner_id: Mapped[int | None] = mapped_column(BigInteger)  # who connected the chat first
+
+
 class InviteLink(Base):
     """A tracked invite link, e.g. one per ad campaign: who joined through it and what it cost."""
 

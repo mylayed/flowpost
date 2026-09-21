@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Channel, UsageEvent, User
+from flowpost.db.models import Channel, ChatTrial, Publication, UsageEvent, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.types import utcnow
 
@@ -89,20 +90,17 @@ async def upsert_channel(
     is_forum: bool,
     trial_days: int,
 ) -> tuple[Channel, bool]:
-    """Connect (or reconnect) a chat. `created` is True only the first time this owner ever connects it —
-    a chat deleted from «Мої проєкти» and connected again gets its old trial back, not a new one."""
+    """Connect (or reconnect) a chat. `created` is True only the first time this chat is ever connected —
+    a chat deleted from «Мої проєкти» and connected again gets its old trial back, not a new one, and so
+    does a chat connected by a second account: the trial belongs to the chat, not to the connection."""
+    trial, first_ever = await _chat_trial(session, chat_id, owner_id, trial_days)
     channel = await session.scalar(select(Channel).where(Channel.owner_id == owner_id, Channel.chat_id == chat_id))
-    created = channel is None
+    created = channel is None and first_ever
     if channel is None:
-        # The trial starts on the first connection only; reconnecting the same channel keeps it.
-        previous_trial = await _deleted_trial(session, owner_id, chat_id)
-        if previous_trial is not None:
-            created = False
-        channel = Channel(
-            owner_id=owner_id, chat_id=chat_id, watermark={},
-            trial_ends_at=previous_trial if previous_trial is not None else utcnow() + timedelta(days=trial_days),
-        )
+        channel = Channel(owner_id=owner_id, chat_id=chat_id, watermark={})
         session.add(channel)
+    # The chat's registered trial is the authority: reconnecting never moves its end further away.
+    channel.trial_ends_at = trial.trial_ends_at
     channel.kind = kind
     channel.title = title or str(chat_id)
     channel.username = username
@@ -112,27 +110,76 @@ async def upsert_channel(
     return channel, created
 
 
-async def _deleted_trial(session: AsyncSession, owner_id: int, chat_id: int) -> datetime | None:
-    """Trial end of this owner's earlier, deleted connection of `chat_id`, if there was one."""
-    events = await session.scalars(
-        select(UsageEvent.meta).where(UsageEvent.user_id == owner_id, UsageEvent.kind == "channel_deleted")
+async def get_chat_trial(session: AsyncSession, chat_id: int) -> ChatTrial | None:
+    return await session.scalar(select(ChatTrial).where(ChatTrial.chat_id == chat_id))
+
+
+async def _chat_trial(
+    session: AsyncSession, chat_id: int, owner_id: int, trial_days: int
+) -> tuple[ChatTrial, bool]:
+    """The chat's trial, started here if the chat has never been connected before (then `first_ever`)."""
+    trial = await get_chat_trial(session, chat_id)
+    if trial is not None:
+        return trial, False
+    now = utcnow()
+    trial = ChatTrial(
+        chat_id=chat_id, started_at=now, trial_ends_at=now + timedelta(days=trial_days),
+        posts_used=0, first_owner_id=owner_id,
     )
-    ends = [
-        datetime.fromisoformat(meta["trial_ends_at"]) if meta.get("trial_ends_at") else utcnow()
-        for meta in events if meta.get("chat_id") == chat_id
-    ]
-    return max(ends) if ends else None
+    try:
+        async with session.begin_nested():
+            session.add(trial)
+            await session.flush()
+    except IntegrityError:
+        # chat_shared and my_chat_member arrive together — the other one registered the chat first.
+        existing = await get_chat_trial(session, chat_id)
+        assert existing is not None
+        return existing, False
+    return trial, True
+
+
+async def reset_chat_trial(session: AsyncSession, chat_id: int, days: int) -> ChatTrial | None:
+    """Give the chat a fresh trial of `days` (0 ends it now), on every account that has it connected."""
+    trial = await get_chat_trial(session, chat_id)
+    if trial is None:
+        return None
+    now = utcnow()
+    trial.started_at = now
+    trial.trial_ends_at = now + timedelta(days=days)
+    trial.posts_used = 0
+    for channel in await channels_by_chat(session, chat_id):
+        channel.trial_ends_at = trial.trial_ends_at
+    await session.flush()
+    return trial
+
+
+async def trial_posts_published(session: AsyncSession, channel_ids: list[int], trial: ChatTrial) -> int:
+    """Posts these connections published while the chat's trial was running."""
+    if not channel_ids:
+        return 0
+    return int(await session.scalar(
+        select(func.count(Publication.id)).where(
+            Publication.channel_id.in_(channel_ids),
+            Publication.status == "published",
+            Publication.published_at >= trial.started_at,
+            Publication.published_at < trial.trial_ends_at,
+        )
+    ) or 0)
 
 
 async def delete_channel(session: AsyncSession, channel: Channel) -> None:
     """Remove a project from the bot along with its settings, schedule and stats (FK cascades).
 
-    Leaves a `channel_deleted` event behind so reconnecting the same chat doesn't start a fresh trial.
+    The chat keeps its `ChatTrial`, with the trial posts it published booked onto it, so connecting the
+    chat again neither restarts the trial nor hands out its post allowance a second time.
     """
-    trial = channel.trial_ends_at
+    trial = await get_chat_trial(session, channel.chat_id)
+    if trial is not None:
+        trial.posts_used = (trial.posts_used or 0) + await trial_posts_published(session, [channel.id], trial)
     session.add(UsageEvent(
         user_id=channel.owner_id, kind="channel_deleted",
-        meta={"chat_id": channel.chat_id, "trial_ends_at": trial.isoformat() if trial else None},
+        meta={"chat_id": channel.chat_id,
+              "trial_ends_at": channel.trial_ends_at.isoformat() if channel.trial_ends_at else None},
     ))
     owner = await session.get(User, channel.owner_id)
     if owner is not None and channel.id in (owner.channel_order or []):

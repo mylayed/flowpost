@@ -10,8 +10,10 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import func, select, update
 
-from flowpost.bot.callbacks import Ed
-from flowpost.db.models import Channel, ChannelSubscription, Post, PostPart, PostTarget, Publication, RepeatRule, User
+from flowpost.bot.callbacks import Ed, Pj
+from flowpost.db.models import (
+    Channel, ChannelSubscription, ChatTrial, Post, PostPart, PostTarget, Publication, RepeatRule, User,
+)
 from flowpost.db.types import utcnow
 from flowpost.services import analytics
 from flowpost.services.ai import AIError
@@ -20,7 +22,7 @@ from flowpost.services.billing.wallet import credit
 from flowpost.services.publisher import Publisher
 from flowpost.services.worker import Worker
 
-from test_bot_flow import CHANNEL_CHAT, USER_ID, Harness, _post, h  # noqa: F401 - `h` is a fixture
+from test_bot_flow import ADMIN_ID, CHANNEL_CHAT, USER_ID, Harness, _post, h  # noqa: F401 - `h` is a fixture
 
 PHOTO = {"type": "photo", "file_id": "orig-photo"}
 VIDEO = {"type": "video", "file_id": "orig-video"}
@@ -114,6 +116,93 @@ async def test_connecting_a_channel_grants_the_trial_once(h: Harness):
     assert again.trial_ends_at == ends_at
     assert await _quota(h.sm, channel.id) == {"wm_photo": 10, "wm_video": 15, "ai_text": 15}
     assert await h.db(lambda s: s.scalar(select(func.count(Channel.id)))) == 1
+
+
+async def _chat_trial(sessionmaker) -> ChatTrial:
+    async with sessionmaker() as session:
+        return await session.scalar(select(ChatTrial).where(ChatTrial.chat_id == CHANNEL_CHAT))
+
+
+async def _plan(sessionmaker, settings, channel_id) -> tuple[str, int | None]:
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, channel_id)
+        owner = await session.get(User, channel.owner_id)
+        now = utcnow()
+        ent = await entitlements.for_channel(session, settings, channel, owner, now)
+        return ent.plan, await entitlements.posts_left(session, settings, channel, owner, ent, now)
+
+
+async def test_second_account_cannot_restart_the_chats_trial(h: Harness):
+    """The trial belongs to the chat: an admin (or a second account of the owner) connecting the very same
+    channel joins the trial that is already running instead of starting a new one with new quotas."""
+    other = USER_ID + 7
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    first = await h.db(lambda s: s.scalar(select(Channel)))
+
+    # the chat is 29 days into its trial when the second account shows up
+    async def nearly_over(s):
+        trial = await s.scalar(select(ChatTrial).where(ChatTrial.chat_id == CHANNEL_CHAT))
+        trial.trial_ends_at = utcnow() + timedelta(days=1)
+        (await s.get(Channel, first.id)).trial_ends_at = trial.trial_ends_at
+        await s.commit()
+        return trial.trial_ends_at
+    ends_at = await h.db(nearly_over)
+
+    await h.text("/start", uid=other)
+    await h.feed(message=h._message(other, chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    second = await h.db(lambda s: s.scalar(select(Channel).where(Channel.id != first.id)))
+    assert second is not None and second.chat_id == CHANNEL_CHAT
+    assert second.trial_ends_at == ends_at  # the chat's remaining day, not another 30
+    assert await _quota(h.sm, second.id) == {"wm_photo": 0, "wm_video": 0, "ai_text": 0}
+    assert await h.db(lambda s: s.scalar(select(func.count(ChatTrial.id)))) == 1
+
+
+async def test_reconnecting_restores_neither_the_trial_nor_its_posts(h: Harness, settings):
+    """Disconnecting takes the project's publications with it, so the trial posts already used are booked
+    onto the chat — reconnecting brings back the same trial with the same allowance left."""
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    channel = await h.db(lambda s: s.scalar(select(Channel)))
+    await h.text("Пост")
+    await _published(h.sm, channel.id, 98)
+    assert await _plan(h.sm, settings, channel.id) == ("trial", 2)
+    ends_at = (await _chat_trial(h.sm)).trial_ends_at
+
+    await h.click(Pj(a="off", c=channel.id))
+    await h.click(Pj(a="offok", c=channel.id))
+    assert await h.db(lambda s: s.scalar(select(func.count(Publication.id)))) == 0
+    assert (await _chat_trial(h.sm)).posts_used == 98
+
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    again = await h.db(lambda s: s.scalar(select(Channel)))
+    assert again.trial_ends_at == ends_at
+    assert await _plan(h.sm, settings, again.id) == ("trial", 2)
+
+
+async def test_admin_can_hand_a_chat_a_new_trial(h: Harness, settings):
+    """/trial is the way back for a chat that legitimately needs another go — nothing in the bot itself
+    can restart a trial."""
+    settings.admin_ids = str(ADMIN_ID)
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    channel = await h.db(lambda s: s.scalar(select(Channel)))
+    await h.text("Пост")
+    await _published(h.sm, channel.id, 100)
+    assert await _plan(h.sm, settings, channel.id) == ("trial", 0)
+
+    h.session.clear()
+    await h.text(f"/trial {CHANNEL_CHAT} 7", uid=ADMIN_ID)
+    assert "🎁" in h.session.texts()
+    trial = await _chat_trial(h.sm)
+    assert trial.posts_used == 0 and timedelta(days=6) < trial.trial_ends_at - utcnow() <= timedelta(days=7)
+    assert await _plan(h.sm, settings, channel.id) == ("trial", 100)  # posts from before the reset don't count
+
+    h.session.clear()
+    await h.text(f"/trial {CHANNEL_CHAT} 0", uid=ADMIN_ID)
+    assert "⛔" in h.session.texts()
+    # back on the free plan, with today's 100 posts already over its daily allowance
+    assert await _plan(h.sm, settings, channel.id) == ("free", 0)
 
 
 # ---- post counts ---------------------------------------------------------------------------------

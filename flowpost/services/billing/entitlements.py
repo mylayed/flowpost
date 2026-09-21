@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
 from flowpost.db.models import Channel, Publication, User
+from flowpost.db.repo import channels as channels_repo
 from flowpost.services.billing import channel_subs
 from flowpost.services.billing.subscriptions import get_subscription
 from flowpost.services.slots import day_bounds_utc, tz_of
@@ -84,11 +85,17 @@ async def posts_left(
         return 0
     if entitlement.posts_limit is None:
         return None
+    used, ids = 0, [channel.id]
     if entitlement.window == "trial":
-        start, end = channel.created_at, entitlement.until
+        # The trial allowance belongs to the chat: every connection of it counts, including the posts
+        # booked onto the trial by connections that have since been deleted.
+        trial = await channels_repo.get_chat_trial(session, channel.chat_id)
+        start, end = (trial.started_at if trial is not None else channel.created_at), entitlement.until
+        used = trial.posts_used if trial is not None else 0
+        ids = [c.id for c in await channels_repo.channels_by_chat(session, channel.chat_id)] or ids
     else:
         start, end = day_bounds_utc(now.astimezone(tz_of(owner.tz)).date(), owner.tz)
-    left = entitlement.posts_limit - await published_count(session, [channel.id], start, end)
+    left = entitlement.posts_limit - used - await published_count(session, ids, start, end)
     if entitlement.plan == "free":
         # The free daily allowance is also shared by all of the owner's channels that are on the free plan.
         owner_channels = (await session.scalars(select(Channel).where(Channel.owner_id == owner.id))).all()
