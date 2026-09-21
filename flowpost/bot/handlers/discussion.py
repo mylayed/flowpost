@@ -80,12 +80,7 @@ async def on_discussion_group_shared(
 @router.message(F.migrate_to_chat_id)
 async def on_group_migrated(message: Message, session: AsyncSession) -> None:
     """A basic group becomes a supergroup (e.g. when Topics is turned on) and gets a new chat_id."""
-    old_id, new_id = message.chat.id, message.migrate_to_chat_id
-    for channel in await channels_repo.channels_by_chat(session, old_id):
-        channel.chat_id = new_id
-    for channel in (await session.scalars(select(Channel).where(Channel.discussion_chat_id == old_id))).all():
-        channel.discussion_chat_id = new_id
-    await session.flush()
+    await channels_repo.migrate_chat(session, message.chat.id, message.migrate_to_chat_id)
 
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), F.is_automatic_forward, F.forward_origin)

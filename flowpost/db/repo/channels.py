@@ -110,6 +110,28 @@ async def upsert_channel(
     return channel, created
 
 
+async def migrate_chat(session: AsyncSession, old_id: int, new_id: int) -> None:
+    """A basic group became a supergroup and Telegram gave it a new chat_id: move everything kept under the old one.
+
+    A project of the same owner that already exists under the new id (they connected the supergroup by hand
+    before we noticed) can't take a second row, so the stale one is switched off instead of renamed.
+    """
+    if old_id == new_id:
+        return
+    taken = {c.owner_id for c in await channels_by_chat(session, new_id)}
+    for channel in await channels_by_chat(session, old_id):
+        if channel.owner_id in taken:
+            channel.is_active = False
+        else:
+            channel.chat_id = new_id
+    for channel in (await session.scalars(select(Channel).where(Channel.discussion_chat_id == old_id))).all():
+        channel.discussion_chat_id = new_id
+    trial = await get_chat_trial(session, old_id)
+    if trial is not None and await get_chat_trial(session, new_id) is None:
+        trial.chat_id = new_id  # the trial belongs to the chat, so it moves with it
+    await session.flush()
+
+
 async def get_chat_trial(session: AsyncSession, chat_id: int) -> ChatTrial | None:
     return await session.scalar(select(ChatTrial).where(ChatTrial.chat_id == chat_id))
 

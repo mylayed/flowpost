@@ -16,6 +16,7 @@ from flowpost.bot.callbacks import Ed, Pj
 from flowpost.db.models import (
     Channel, ChannelSubscription, ChatTrial, Post, PostPart, PostTarget, Publication, RepeatRule, User,
 )
+from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.services import analytics
 from flowpost.services.ai import AIError
@@ -468,6 +469,65 @@ async def test_watermarker_joins_a_render_in_flight_and_keeps_the_result(monkeyp
     assert first == second == (b"out", "video.mp4") and renders == 1
     assert await wm.apply(None, item, WM) == (b"out", "video.mp4") and renders == 1  # kept for the next preview
     assert await wm.apply(None, item, {**WM, "text": "other"}) == (b"out", "video.mp4") and renders == 2
+
+
+NEW_CHAT = -1009990001112
+
+
+def _migrated(fake_bot, *methods):
+    """Make the bot's `methods` fail for the old chat id the way Telegram does after a group becomes a supergroup."""
+    from aiogram.exceptions import TelegramMigrateToChat
+    from aiogram.methods import SendMessage
+
+    for name in methods:
+        real = getattr(fake_bot, name)
+
+        async def wrapper(chat_id, *a, _real=real, **kw):
+            if chat_id != NEW_CHAT:
+                raise TelegramMigrateToChat(SendMessage(chat_id=chat_id, text="x"), "group upgraded", NEW_CHAT)
+            return await _real(chat_id, *a, **kw)
+
+        setattr(fake_bot, name, wrapper)
+
+
+async def test_publishing_into_a_migrated_group_fixes_the_chat_id_and_retries(fake_bot, sessionmaker, seeded, settings):
+    _migrated(fake_bot, "send_message")
+    async with sessionmaker() as session:
+        session.add(ChatTrial(chat_id=seeded.chat_id, trial_ends_at=utcnow() + timedelta(days=5)))
+        await session.commit()
+    pub_id = await _due(sessionmaker, seeded)
+    worker = Worker(fake_bot, sessionmaker, Publisher(fake_bot, None), settings)
+
+    await worker.tick()  # Telegram says the group moved: nothing sent, the id is corrected, the post stays queued
+    async with sessionmaker() as session:
+        pub = await session.get(Publication, pub_id)
+        assert (pub.status, pub.attempts) == ("pending", 0)
+        assert (await session.get(Channel, seeded.channel_id)).chat_id == NEW_CHAT
+        assert await channels_repo.get_chat_trial(session, NEW_CHAT) is not None  # the trial moved with the chat
+
+    await worker.tick()
+    async with sessionmaker() as session:
+        assert (await session.get(Publication, pub_id)).status == "published"
+    assert any(c[0] == "send_message" and c[1] == NEW_CHAT for c in fake_bot.calls)
+
+
+async def test_member_count_of_a_migrated_group_is_recorded_under_the_new_id(fake_bot, sessionmaker, seeded, settings):
+    _migrated(fake_bot, "get_chat_member_count")
+    await Worker(fake_bot, sessionmaker, Publisher(fake_bot, None), settings).snapshot_members(utcnow())
+    async with sessionmaker() as session:
+        assert (await session.get(Channel, seeded.channel_id)).chat_id == NEW_CHAT
+
+
+async def test_migrating_a_chat_the_owner_already_connected_under_its_new_id_keeps_one_project(sessionmaker, seeded):
+    async with sessionmaker() as session:
+        other = Channel(owner_id=seeded.user_id, chat_id=NEW_CHAT, kind="group", title="Супергрупа", watermark={})
+        session.add(other)
+        await session.commit()
+        await channels_repo.migrate_chat(session, seeded.chat_id, NEW_CHAT)
+        await session.commit()
+        old = await session.get(Channel, seeded.channel_id)
+        assert old.chat_id == seeded.chat_id and old.is_active is False  # no second row for (owner, new id)
+        assert (await session.get(Channel, other.id)).is_active is True
 
 
 async def test_worker_publishes_without_watermarks_on_the_free_plan(fake_bot, sessionmaker, seeded, settings):

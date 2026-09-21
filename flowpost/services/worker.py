@@ -12,6 +12,7 @@ from aiogram.exceptions import (
     TelegramAPIError,
     TelegramBadRequest,
     TelegramForbiddenError,
+    TelegramMigrateToChat,
     TelegramNetworkError,
     TelegramRetryAfter,
     TelegramServerError,
@@ -24,6 +25,7 @@ from flowpost.bot.callbacks import Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
@@ -230,6 +232,15 @@ class Worker:
                     pub.status = "pending"
                     pub.run_at = now + timedelta(seconds=e.retry_after + 1)
                     outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.retry_later")
+                except TelegramMigrateToChat as e:
+                    # The group is a supergroup now. Nothing was sent, so once its id is fixed the next tick
+                    # publishes it, without this attempt counting against the post.
+                    await channels_repo.migrate_chat(session, channel.chat_id, e.migrate_to_chat_id)
+                    pub.status = "pending"
+                    pub.attempts = max(0, pub.attempts - 1)
+                    pub.run_at = now
+                    outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.retry_later")
+                    self.wake()
                 except (TelegramNetworkError, TelegramServerError) as e:
                     outcome = self._retry_or_fail(pub, now, str(e), title)
                     notify_key = "notify.failed" if pub.status == "failed" and pub.notify else None
@@ -568,6 +579,9 @@ class Worker:
             for channel in channels:
                 try:
                     count = await self.bot.get_chat_member_count(channel.chat_id)
+                except TelegramMigrateToChat as e:
+                    await channels_repo.migrate_chat(session, channel.chat_id, e.migrate_to_chat_id)
+                    continue  # counted from the new id on the next pass
                 except TelegramAPIError as e:
                     log.info("member count of %s unavailable: %s", channel.chat_id, e)
                     continue
