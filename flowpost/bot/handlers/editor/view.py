@@ -1,6 +1,7 @@
 """Rendering of the post editor: preview messages + control panel."""
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 
@@ -17,7 +18,7 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
-from flowpost.i18n import t
+from flowpost.i18n import set_locale, t
 from flowpost.services.billing import entitlements
 from flowpost.services.posts import options_of, part_is_empty, part_warnings
 from flowpost.services.publisher import Publisher
@@ -25,6 +26,7 @@ from flowpost.services.slots import fmt_date, fmt_hm, tz_of
 
 log = logging.getLogger(__name__)
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
+_background: set[asyncio.Task] = set()  # strong references, so a running task isn't garbage-collected
 
 
 async def safe_delete(bot: Bot, chat_id: int, ids: list[int | None]) -> None:
@@ -184,7 +186,11 @@ async def render_editor(
     *,
     note: str | None = None,
     preview: bool = True,
+    defer_wm: bool = True,
 ) -> None:
+    """The editor: the post's preview messages and the control panel under them. A video that needs a watermark
+    takes a long time to render, so unless `defer_wm` is off (or the publisher can't finish it later) the preview
+    shows the original at once and `_finish_wm_preview` swaps in the watermarked one when it's ready."""
     data = await state.get_data()
     part_idx = int(data.get("part", 0)) if data.get("post_id") == post.id else 0
     part_idx = max(0, min(part_idx, len(post.parts) - 1))
@@ -204,11 +210,13 @@ async def render_editor(
     await safe_delete(bot, chat_id, list(data.get("preview_ids") or []) + [data.get("panel_id")])
     preview_ids: list[int] = []
     part = post.parts[part_idx]
+    deferred: list = []
     if not part_is_empty(part):
         try:
             result = await publisher.publish_post(
                 post, primary, user.lang, chat_id=chat_id, preview=True, part_indexes=[part_idx], session=session,
                 wm_allowed=await entitlements.extras_allowed(session, channels, utcnow()),
+                defer_wm=deferred if defer_wm and publisher.sessionmaker is not None else None,
             )
             preview_ids = result.all_ids
             warnings += result.warnings
@@ -219,11 +227,45 @@ async def render_editor(
         part, options_of(post), primary, user.lang,
         is_last=part_idx == len(post.parts) - 1, premium_emoji=publisher.premium_emoji,
     ) + [w for w in warnings if w]
+    if deferred:
+        note = (note + "\n\n" if note else "") + t("ed.wm_rendering")
     text = await panel_text(session, user, post, channels, part_idx, list(dict.fromkeys(warnings)), note)
     panel = await bot.send_message(
         chat_id, text, reply_markup=editor_kb(post, part_idx, published=published), link_preview_options=NO_PREVIEW
     )
     await state.update_data(preview_ids=preview_ids, panel_id=panel.message_id)
+    if deferred:
+        task = asyncio.create_task(
+            _finish_wm_preview(bot, chat_id, state, user.id, post.id, panel.message_id, publisher, deferred)
+        )
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+
+
+async def _finish_wm_preview(
+    bot: Bot, chat_id: int, state: FSMContext, user_id: int, post_id: int, panel_id: int,
+    publisher: Publisher, deferred: list,
+) -> None:
+    """Render the deferred watermarks, then redraw the editor with them — unless the user has moved on from the
+    editor screen they were shown, in which case the render is still kept and the next preview is quick."""
+    try:
+        await publisher.warm_watermarks(deferred)
+        data = await state.get_data()
+        if (
+            data.get("post_id") != post_id or data.get("panel_id") != panel_id
+            or await state.get_state() != Editor.content.state
+        ):
+            return
+        async with publisher.sessionmaker() as session:  # type: ignore[misc]
+            user = await session.get(User, user_id)
+            post = await posts_repo.get_post(session, user_id, post_id)
+            if user is None or post is None:
+                return
+            set_locale(user.lang)
+            await render_editor(bot, chat_id, session, state, user, post, publisher, defer_wm=False)
+            await session.commit()
+    except Exception:  # noqa: BLE001 - nobody awaits this task
+        log.exception("finishing the watermarked preview of post %s failed", post_id)
 
 
 async def open_editor(

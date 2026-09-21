@@ -736,6 +736,7 @@ TEXTS: dict[str, str] = {
     "warn.premium_emoji": "premium emoji will go out as plain ones — Telegram allows them only for bots with a username from Fragment.",
     "warn.pin_failed": "couldn't pin the post (check the bot's rights)",
     "warn.preview_failed": "Couldn't show the preview: {error}",
+    "ed.wm_rendering": "⏳ Adding the watermark to the video — the preview refreshes shortly; this is the original for now.",
     "warn.wm_failed": "couldn't watermark the video — the original was published",
     "warn.wm_no_ffmpeg": "video watermarks are unavailable on the server (ffmpeg missing)",
     "warn.wm_too_big": "the file is larger than 20 MB — published without a watermark",

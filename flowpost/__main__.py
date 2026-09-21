@@ -57,6 +57,7 @@ async def run(settings: Settings) -> None:
         bot,
         Watermarker(settings.ffmpeg_bin, settings.watermark_font, settings.watermark_concurrency),
         premium_emoji=settings.premium_emoji,
+        sessionmaker=sessionmaker,
     )
     ai = AIService(settings)
     worker = Worker(bot, sessionmaker, publisher, settings, ai=ai)

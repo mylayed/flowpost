@@ -372,6 +372,52 @@ async def test_media_group_opens_one_editor_without_waiting_out_the_window(h: Ha
     assert elapsed < 0.7  # the quiet window, not the 2 s cap
 
 
+async def test_video_watermark_is_rendered_after_the_editor_opens(h: Harness):
+    """The editor shows the original video at once and swaps in the watermarked one when the render is done."""
+    from aiogram.types import BufferedInputFile
+
+    from flowpost.bot.handlers.editor import view
+    from flowpost.services.billing import limits
+
+    class SlowVideoWatermarker:
+        def __init__(self):
+            self.release = asyncio.Event()
+            self.calls = 0
+
+        async def apply(self, bot, item, settings):
+            self.calls += 1
+            await self.release.wait()
+            return b"watermarked", "video.mp4"
+
+    stub = SlowVideoWatermarker()
+    h.dp.workflow_data["publisher"] = Publisher(h.bot, stub, sessionmaker=h.sm)
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    async def prepare(s):
+        channel = await s.scalar(select(Channel))
+        channel.watermark = {"type": "text", "text": "@chan", "enabled": True}
+        await limits.add(s, channel.id, "wm_video", 5)
+        await s.commit()
+    await h.db(prepare)
+    h.session.clear()
+
+    await h.feed(message=h._message(video={"file_id": "vid1", "file_unique_id": "vid1", "width": 640,
+                                            "height": 360, "duration": 3}))
+    # the handler returned with the original video and a note, while the render is still running
+    sends = [m for n, m in h.session.calls if n == "SendVideo"]
+    assert len(sends) == 1 and sends[0].video == "vid1"
+    assert t("ed.wm_rendering") in h.session.texts()
+    assert view._background and stub.calls == 1
+
+    h.session.clear()
+    stub.release.set()
+    await asyncio.gather(*list(view._background))
+    # the preview was redrawn with the rendered file, and the panel no longer carries the note
+    sends = [m for n, m in h.session.calls if n == "SendVideo"]
+    assert len(sends) == 1 and isinstance(sends[0].video, BufferedInputFile)
+    assert t("ed.wm_rendering") not in h.session.texts()
+
+
 async def test_album_screen_orders_replaces_and_watermarks_items(h: Harness):
     await h.text("/start")
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))

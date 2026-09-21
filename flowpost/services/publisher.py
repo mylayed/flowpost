@@ -15,7 +15,7 @@ from aiogram.types import (
     LinkPreviewOptions,
     Message,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
 from flowpost.db.models import Channel, Post
@@ -201,16 +201,22 @@ async def send_part(
 
 
 class Publisher:
-    def __init__(self, bot: Bot, watermarker: Watermarker | None = None, *, premium_emoji: bool = False):
+    def __init__(
+        self, bot: Bot, watermarker: Watermarker | None = None, *, premium_emoji: bool = False,
+        sessionmaker: async_sessionmaker | None = None,
+    ):
         self.bot = bot
         self.watermarker = watermarker
+        # Lets the editor finish a preview after its handler has returned (see `render_editor`); without it a
+        # preview always waits for its watermarks.
+        self.sessionmaker = sessionmaker
         # Whether the bot may send custom emoji at all; the editor warns when it may not. Sending itself
         # is guarded by StripCustomEmojiMiddleware, not here.
         self.premium_emoji = premium_emoji
 
     async def resolve_media(
         self, media_items: list[dict], channel: Channel | None, opts: dict, session: AsyncSession | None = None,
-        *, charge: bool = True, wm_allowed: bool = True,
+        *, charge: bool = True, wm_allowed: bool = True, defer: list | None = None,
     ) -> tuple[list[OutMedia], list[str]]:
         """Media to send, watermarked where the post asks for it and the plan allows (`wm_allowed`). With a session
         a watermark needs the channel's quota: publishing spends it (`charge`), previews only check some is left.
@@ -219,7 +225,10 @@ class Publisher:
         Every item starts out as its untouched file, so a watermark that can't be made (no quota, too big,
         no ffmpeg) simply leaves the original in place. Quotas are settled first, in order, because they
         share the session; the renders that survive that then run together rather than one after another,
-        which is what an album of ten photos used to spend its time on."""
+        which is what an album of ten photos used to spend its time on.
+
+        With `defer` a video or GIF that still needs rendering goes out as its original and is appended to the list
+        as (item, watermark settings), for the caller to render later; photos are quick and stay inline."""
         out = [OutMedia(item["type"], item["file_id"], item) for item in media_items]
         warnings: list[str] = []
         channel_wm = channel.watermark if channel is not None else None
@@ -252,6 +261,9 @@ class Publisher:
             if cached:
                 out[i] = OutMedia(item["type"], cached, item, key)
                 continue
+            if defer is not None and item["type"] != "photo":
+                defer.append((item, raw))
+                continue
             jobs.append((i, item, raw, key))
 
         if not jobs:
@@ -281,6 +293,11 @@ class Publisher:
         m = await _send_single(self.bot, chat_id, media[0])
         return m.message_id, warnings
 
+    async def warm_watermarks(self, jobs: list[tuple[dict, dict]]) -> None:
+        """Render what `resolve_media` deferred. Failures are left for the next preview to report as warnings."""
+        if self.watermarker is not None:
+            await asyncio.gather(*(self.watermarker.apply(self.bot, item, raw) for item, raw in jobs), return_exceptions=True)
+
     @staticmethod
     def remember_uploads(media: list[OutMedia], sent: SentPart) -> bool:
         changed = False
@@ -302,10 +319,11 @@ class Publisher:
         session: AsyncSession | None = None,
         wm_allowed: bool = True,
         texts: dict[int, str] | None = None,
+        defer_wm: list | None = None,
     ) -> PublishResult:
         """Send all (or selected) parts of `post`. With `preview=True` sends to `chat_id` without channel options.
         `wm_allowed` is False on the free plan: no watermarks and no hidden text. `texts` replaces a part's text
-        (a translation) by part index."""
+        (a translation) by part index. `defer_wm` collects the watermarks left unrendered (see `resolve_media`)."""
         opts = options_of(post)
         target = chat_id if chat_id is not None else channel.chat_id  # type: ignore[union-attr]
         send_opts = SendOptions(
@@ -330,7 +348,7 @@ class Publisher:
             source = (texts or {}).get(idx, part.text_html)
             text = final_text(source, opts, channel, is_last=idx == last_index, lang=lang)
             media, warnings = await self.resolve_media(
-                part.media, channel, opts, session, charge=not preview, wm_allowed=wm_allowed,
+                part.media, channel, opts, session, charge=not preview, wm_allowed=wm_allowed, defer=defer_wm,
             )
             buttons = part_buttons(post, idx, lang, hidden=wm_allowed)
             sent = await send_part(self.bot, target, text, media, buttons, send_opts)

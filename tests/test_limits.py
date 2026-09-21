@@ -428,6 +428,48 @@ async def test_album_watermarks_are_rendered_together_and_keep_their_order(fake_
     assert elapsed < 0.15
 
 
+async def test_deferred_video_watermark_goes_out_as_original_and_is_handed_back(fake_bot, sessionmaker, seeded):
+    stub = StubWatermarker()
+    publisher = Publisher(fake_bot, stub)
+    await _set(sessionmaker, Channel, seeded.channel_id, watermark=WM)
+    photo = {**PHOTO, "file_id": "p"}
+    async with sessionmaker() as session:
+        await limits.add(session, seeded.channel_id, "wm_photo", 5)
+        await limits.add(session, seeded.channel_id, "wm_video", 5)
+        await session.commit()
+        channel = await session.get(Channel, seeded.channel_id)
+        deferred: list = []
+        media, warnings = await publisher.resolve_media(
+            [photo, VIDEO], channel, {"watermark": True}, session, charge=False, defer=deferred,
+        )
+    # the photo is quick and is watermarked on the spot; the video is left for the caller to render
+    assert [isinstance(m.media, str) for m in media] == [False, True]
+    assert media[1].media == "orig-video" and warnings == []
+    assert stub.calls == 1 and [item for item, _ in deferred] == [VIDEO]
+    await publisher.warm_watermarks(deferred)
+    assert stub.calls == 2
+
+
+async def test_watermarker_joins_a_render_in_flight_and_keeps_the_result(monkeypatch):
+    from flowpost.services.watermark import Watermarker
+
+    wm = Watermarker()
+    renders = 0
+
+    async def fake_render(bot, item, s):
+        nonlocal renders
+        renders += 1
+        await asyncio.sleep(0.05)
+        return b"out", "video.mp4"
+
+    monkeypatch.setattr(wm, "_render", fake_render)
+    item = {"type": "video", "file_id": "v"}
+    first, second = await asyncio.gather(wm.apply(None, item, WM), wm.apply(None, item, WM))
+    assert first == second == (b"out", "video.mp4") and renders == 1
+    assert await wm.apply(None, item, WM) == (b"out", "video.mp4") and renders == 1  # kept for the next preview
+    assert await wm.apply(None, item, {**WM, "text": "other"}) == (b"out", "video.mp4") and renders == 2
+
+
 async def test_worker_publishes_without_watermarks_on_the_free_plan(fake_bot, sessionmaker, seeded, settings):
     stub = StubWatermarker()
     worker = Worker(fake_bot, sessionmaker, Publisher(fake_bot, stub), settings)

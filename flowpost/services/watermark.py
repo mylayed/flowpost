@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
 import io
 import json
@@ -18,6 +19,7 @@ log = logging.getLogger(__name__)
 
 MAX_DOWNLOAD = 20 * 1024 * 1024  # cloud Bot API getFile limit
 MAX_UPLOAD = 50 * 1024 * 1024
+MAX_KEPT_RENDERS = 2  # finished video renders held in memory, up to MAX_UPLOAD each
 POSITIONS = ["tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br"]
 DEFAULT_WM: dict = {"type": "text", "text": "", "image_file_id": None, "position": "br", "opacity": 60, "scale": 25}
 
@@ -133,6 +135,11 @@ class Watermarker:
         self.font_path = find_font(font_path)
         self._sem = asyncio.Semaphore(max(1, concurrency))
         self._logo_cache: dict[str, bytes] = {}
+        # A video takes long enough to render that the editor draws its preview in the background. The result is
+        # kept for a moment so the preview that follows picks it up instead of encoding the video a second time,
+        # and a render already running is joined rather than started again.
+        self._rendered: collections.OrderedDict[tuple[str, str], tuple[bytes, str]] = collections.OrderedDict()
+        self._inflight: dict[tuple[str, str], asyncio.Future] = {}
 
     @property
     def ffmpeg_available(self) -> bool:
@@ -156,7 +163,26 @@ class Watermarker:
         return self._logo_cache[file_id]
 
     async def apply(self, bot: Bot, item: dict, raw_settings: dict | None) -> tuple[bytes, str]:
-        s = wm_settings(raw_settings)
+        key = (item["file_id"], wm_cache_key(0, raw_settings))
+        if key in self._rendered:
+            self._rendered.move_to_end(key)
+            return self._rendered[key]
+        task = self._inflight.get(key)
+        if task is None:
+            task = self._inflight[key] = asyncio.ensure_future(self._render(bot, item, wm_settings(raw_settings)))
+            task.add_done_callback(lambda done, key=key, video=item["type"] != "photo": self._finished(key, done, video))
+        return await asyncio.shield(task)
+
+    def _finished(self, key: tuple[str, str], task: asyncio.Future, video: bool) -> None:
+        self._inflight.pop(key, None)
+        if task.cancelled() or task.exception() is not None:  # calling exception() also marks it as retrieved
+            return
+        if video:  # photos are quick to redo and would only crowd the memory
+            self._rendered[key] = task.result()
+            while len(self._rendered) > MAX_KEPT_RENDERS:
+                self._rendered.popitem(last=False)
+
+    async def _render(self, bot: Bot, item: dict, s: dict) -> tuple[bytes, str]:
         if item.get("size") and item["size"] > MAX_DOWNLOAD:
             raise WatermarkSkipped("warn.wm_too_big")
         is_video = item["type"] in ("video", "animation")
@@ -181,7 +207,7 @@ class Watermarker:
             cmd = [
                 self.ffmpeg_bin, "-y", "-loglevel", "error", "-i", inp, "-i", png,
                 "-filter_complex", f"[0:v][1:v]overlay={x}:{y},scale=trunc(iw/2)*2:trunc(ih/2)*2[v]",
-                "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
                 "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", out,
             ]
             proc = await asyncio.create_subprocess_exec(
