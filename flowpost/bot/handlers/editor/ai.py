@@ -117,6 +117,7 @@ async def run_ai(
     if primary is None or not await limits.take(session, primary.id, "ai_text"):
         await show_panel(bot, chat_id, state, t("ai.quota_channel_over"), back, resend=resend)
         return
+    await session.commit()  # committed before the long request: the quota row stays locked no longer than the take
     part = post.parts[idx]
     limit = CAPTION_LIMIT if part.media else TEXT_LIMIT
     if primary is not None and (post.options or {}).get("signature", True):
