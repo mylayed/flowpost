@@ -1,5 +1,6 @@
 """«⭐ PRO-інструменти» of a channel: tracked ad links, join requests, RSS sources, the AI content plan,
-giveaways among commenters, translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial."""
+translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial.
+The giveaway among commenters lives here too, but it is free for every channel."""
 from __future__ import annotations
 
 import html
@@ -125,7 +126,6 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
         [btn(on(growth.handles_requests(channel)) + t("pro.join"), Px(a="join", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
         [btn(t("pro.plan"), Px(a="plan", c=c))],
-        [btn(t("pro.giveaway"), Px(a="gw", c=c))],
         [btn(t("pro.translate", lang=(LANG_FLAGS.get(lang, "") + " " + LANG_NAMES[lang]) if lang in LANG_NAMES
                else t("pro.translate_off")), Px(a="tr", c=c))],
         [btn(on(channel.weekly_report) + t("pro.report"), Px(a="rep_t", c=c))],
@@ -671,7 +671,7 @@ async def px_plan_use(cb: CallbackQuery, callback_data: Px, bot: Bot, session: A
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("plan.opened", n=idx + 1))
 
 
-# ---- giveaway among commenters ------------------------------------------------------------------
+# ---- giveaway among commenters: free for every channel, opened from the channel card ------------------------------------------------------------
 
 async def _giveaway_pub(cb: CallbackQuery, session: AsyncSession, channel: Channel, pub_id: int) -> Publication | None:
     pub = await session.get(Publication, pub_id)
@@ -689,9 +689,10 @@ async def _pub_title(session: AsyncSession, pub: Publication, limit: int) -> str
 
 async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     lines = [t("gw.title", title=html.escape(channel.title)), "", t("gw.help")]
+    back = [btn(t("btn.back"), Pj(a="ch", c=channel.id))]
     if not channel.discussion_chat_id:
         lines += ["", t("gw.no_group")]
-        return "\n".join(lines), markup([[btn(t("proj.comments_btn"), Cs(a="cm", c=channel.id))], _back(channel)])
+        return "\n".join(lines), markup([[btn(t("proj.comments_btn"), Cs(a="cm", c=channel.id))], back])
     pubs = (await session.scalars(
         select(Publication)
         .where(Publication.channel_id == channel.id, Publication.status == "published",
@@ -711,7 +712,7 @@ async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> 
         when = (pub.published_at or pub.run_at).astimezone(zone).strftime("%d.%m")
         label = f"{when} · {await _pub_title(session, pub, 28)} · 👥 {counts.get(pub.id, 0)}"
         rows.append([btn(label, Px(a="gw_post", c=channel.id, id=pub.id, v="s"))])
-    rows.append(_back(channel))
+    rows.append(back)
     return "\n".join(lines), markup(rows)
 
 
@@ -744,7 +745,7 @@ async def giveaway_post_view(
 @router.callback_query(Px.filter(F.a == "gw"))
 async def px_giveaway(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
                       settings: Settings) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     if channel is None:
         return
     await state.set_state(None)
@@ -755,7 +756,7 @@ async def px_giveaway(cb: CallbackQuery, callback_data: Px, session: AsyncSessio
 @router.callback_query(Px.filter(F.a == "gw_post"))
 async def px_giveaway_post(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
                            settings: Settings) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
     if pub is None:
         return
@@ -768,7 +769,7 @@ async def px_giveaway_post(cb: CallbackQuery, callback_data: Px, session: AsyncS
 async def px_giveaway_ask(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
                           settings: Settings) -> None:
     """«✍️ Своя кількість»: the number of winners is typed in."""
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
     if pub is None:
         return
@@ -812,7 +813,7 @@ async def _draw_view(
 @router.callback_query(Px.filter(F.a == "gw_run"))
 async def px_giveaway_run(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
                           user: User, settings: Settings) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
     if pub is None:
         return
@@ -823,8 +824,7 @@ async def px_giveaway_run(cb: CallbackQuery, callback_data: Px, bot: Bot, sessio
 
 
 @router.message(ProInput.gw_count, F.text)
-async def in_giveaway_count(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
-                            settings: Settings) -> None:
+async def in_giveaway_count(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -835,8 +835,7 @@ async def in_giveaway_count(message: Message, bot: Bot, session: AsyncSession, s
     data = await state.get_data()
     pub = await session.get(Publication, int(data.get("gw_pub") or 0))
     await state.set_state(None)
-    if pub is None or pub.channel_id != channel.id or pub.status != "published" \
-            or not await _extras(session, settings, channel):
+    if pub is None or pub.channel_id != channel.id or pub.status != "published":
         await message.answer(t("err.post_not_found"))
         return
     text, kb = await _draw_view(bot, session, state, user, channel, pub, int(raw), data.get("gw_mode") or "s")
@@ -867,7 +866,7 @@ async def _drop_buttons(cb: CallbackQuery) -> None:
 @router.callback_query(Px.filter(F.a == "gw_pub"), flags={"publish": True})
 async def px_giveaway_publish(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext,
                               user: User, settings: Settings, worker: Worker) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     post = await _giveaway_post(cb, session, state, channel) if channel else None
     if post is None:
         return
@@ -881,7 +880,7 @@ async def px_giveaway_publish(cb: CallbackQuery, callback_data: Px, session: Asy
 @router.callback_query(Px.filter(F.a.in_({"gw_sched", "gw_edit"})))
 async def px_giveaway_editor(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
                              user: User, settings: Settings, publisher: Publisher) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     post = await _giveaway_post(cb, session, state, channel) if channel else None
     if post is None:
         return

@@ -748,7 +748,7 @@ TEXTS: dict[str, str] = {
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
         "Tools to grow the channel: ad links that count subscribers, auto-approving join requests with a "
-        "welcome, autoposting from RSS, an AI content plan, comment giveaways, auto-translation and a weekly report."
+        "welcome, autoposting from RSS, an AI content plan, auto-translation and a weekly report."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
@@ -756,7 +756,6 @@ TEXTS: dict[str, str] = {
     "pro.join": "🚪 Join requests & welcome",
     "pro.rss": "📰 Autoposting from RSS",
     "pro.plan": "🧠 AI content plan for the week",
-    "pro.giveaway": "🎁 Comment giveaway",
     "pro.translate": "🌐 Auto-translation: {lang}",
     "pro.translate_off": "off",
     "pro.report": "📊 Weekly report",
@@ -853,6 +852,7 @@ TEXTS: dict[str, str] = {
     "plan.expired": "This plan is out of date. Generate a new one.",
     "plan.opened": "🧠 Post #{n} from the content plan",
 
+    "gw.btn": "🎁 Giveaway",
     "gw.title": "🎁 <b>Comment giveaway · {title}</b>",
     "gw.help": (
         "The bot remembers everyone who comments on the channel's posts and can randomly pick 1 or 3 winners "

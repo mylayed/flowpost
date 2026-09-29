@@ -379,12 +379,14 @@ async def test_weekly_report_goes_out_on_monday_morning_once(h: Harness):
 # ---- giveaway among commenters ------------------------------------------------------------------
 
 async def _seed_giveaway(h: Harness) -> tuple[int, int]:
+    """A published post with a discussion thread, in a channel with no paid plan or trial: giveaways are free."""
     channel_id, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
 
-    async def trial(s):
-        await s.execute(update(Channel).values(trial_ends_at=utcnow() + timedelta(days=5)))
+    async def expire(s):
+        await s.execute(update(Channel).values(trial_ends_at=utcnow() - timedelta(days=1)))
+        await s.execute(update(User).values(trial_ends_at=utcnow() - timedelta(days=1)))
         await s.commit()
-    await h.db(trial)
+    await h.db(expire)
     return channel_id, pub_id
 
 
@@ -412,8 +414,16 @@ async def test_giveaway_draws_winners_among_commenters_and_publishes_the_result(
     assert (await h.db(lambda s: s.get(Publication, pub_id))).comments_count == 6
 
     h.session.clear()
+    await h.click(Pj(a="ch", c=channel_id))
+    assert Px(a="gw", c=channel_id).pack() in str(h.session.calls[-1][1].reply_markup)
+    h.session.clear()
+    await h.click(Px(a="menu", c=channel_id))
+    assert Px(a="gw", c=channel_id).pack() not in str(h.session.calls[-1][1].reply_markup)
+
+    h.session.clear()
     await h.click(Px(a="gw", c=channel_id))
     listing = h.session.calls[-1][1]
+    assert Pj(a="ch", c=channel_id).pack() in str(listing.reply_markup)
     assert "Розіграш у коментарях" in listing.text
     assert Px(a="gw_post", c=channel_id, id=pub_id, v="s").pack() in str(listing.reply_markup)
     assert "👥 5" in str(listing.reply_markup)
