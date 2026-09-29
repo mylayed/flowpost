@@ -696,7 +696,7 @@ async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> 
     pubs = (await session.scalars(
         select(Publication)
         .where(Publication.channel_id == channel.id, Publication.status == "published",
-               Publication.deleted.is_(False), Publication.discussion_thread_id.is_not(None))
+               Publication.deleted.is_(False))
         .order_by(Publication.published_at.desc(), Publication.id.desc())
         .limit(GIVEAWAY_POSTS)
     )).all()

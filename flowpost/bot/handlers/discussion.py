@@ -84,16 +84,17 @@ async def on_group_migrated(message: Message, session: AsyncSession) -> None:
     await channels_repo.migrate_chat(session, message.chat.id, message.migrate_to_chat_id)
 
 
-@router.message(F.chat.type.in_({"group", "supergroup"}), F.is_automatic_forward, F.forward_origin)
-async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession) -> None:
+async def _pub_of_autopost(session: AsyncSession, message: Message) -> tuple[Channel, Publication] | None:
+    """The channel and publication behind `message`, the copy of a channel post Telegram forwards into the
+    linked discussion group to open its comment thread."""
     origin = message.forward_origin
-    if origin.type != "channel" or not message.is_topic_message or not message.message_thread_id:
-        return
+    if not message.is_automatic_forward or origin is None or origin.type != "channel":
+        return None
     channel = await session.scalar(
         select(Channel).where(Channel.discussion_chat_id == message.chat.id, Channel.chat_id == origin.chat.id)
     )
     if channel is None:
-        return
+        return None
     pubs = (
         await session.scalars(
             select(Publication)
@@ -103,11 +104,20 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
         )
     ).all()
     pub = next((p for p in pubs if origin.message_id in publication_message_ids(p)), None)
-    if pub is None:
+    return (channel, pub) if pub is not None else None
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), F.is_automatic_forward, F.forward_origin)
+async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession) -> None:
+    found = await _pub_of_autopost(session, message)
+    if found is None:
         return
-    pub.discussion_thread_id = message.message_thread_id
+    channel, pub = found
+    # In a forum group the post opens a topic; in an ordinary discussion group the forwarded copy itself is
+    # the root of the thread, and comments carry its message_id as their message_thread_id.
+    pub.discussion_thread_id = message.message_thread_id if message.is_topic_message else message.message_id
     post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
-    if post is None or options_of(post).get("comments", True):
+    if post is None or options_of(post).get("comments", True) or not message.is_topic_message:
         return
     try:
         await bot.close_forum_topic(message.chat.id, message.message_thread_id)
@@ -147,6 +157,12 @@ async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSessio
             Publication.status == "published",
         )
     )
+    if pub is None and message.reply_to_message is not None:
+        # A post whose thread wasn't linked when it was forwarded: the comment replies to that forwarded copy.
+        found = await _pub_of_autopost(session, message.reply_to_message)
+        if found is not None and found[0].id == channel.id:
+            pub = found[1]
+            pub.discussion_thread_id = message.message_thread_id
     if pub is None:
         return
     pub.comments_count = (pub.comments_count or 0) + 1

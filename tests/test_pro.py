@@ -504,3 +504,64 @@ async def test_giveaway_number_of_winners_can_be_typed_in(h: Harness):
     await h.text("10")
     shown = h.session.calls[-1][1].text
     assert "лише 6" in shown and "6. <b>" in shown
+
+
+def _autopost(h: Harness, message_id: int) -> dict:
+    """The copy of channel post 4242 Telegram forwards into an ordinary (non-forum) discussion group."""
+    return {
+        "message_id": message_id, "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "is_automatic_forward": True, "sender_chat": _chat(),
+        "from": {"id": 777000, "is_bot": False, "first_name": "Telegram"},
+        "forward_origin": {"type": "channel", "chat": _chat(), "message_id": 4242,
+                           "date": int(datetime.now().timestamp())},
+        "text": "Новина дня",
+    }
+
+
+async def test_comments_in_an_ordinary_discussion_group_enter_the_giveaway(h: Harness):
+    channel_id, pub_id = await _seed_giveaway(h)
+
+    async def unlink(s):
+        await s.execute(update(Publication).values(discussion_thread_id=None))
+        await s.commit()
+    await h.db(unlink)
+
+    # no topics: the forwarded copy has no message_thread_id — it is itself the root of the thread
+    await h.feed(message=_autopost(h, 555))
+    assert (await h.db(lambda s: s.get(Publication, pub_id))).discussion_thread_id == 555
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 555, "from": _person(1), "text": "Беру участь!",
+        "reply_to_message": _autopost(h, 555),
+    })
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.comments_count == 1
+    assert [c.user_tg_id for c in await h.db(lambda s: s.scalars(select(Commenter)))] == [1]
+
+
+async def test_a_post_whose_thread_was_never_linked_is_picked_up_by_its_next_comment(h: Harness):
+    channel_id, pub_id = await _seed_giveaway(h)
+
+    async def unlink(s):
+        await s.execute(update(Publication).values(discussion_thread_id=None))
+        await s.commit()
+    await h.db(unlink)
+
+    # it still shows up in the giveaway list, with nobody in it yet
+    h.session.clear()
+    await h.click(Px(a="gw", c=channel_id))
+    assert "👥 0" in str(h.session.calls[-1][1].reply_markup)
+
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 700, "from": _person(2), "text": "Я теж!",
+        "reply_to_message": _autopost(h, 700),
+    })
+    pub = await h.db(lambda s: s.get(Publication, pub_id))
+    assert pub.discussion_thread_id == 700 and pub.comments_count == 1
+    h.session.clear()
+    await h.click(Px(a="gw", c=channel_id))
+    assert "👥 1" in str(h.session.calls[-1][1].reply_markup)

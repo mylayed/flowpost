@@ -855,16 +855,16 @@ TEXTS: dict[str, str] = {
     "gw.btn": "🎁 Giveaway",
     "gw.title": "🎁 <b>Comment giveaway · {title}</b>",
     "gw.help": (
-        "The bot remembers everyone who comments on the channel's posts and can randomly pick 1 or 3 winners "
-        "among them. Each person enters once, however many comments they write. The result can be published "
-        "to the channel right away or scheduled for a convenient time."
+        "The bot remembers everyone who comments on the channel's posts published through the bot and can "
+        "randomly pick as many winners among them as you need. Each person enters once, however many comments "
+        "they write. The result can be published to the channel right away or scheduled for a convenient time."
     ),
     "gw.no_group": (
         "⚠️ For giveaways to work, link the channel's discussion group in the comment settings — "
         "the bot must be an admin there."
     ),
     "gw.pick_post": "Pick the post the giveaway ran under (👥 — number of entrants):",
-    "gw.no_posts": "No published posts with comments yet. The bot counts entrants from the moment a post is published.",
+    "gw.no_posts": "No posts published through the bot yet. Publish the giveaway post through the bot, and it will count everyone who comments on it.",
     "gw.post_title": "🎁 <b>Giveaway</b>",
     "gw.entrants": "👥 Entrants (commented): <b>{n}</b>",
     "gw.subs_on": "✅ Channel subscribers only — whoever unsubscribed is out",
