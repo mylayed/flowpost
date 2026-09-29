@@ -888,9 +888,9 @@ TEXTS: dict[str, str] = {
     "gw.opened": "🎁 Giveaway results",
     "gw.res_title": "🎉 <b>Giveaway results</b>",
     "gw.res_post": "this post",
-    "gw.res_intro_one": "Out of <b>{total}</b> people who commented on {post}, the winner is:",
-    "gw.res_intro_many": "Out of <b>{total}</b> people who commented on {post}, the winners are:",
-    "gw.res_congrats": "Congratulations! 🎁 Winners, please message the channel admin to claim your prize.",
+    "gw.res_intro_one": "Giveaway under {post}. Entrants: <b>{total}</b>. The winner:",
+    "gw.res_intro_many": "Giveaway under {post}. Entrants: <b>{total}</b>. The winners:",
+    "gw.res_congrats": "Congratulations to the winners! 🎉",
     "gw.res_footer": "<i>🎲 Picked at random · {date} at {time}</i>",
 
     "tr.title": "🌐 <b>Auto-translation · {title}</b>",

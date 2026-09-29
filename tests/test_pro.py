@@ -434,7 +434,7 @@ async def test_giveaway_draws_winners_among_commenters_and_publishes_the_result(
     shown = h.session.calls[-1][1].text
     assert shown.count("🥇") == shown.count("🥈") == shown.count("🥉") == 1
     assert "Leaver" not in shown and "Олена" not in shown
-    assert "Серед <b>5</b> учасників" in shown and "https://t.me/testchan/4242" in shown
+    assert "Учасників: <b>5</b>" in shown and "https://t.me/testchan/4242" in shown
     assert '<a href="tg://user?id=1">Марія</a> (@maria)' in shown
 
     h.session.clear()
@@ -459,7 +459,7 @@ async def test_giveaway_with_one_winner_can_be_scheduled_through_the_editor(h: H
     h.session.clear()
     await h.click(Px(a="gw_run", c=channel_id, id=pub_id, v="1a"))
     shown = h.session.calls[-1][1].text
-    assert "🥇" in shown and "🥈" not in shown and "переможцем став" in shown
+    assert "🥇" in shown and "🥈" not in shown and "Переможець:" in shown
 
     h.session.clear()
     await h.click(Px(a="gw_sched", c=channel_id, id=pub_id))
