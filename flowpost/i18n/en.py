@@ -748,7 +748,7 @@ TEXTS: dict[str, str] = {
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
         "Tools to grow the channel: ad links that count subscribers, auto-approving join requests with a "
-        "welcome, autoposting from RSS, an AI content plan, auto-translation and a weekly report."
+        "welcome, autoposting from RSS, an AI content plan, comment giveaways, auto-translation and a weekly report."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
@@ -756,6 +756,7 @@ TEXTS: dict[str, str] = {
     "pro.join": "🚪 Join requests & welcome",
     "pro.rss": "📰 Autoposting from RSS",
     "pro.plan": "🧠 AI content plan for the week",
+    "pro.giveaway": "🎁 Comment giveaway",
     "pro.translate": "🌐 Auto-translation: {lang}",
     "pro.translate_off": "off",
     "pro.report": "📊 Weekly report",
@@ -851,6 +852,46 @@ TEXTS: dict[str, str] = {
     "plan.again": "🔄 Another plan",
     "plan.expired": "This plan is out of date. Generate a new one.",
     "plan.opened": "🧠 Post #{n} from the content plan",
+
+    "gw.title": "🎁 <b>Comment giveaway · {title}</b>",
+    "gw.help": (
+        "The bot remembers everyone who comments on the channel's posts and can randomly pick 1 or 3 winners "
+        "among them. Each person enters once, however many comments they write. The result can be published "
+        "to the channel right away or scheduled for a convenient time."
+    ),
+    "gw.no_group": (
+        "⚠️ For giveaways to work, link the channel's discussion group in the comment settings — "
+        "the bot must be an admin there."
+    ),
+    "gw.pick_post": "Pick the post the giveaway ran under (👥 — number of entrants):",
+    "gw.no_posts": "No published posts with comments yet. The bot counts entrants from the moment a post is published.",
+    "gw.post_title": "🎁 <b>Giveaway</b>",
+    "gw.entrants": "👥 Entrants (commented): <b>{n}</b>",
+    "gw.subs_on": "✅ Channel subscribers only — whoever unsubscribed is out",
+    "gw.subs_off": "☑️ Among everyone who commented",
+    "gw.subs_btn": "Subscribers only",
+    "gw.choose_count": "How many winners? Tap 1 or 3, or enter your own number.",
+    "gw.no_entrants": "Nobody has commented on this post yet.",
+    "gw.run_1": "🥇 1 winner",
+    "gw.run_3": "🏆 3 winners",
+    "gw.run_custom": "✍️ Custom number",
+    "gw.count_prompt": "How many winners? Send a number from 1 to {max}.",
+    "gw.drawing": "🎲 Picking the winners…",
+    "gw.none_eligible": "😕 Nobody to pick: none of the entrants qualify (maybe they all left the channel).",
+    "gw.drawn_note": "🎲 <b>Winners picked!</b> Here's the message for the channel — publish it now, schedule it or edit it.",
+    "gw.fewer": "⚠️ Only {n} entrants qualify.",
+    "gw.publish_now": "🚀 Publish now",
+    "gw.schedule": "🕒 Schedule",
+    "gw.edit": "✏️ Edit",
+    "gw.reroll": "🔄 Pick again",
+    "gw.expired": "This result was already used or is out of date. Run the giveaway again.",
+    "gw.opened": "🎁 Giveaway results",
+    "gw.res_title": "🎉 <b>Giveaway results</b>",
+    "gw.res_post": "this post",
+    "gw.res_intro_one": "Out of <b>{total}</b> people who commented on {post}, the winner is:",
+    "gw.res_intro_many": "Out of <b>{total}</b> people who commented on {post}, the winners are:",
+    "gw.res_congrats": "Congratulations! 🎁 Winners, please message the channel admin to claim your prize.",
+    "gw.res_footer": "<i>🎲 Picked at random · {date} at {time}</i>",
 
     "tr.title": "🌐 <b>Auto-translation · {title}</b>",
     "tr.help": (

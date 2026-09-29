@@ -19,6 +19,7 @@ from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
+from flowpost.services import giveaway
 from flowpost.services.delivery import publication_message_ids
 from flowpost.services.moderation import moderation_settings, violation
 from flowpost.services.posts import options_of
@@ -118,7 +119,8 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
     F.chat.type.in_({"group", "supergroup"}), F.message_thread_id, ~F.is_automatic_forward,
 )
 async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSession) -> None:
-    """Moderate and count a reply in a linked discussion thread as a comment on the post that opened it."""
+    """Moderate and count a reply in a linked discussion thread as a comment on the post that opened it,
+    entering its author into that post's giveaway."""
     if message.from_user is None or message.from_user.is_bot:
         return
     channel = await session.scalar(select(Channel).where(Channel.discussion_chat_id == message.chat.id))
@@ -148,3 +150,4 @@ async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSessio
     if pub is None:
         return
     pub.comments_count = (pub.comments_count or 0) + 1
+    await giveaway.record(session, pub, message.from_user)

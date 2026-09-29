@@ -86,8 +86,8 @@ class Ca(CallbackData, prefix="ca"):
 
 
 class Px(CallbackData, prefix="px"):
-    """A channel's PRO tools: tracked links, join requests, RSS, AI plan, translation, weekly report.
-    `c` — channel id, `id` — link/feed/post id."""
+    """A channel's PRO tools: tracked links, join requests, RSS, AI plan, giveaways, translation, weekly report.
+    `c` — channel id, `id` — link/feed/post/publication id."""
 
     a: str
     c: int = 0

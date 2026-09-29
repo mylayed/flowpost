@@ -46,6 +46,7 @@ class ProInput(StatesGroup):
     link_cost = State()   # what the ad behind a tracked link cost
     welcome = State()     # welcome message for people who ask to join
     feed_url = State()    # address of a new RSS source
+    gw_count = State()    # how many winners a giveaway draws
 
 
 class BroadcastInput(StatesGroup):

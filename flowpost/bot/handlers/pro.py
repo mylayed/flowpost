@@ -1,5 +1,5 @@
 """«⭐ PRO-інструменти» of a channel: tracked ad links, join requests, RSS sources, the AI content plan,
-translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial."""
+giveaways among commenters, translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial."""
 from __future__ import annotations
 
 import html
@@ -13,32 +13,35 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.callbacks import Pj, Px
+from flowpost.bot.callbacks import Cs, Pj, Px
 from flowpost.bot.handlers.editor.publish import publish_now
+from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import open_editor
 from flowpost.bot.keyboards.common import btn, chunked, markup, on, paywall_kb
 from flowpost.bot.states import ProInput
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Feed, InviteLink, Post, User
+from flowpost.db.models import Channel, Commenter, Feed, InviteLink, Post, Publication, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics, growth, rss
+from flowpost.services import analytics, giveaway, growth, rss
 from flowpost.services.ai import LANG_NAMES, AIError, AIService
 from flowpost.services.billing import entitlements, limits
-from flowpost.services.delivery import engagement_score
+from flowpost.services.delivery import engagement_score, publication_message_ids
 from flowpost.services.html_sanitize import snippet
-from flowpost.services.posts import channel_defaults, initial_options, part_preview_text
+from flowpost.services.posts import channel_defaults, initial_options, message_link, part_preview_text
 from flowpost.services.publisher import Publisher
+from flowpost.services.slots import tz_of
 from flowpost.services.worker import Worker
 
 router = Router(name="pro")
 
 MAX_FEEDS = 10
 PLAN_SIZE = 7
+GIVEAWAY_POSTS = 10
 LANG_FLAGS = {"uk": "🇺🇦", "en": "🇬🇧", "pl": "🇵🇱", "de": "🇩🇪", "es": "🇪🇸", "fr": "🇫🇷", "it": "🇮🇹", "pt": "🇵🇹"}
 
 
@@ -122,6 +125,7 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
         [btn(on(growth.handles_requests(channel)) + t("pro.join"), Px(a="join", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
         [btn(t("pro.plan"), Px(a="plan", c=c))],
+        [btn(t("pro.giveaway"), Px(a="gw", c=c))],
         [btn(t("pro.translate", lang=(LANG_FLAGS.get(lang, "") + " " + LANG_NAMES[lang]) if lang in LANG_NAMES
                else t("pro.translate_off")), Px(a="tr", c=c))],
         [btn(on(channel.weekly_report) + t("pro.report"), Px(a="rep_t", c=c))],
@@ -667,6 +671,227 @@ async def px_plan_use(cb: CallbackQuery, callback_data: Px, bot: Bot, session: A
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("plan.opened", n=idx + 1))
 
 
+# ---- giveaway among commenters ------------------------------------------------------------------
+
+async def _giveaway_pub(cb: CallbackQuery, session: AsyncSession, channel: Channel, pub_id: int) -> Publication | None:
+    pub = await session.get(Publication, pub_id)
+    if pub is None or pub.channel_id != channel.id or pub.status != "published":
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return None
+    return pub
+
+
+async def _pub_title(session: AsyncSession, pub: Publication, limit: int) -> str:
+    post = await session.get(Post, pub.post_id)
+    text = snippet(part_preview_text(post.parts[0]), limit) if post and post.parts else ""
+    return text or t("parts.no_text")
+
+
+async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [t("gw.title", title=html.escape(channel.title)), "", t("gw.help")]
+    if not channel.discussion_chat_id:
+        lines += ["", t("gw.no_group")]
+        return "\n".join(lines), markup([[btn(t("proj.comments_btn"), Cs(a="cm", c=channel.id))], _back(channel)])
+    pubs = (await session.scalars(
+        select(Publication)
+        .where(Publication.channel_id == channel.id, Publication.status == "published",
+               Publication.deleted.is_(False), Publication.discussion_thread_id.is_not(None))
+        .order_by(Publication.published_at.desc(), Publication.id.desc())
+        .limit(GIVEAWAY_POSTS)
+    )).all()
+    counts = dict((await session.execute(
+        select(Commenter.publication_id, func.count(Commenter.id))
+        .where(Commenter.publication_id.in_([p.id for p in pubs]))
+        .group_by(Commenter.publication_id)
+    )).all()) if pubs else {}
+    lines += ["", t("gw.pick_post") if pubs else t("gw.no_posts")]
+    zone = tz_of(user.tz)
+    rows = []
+    for pub in pubs:
+        when = (pub.published_at or pub.run_at).astimezone(zone).strftime("%d.%m")
+        label = f"{when} · {await _pub_title(session, pub, 28)} · 👥 {counts.get(pub.id, 0)}"
+        rows.append([btn(label, Px(a="gw_post", c=channel.id, id=pub.id, v="s"))])
+    rows.append(_back(channel))
+    return "\n".join(lines), markup(rows)
+
+
+async def giveaway_post_view(
+    session: AsyncSession, channel: Channel, pub: Publication, subscribers_only: bool,
+) -> tuple[str, InlineKeyboardMarkup]:
+    total = len(await giveaway.entrants(session, pub.id))
+    lines = [
+        t("gw.post_title"), "",
+        f"<i>{html.escape(await _pub_title(session, pub, 120))}</i>", "",
+        t("gw.entrants", n=total),
+        t("gw.subs_on") if subscribers_only else t("gw.subs_off"),
+    ]
+    c, mode = channel.id, "s" if subscribers_only else "a"
+    rows = []
+    if total:
+        lines += ["", t("gw.choose_count")]
+        rows.append([btn(t(f"gw.run_{n}"), Px(a="gw_run", c=c, id=pub.id, v=f"{n}{mode}"), style="success")
+                     for n in giveaway.WINNER_CHOICES])
+        rows.append([btn(t("gw.run_custom"), Px(a="gw_ask", c=c, id=pub.id, v=mode))])
+    else:
+        lines += ["", t("gw.no_entrants")]
+    rows += [
+        [btn(on(subscribers_only) + t("gw.subs_btn"), Px(a="gw_post", c=c, id=pub.id, v="a" if subscribers_only else "s"))],
+        [btn(t("btn.back"), Px(a="gw", c=c))],
+    ]
+    return "\n".join(lines), markup(rows)
+
+
+@router.callback_query(Px.filter(F.a == "gw"))
+async def px_giveaway(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
+                      settings: Settings) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings)
+    if channel is None:
+        return
+    await state.set_state(None)
+    await cb.answer()
+    await _edit(cb, *await giveaway_view(session, user, channel))
+
+
+@router.callback_query(Px.filter(F.a == "gw_post"))
+async def px_giveaway_post(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
+                           settings: Settings) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings)
+    pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
+    if pub is None:
+        return
+    await state.set_state(None)
+    await cb.answer()
+    await _edit(cb, *await giveaway_post_view(session, channel, pub, callback_data.v != "a"))
+
+
+@router.callback_query(Px.filter(F.a == "gw_ask"))
+async def px_giveaway_ask(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
+                          settings: Settings) -> None:
+    """«✍️ Своя кількість»: the number of winners is typed in."""
+    channel = await _channel(cb, callback_data, session, user, settings)
+    pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
+    if pub is None:
+        return
+    mode = "a" if callback_data.v == "a" else "s"
+    await state.set_state(ProInput.gw_count)
+    await state.update_data(px_channel=channel.id, gw_pub=pub.id, gw_mode=mode)
+    await cb.answer()
+    await _edit(cb, t("gw.count_prompt", max=giveaway.MAX_WINNERS),
+                markup([[btn(t("btn.back"), Px(a="gw_post", c=channel.id, id=pub.id, v=mode))]]))
+
+
+async def _draw_view(
+    bot: Bot, session: AsyncSession, state: FSMContext, user: User, channel: Channel, pub: Publication,
+    count: int, mode: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Draw `count` winners of `pub` and show the announcement with what can be done with it."""
+    pool = await giveaway.entrants(session, pub.id)
+    owner = await session.get(User, channel.owner_id)
+    winners = await giveaway.draw(bot, channel, pool, count, subscribers_only=mode == "s",
+                                  exclude={owner.tg_id} if owner else set())
+    back = [btn(t("btn.back"), Px(a="gw_post", c=channel.id, id=pub.id, v=mode))]
+    if not winners:
+        return t("gw.none_eligible"), markup([back])
+    ids = publication_message_ids(pub)
+    result = giveaway.result_html(winners, len(pool), message_link(channel, ids[0]) if ids else None, utcnow(), user.tz)
+    await state.update_data(gw_channel=channel.id, gw_text=result)
+    lines = [t("gw.drawn_note")]
+    if len(winners) < count:
+        lines.append(t("gw.fewer", n=len(winners)))
+    lines += ["", "➖➖➖➖➖➖➖➖", "", result]
+    c, p = channel.id, pub.id
+    rows = [
+        [btn(t("gw.publish_now"), Px(a="gw_pub", c=c, id=p), style="success")],
+        [btn(t("gw.schedule"), Px(a="gw_sched", c=c, id=p)), btn(t("gw.edit"), Px(a="gw_edit", c=c, id=p))],
+        [btn(t("gw.reroll"), Px(a="gw_run", c=c, id=p, v=f"{count}{mode}"))],
+        back,
+    ]
+    return "\n".join(lines), markup(rows)
+
+
+@router.callback_query(Px.filter(F.a == "gw_run"))
+async def px_giveaway_run(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
+                          user: User, settings: Settings) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings)
+    pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
+    if pub is None:
+        return
+    digits, mode = callback_data.v[:-1], "a" if callback_data.v.endswith("a") else "s"
+    count = min(max(int(digits), 1), giveaway.MAX_WINNERS) if digits.isdigit() else 1
+    await cb.answer(t("gw.drawing"))
+    await _edit(cb, *await _draw_view(bot, session, state, user, channel, pub, count, mode))
+
+
+@router.message(ProInput.gw_count, F.text)
+async def in_giveaway_count(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+                            settings: Settings) -> None:
+    channel = await _input_channel(message, session, state, user)
+    if channel is None:
+        return
+    raw = (message.text or "").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= giveaway.MAX_WINNERS:
+        await message.answer(t("gw.count_prompt", max=giveaway.MAX_WINNERS))
+        return
+    data = await state.get_data()
+    pub = await session.get(Publication, int(data.get("gw_pub") or 0))
+    await state.set_state(None)
+    if pub is None or pub.channel_id != channel.id or pub.status != "published" \
+            or not await _extras(session, settings, channel):
+        await message.answer(t("err.post_not_found"))
+        return
+    text, kb = await _draw_view(bot, session, state, user, channel, pub, int(raw), data.get("gw_mode") or "s")
+    await message.answer(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+async def _giveaway_post(cb: CallbackQuery, session: AsyncSession, state: FSMContext, channel: Channel) -> Post | None:
+    """The drawn result as a new draft post for the channel — once: a second tap finds nothing left to use."""
+    data = await state.get_data()
+    text = data.get("gw_text")
+    if not text or data.get("gw_channel") != channel.id:
+        await cb.answer(t("gw.expired"), show_alert=True)
+        return None
+    await state.update_data(gw_text=None)
+    return await posts_repo.create_post(
+        session, channel.owner_id, [channel.id], options=initial_options(channel, False), text=text,
+    )
+
+
+async def _drop_buttons(cb: CallbackQuery) -> None:
+    if cb.message is not None:
+        try:
+            await cb.message.edit_reply_markup(reply_markup=None)
+        except TelegramAPIError:
+            pass
+
+
+@router.callback_query(Px.filter(F.a == "gw_pub"), flags={"publish": True})
+async def px_giveaway_publish(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext,
+                              user: User, settings: Settings, worker: Worker) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings)
+    post = await _giveaway_post(cb, session, state, channel) if channel else None
+    if post is None:
+        return
+    await cb.answer(t("pub.working"))
+    report, _ = await publish_now(session, worker, post)
+    await _drop_buttons(cb)
+    if cb.message is not None:
+        await cb.message.answer(report, disable_web_page_preview=True)
+
+
+@router.callback_query(Px.filter(F.a.in_({"gw_sched", "gw_edit"})))
+async def px_giveaway_editor(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
+                             user: User, settings: Settings, publisher: Publisher) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings)
+    post = await _giveaway_post(cb, session, state, channel) if channel else None
+    if post is None:
+        return
+    await cb.answer()
+    await _drop_buttons(cb)
+    await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("gw.opened"))
+    if callback_data.a == "gw_sched":
+        await show_schedule(bot, cb.from_user.id, session, state, user, post)
+
+
 # ---- translation for multiposting ---------------------------------------------------------------
 
 @router.callback_query(Px.filter(F.a.in_({"tr", "tr_set"})))
@@ -690,5 +915,6 @@ async def px_translate(cb: CallbackQuery, callback_data: Px, session: AsyncSessi
 @router.message(ProInput.link_cost)
 @router.message(ProInput.welcome)
 @router.message(ProInput.feed_url)
+@router.message(ProInput.gw_count)
 async def in_wrong(message: Message) -> None:
     await message.answer(t("err.expected_input"))

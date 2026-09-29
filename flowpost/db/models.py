@@ -144,6 +144,21 @@ class JoinRequest(Base):
     approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
+class Commenter(Base):
+    """Someone who commented on a publication in the linked discussion group — an entrant of its giveaway."""
+
+    __tablename__ = "commenters"
+    __table_args__ = (UniqueConstraint("publication_id", "user_tg_id", name="uq_commenters_publication_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    publication_id: Mapped[int] = mapped_column(ForeignKey("publications.id", ondelete="CASCADE"), index=True)
+    user_tg_id: Mapped[int] = mapped_column(BigInteger)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    username: Mapped[str | None] = mapped_column(String(64))
+    comments: Mapped[int] = mapped_column(Integer, default=1)
+    first_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Feed(Base):
     """An RSS/Atom source whose new items become posts in a channel (drafts to review, or published right away)."""
 

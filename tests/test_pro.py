@@ -1,5 +1,5 @@
 """PRO tools: tracked ad links, join requests with a welcome, hidden text, RSS autoposting, the AI content plan,
-translation for multiposting and the weekly report — end to end through the real dispatcher."""
+giveaways among commenters, translation for multiposting and the weekly report — end to end through the real dispatcher."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -8,12 +8,12 @@ from sqlalchemy import select, update
 
 from flowpost.bot.callbacks import Ed, Nc, Pj, Px
 from flowpost.db.models import (
-    Channel, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication, User,
+    Channel, Commenter, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication, User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services import rss
 from flowpost.services.growth import join_settings
-from test_bot_flow import BOT_ID, CHANNEL_CHAT, USER_ID, Harness, _post, _seed_published, h  # noqa: F401
+from test_bot_flow import BOT_ID, CHANNEL_CHAT, DISCUSSION_CHAT, USER_ID, Harness, _post, _seed_published, h  # noqa: F401
 
 READER = 4242
 SECOND_CHAT = -1007770001111
@@ -374,3 +374,123 @@ async def test_weekly_report_goes_out_on_monday_morning_once(h: Harness):
 
     await h.click(Px(a="rep_off", c=channel_id))
     assert (await h.db(lambda s: s.get(Channel, channel_id))).weekly_report is False
+
+
+# ---- giveaway among commenters ------------------------------------------------------------------
+
+async def _seed_giveaway(h: Harness) -> tuple[int, int]:
+    channel_id, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+
+    async def trial(s):
+        await s.execute(update(Channel).values(trial_ends_at=utcnow() + timedelta(days=5)))
+        await s.commit()
+    await h.db(trial)
+    return channel_id, pub_id
+
+
+async def _comment(h: Harness, uid: int, name: str, *, username: str | None = None, is_bot: bool = False,
+                   text: str = "Беру участь!") -> None:
+    person = {"id": uid, "is_bot": is_bot, "first_name": name, **({"username": username} if username else {})}
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "from": person, "text": text,
+    })
+
+
+async def test_giveaway_draws_winners_among_commenters_and_publishes_the_result(h: Harness):
+    channel_id, pub_id = await _seed_giveaway(h)
+    await _comment(h, 1, "Марія", username="maria")
+    await _comment(h, 1, "Марія", username="maria", text="І ще раз")  # a second comment is not a second ticket
+    await _comment(h, 2, "Петро")
+    await _comment(h, 3, "Іван")
+    await _comment(h, 4, "Leaver")
+    await _comment(h, USER_ID, "Олена")  # the channel owner can't win their own giveaway
+    await _comment(h, 5, "Bot", is_bot=True)
+    entrants = list(await h.db(lambda s: s.scalars(select(Commenter).order_by(Commenter.user_tg_id))))
+    assert [(e.user_tg_id, e.comments) for e in entrants] == [(1, 2), (2, 1), (3, 1), (4, 1), (USER_ID, 1)]
+    assert (await h.db(lambda s: s.get(Publication, pub_id))).comments_count == 6
+
+    h.session.clear()
+    await h.click(Px(a="gw", c=channel_id))
+    listing = h.session.calls[-1][1]
+    assert "Розіграш у коментарях" in listing.text
+    assert Px(a="gw_post", c=channel_id, id=pub_id, v="s").pack() in str(listing.reply_markup)
+    assert "👥 5" in str(listing.reply_markup)
+
+    h.session.member_status[4] = "left"
+    h.session.clear()
+    await h.click(Px(a="gw_run", c=channel_id, id=pub_id, v="3s"))
+    shown = h.session.calls[-1][1].text
+    assert shown.count("🥇") == shown.count("🥈") == shown.count("🥉") == 1
+    assert "Leaver" not in shown and "Олена" not in shown
+    assert "Серед <b>5</b> учасників" in shown and "https://t.me/testchan/4242" in shown
+    assert '<a href="tg://user?id=1">Марія</a> (@maria)' in shown
+
+    h.session.clear()
+    await h.click(Px(a="gw_pub", c=channel_id, id=pub_id))
+    published = _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert len(published) == 1 and "Результати розіграшу" in published[0].text
+    assert "🥇" in published[0].text and "Leaver" not in published[0].text
+
+    # the same result can't go out twice
+    h.session.clear()
+    await h.click(Px(a="gw_pub", c=channel_id, id=pub_id))
+    assert not _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+
+
+async def test_giveaway_with_one_winner_can_be_scheduled_through_the_editor(h: Harness):
+    channel_id, pub_id = await _seed_giveaway(h)
+    await _comment(h, 1, "Марія")
+    await _comment(h, 2, "Петро")
+
+    await h.click(Px(a="gw_post", c=channel_id, id=pub_id, v="a"))
+    h.session.clear()
+    await h.click(Px(a="gw_run", c=channel_id, id=pub_id, v="1a"))
+    shown = h.session.calls[-1][1].text
+    assert "🥇" in shown and "🥈" not in shown and "переможцем став" in shown
+
+    h.session.clear()
+    await h.click(Px(a="gw_sched", c=channel_id, id=pub_id))
+    post = await h.db(lambda s: s.scalar(select(Post).where(Post.status == "draft")))
+    assert post is not None and "Результати розіграшу" in post.parts[0].text_html
+    assert not _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert "Результати розіграшу" in h.session.texts()
+
+
+async def test_giveaway_asks_to_link_a_discussion_group_first(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    h.session.clear()
+    await h.click(Px(a="gw", c=c))
+    assert "групу обговорень" in h.session.texts()
+
+
+async def test_giveaway_number_of_winners_can_be_typed_in(h: Harness):
+    channel_id, pub_id = await _seed_giveaway(h)
+    for uid in range(1, 7):
+        await _comment(h, uid, f"Читач{uid}", text=f"Коментар {uid}")
+
+    await h.click(Px(a="gw_ask", c=channel_id, id=pub_id, v="s"))
+    h.session.clear()
+    await h.text("0")
+    assert "від 1 до 30" in h.session.texts()
+
+    h.session.clear()
+    await h.text("5")
+    shown = h.session.calls[-1][1].text
+    assert "🥇" in shown and "🥉" in shown and "4. <b>" in shown and "5. <b>" in shown and "6. <b>" not in shown
+    assert Px(a="gw_run", c=channel_id, id=pub_id, v="5s").pack() in str(h.session.calls[-1][1].reply_markup)
+
+    # «Обрати заново» keeps the typed count
+    h.session.clear()
+    await h.click(Px(a="gw_run", c=channel_id, id=pub_id, v="5s"))
+    assert "5. <b>" in h.session.calls[-1][1].text
+
+    # more winners than entrants: everyone who qualifies wins, with a note
+    await h.click(Px(a="gw_ask", c=channel_id, id=pub_id, v="a"))
+    h.session.clear()
+    await h.text("10")
+    shown = h.session.calls[-1][1].text
+    assert "лише 6" in shown and "6. <b>" in shown
