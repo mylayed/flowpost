@@ -490,6 +490,7 @@ TEXTS: dict[str, str] = {
     "plan.count_published": "Опубліковано постів: {n}. Натисніть на пост, щоб редагувати його.",
     "plan.empty_published": "На цей день нічого не опубліковано.",
     "plan.new_post": "✍️ Створити пост",
+    "plan.calendar": "📅 Календар на тиждень",
     "plan.post_title": "🗓 <b>Запланований пост</b>",
     "plan.post_title_published": "✅ <b>Опублікований пост</b>",
     "plan.edit": "✏️ Редагувати",

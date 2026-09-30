@@ -68,6 +68,48 @@ async def pending_between(
     return list((await session.scalars(stmt.order_by(Publication.run_at))).all())
 
 
+MOVABLE_STATUSES = ("pending", "paused")
+
+
+async def calendar_between(
+    session: AsyncSession, owner_id: int, start: datetime, end: datetime, channel_ids: list[int]
+) -> list[Publication]:
+    """Queued publications due in [start, end) and those published in it, for the Mini App calendar."""
+    queued = Publication.status.in_(ACTIVE_STATUSES) & (Publication.run_at >= start) & (Publication.run_at < end)
+    published = (
+        (Publication.status == "published")
+        & Publication.deleted.is_(False)
+        & (Publication.published_at >= start)
+        & (Publication.published_at < end)
+    )
+    stmt = select(Publication).where(
+        await _accessible_condition(session, owner_id),
+        Publication.channel_id.in_(channel_ids),
+        queued | published,
+    )
+    return list((await session.scalars(stmt.order_by(Publication.run_at, Publication.id))).all())
+
+
+async def move_queued(
+    session: AsyncSession, owner_id: int, pub_ids: list[int], run_at: datetime, now: datetime
+) -> int:
+    """Reschedule the given publications that are still waiting to run. A 'pending' one that is already due belongs
+    to the worker (it claims due rows under FOR UPDATE), so it is left alone; a 'paused' one keeps its status and
+    runs at the new time once its channel is paid for again. Returns how many were moved."""
+    result = await session.execute(
+        update(Publication)
+        .where(
+            Publication.id.in_(pub_ids),
+            await _accessible_condition(session, owner_id),
+            Publication.status.in_(MOVABLE_STATUSES),
+            (Publication.status == "paused") | (Publication.run_at > now),
+        )
+        .values(run_at=run_at)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount
+
+
 async def next_run(session: AsyncSession, post_id: int) -> datetime | None:
     return await session.scalar(
         select(Publication.run_at)

@@ -7,7 +7,7 @@ from datetime import date
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Cp
@@ -15,6 +15,7 @@ from flowpost.bot.handlers.editor.publish import publish_now
 from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import fmt_interval, open_editor
 from flowpost.bot.keyboards.common import btn, markup, page_nav, paged
+from flowpost.config import Settings
 from flowpost.db.models import Channel, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
@@ -45,7 +46,7 @@ async def channel_picker_view(
 
 async def plan_view(
     session: AsyncSession, user: User, day: date | None = None, mode: str = "s", channel_id: int = 0,
-    *, multi: bool = False,
+    *, multi: bool = False, settings: Settings | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     today = local_now(user.tz).date()
     day = max(day or today, today)
@@ -89,18 +90,21 @@ async def plan_view(
         rows.append([btn(label, Cp(a="post", d=ordinal, id=post.id, m=mode, c=c))])
     lines.append((t("plan.count_published", n=len(seen)) if seen else t("plan.empty_published")) if published
                  else (t("plan.count", n=len(seen)) if seen else t("plan.empty")))
+    if settings is not None and settings.webapp_url:
+        url = f"{settings.webapp_url}?view=calendar"
+        rows.append([InlineKeyboardButton(text=t("plan.calendar"), web_app=WebAppInfo(url=url))])
     rows.append([btn(t("plan.new_post"), Cp(a="new"))])
     return "\n".join(lines), markup(rows)
 
 
-async def send_plan(message: Message, session: AsyncSession, user: User) -> None:
+async def send_plan(message: Message, session: AsyncSession, user: User, settings: Settings) -> None:
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     if len(channels) > 1:
         text, kb = await channel_picker_view(channels, user.channels_per_page)
         await message.answer(text, reply_markup=kb)
         return
     channel_id = channels[0].id if channels else 0
-    text, kb = await plan_view(session, user, channel_id=channel_id)
+    text, kb = await plan_view(session, user, channel_id=channel_id, settings=settings)
     await message.answer(text, reply_markup=kb)
 
 
@@ -120,12 +124,14 @@ async def cp_noop(cb: CallbackQuery) -> None:
 
 
 @router.callback_query(Cp.filter(F.a == "day"))
-async def cp_day(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
+async def cp_day(
+    cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User, settings: Settings
+) -> None:
     await cb.answer()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     day = date.fromordinal(callback_data.d) if callback_data.d else None
     await _edit(cb, *await plan_view(
-        session, user, day, callback_data.m, callback_data.c, multi=len(channels) > 1,
+        session, user, day, callback_data.m, callback_data.c, multi=len(channels) > 1, settings=settings,
     ))
 
 
@@ -207,7 +213,9 @@ async def cp_publish_now(
 
 
 @router.callback_query(Cp.filter(F.a.in_({"drop", "dropok"})))
-async def cp_drop(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
+async def cp_drop(
+    cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User, settings: Settings
+) -> None:
     post = await posts_repo.get_post(session, user.id, callback_data.id)
     if post is None:
         await cb.answer(t("err.post_not_found"), show_alert=True)
@@ -229,6 +237,7 @@ async def cp_drop(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, u
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     await _edit(cb, *await plan_view(
         session, user, date.fromordinal(callback_data.d), channel_id=callback_data.c, multi=len(channels) > 1,
+        settings=settings,
     ))
 
 

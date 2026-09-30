@@ -369,3 +369,75 @@ async def test_subscribe_channels_from_wallet(sessionmaker, seeded):
         assert (detail["posts_per_day"], detail["days_left"]) == (50, 53)
     finally:
         await client.close()
+
+
+async def test_calendar_week_and_move(sessionmaker, seeded):
+    settings = Settings(bot_token=TOKEN, webapp_enabled=True, liqpay_enabled=False, _env_file=None)
+    client = await _client(settings, sessionmaker, InvoiceBot())
+    auth = {"Authorization": "tma " + init_data({"id": seeded.tg_id, "first_name": "Олена"})}
+    now = utcnow()
+    async with sessionmaker() as session:
+        other = User(tg_id=999, trial_ends_at=now)
+        session.add(other)
+        await session.flush()
+        foreign = Channel(owner_id=other.id, chat_id=-1005, kind="channel", title="Чужий", watermark={})
+        session.add(foreign)
+        await session.flush()
+        upcoming = Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                               run_at=now + timedelta(hours=2), status="pending")
+        due = Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                          run_at=now - timedelta(minutes=1), status="pending")
+        paused = Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                             run_at=now - timedelta(hours=1), status="paused")
+        done = Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                           run_at=now - timedelta(hours=3), published_at=now - timedelta(hours=3),
+                           status="published", message_ids={"parts": [{"ids": [42]}]})
+        cancelled = Publication(post_id=seeded.post_id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                                run_at=now + timedelta(hours=1), status="cancelled")
+        theirs = Publication(post_id=seeded.post_id, channel_id=foreign.id, owner_id=other.id,
+                             run_at=now + timedelta(hours=1), status="pending")
+        session.add_all([upcoming, due, paused, done, cancelled, theirs])
+        await session.commit()
+        ids = SimpleNamespace(upcoming=upcoming.id, due=due.id, paused=paused.id, done=done.id,
+                              cancelled=cancelled.id, theirs=theirs.id, foreign=foreign.id)
+    try:
+        assert (await client.get("/api/calendar")).status == 401
+        assert (await client.get(f"/api/calendar?channel={ids.foreign}", headers=auth)).status == 404
+        week = await (await client.get("/api/calendar", headers=auth)).json()
+        assert week["channels"] == [{"id": seeded.channel_id, "title": "Наше місто"}]
+        assert week["start"] <= week["today"] and 0 <= week["now"] < 1440
+        by_id = {i["id"]: i for i in week["items"]}
+        # The listing may miss items that fall in the neighbouring week around Monday midnight.
+        assert ids.cancelled not in by_id and ids.theirs not in by_id
+        if ids.done in by_id:
+            item = by_id[ids.done]
+            assert item["status"] == "published" and item["link"] == "https://t.me/nashe_misto/42"
+        if ids.upcoming in by_id:
+            item = by_id[ids.upcoming]
+            assert (item["text"], item["icon"], item["link"]) == ("Новина дня", "📝", None)
+
+        async def move(pub_ids, day="2099-01-05", hm="09:30"):
+            return await client.post("/api/calendar/move", json={"ids": pub_ids, "date": day, "time": hm}, headers=auth)
+
+        assert (await move([ids.upcoming], hm="9:30")).status == 400
+        assert (await move([ids.upcoming], day="2020-01-01")).status == 400
+        assert (await move([])).status == 400
+        for blocked in (ids.due, ids.done, ids.cancelled, ids.theirs):
+            assert (await move([ids.upcoming, blocked])).status == 409
+        async with sessionmaker() as session:
+            assert (await session.get(Publication, ids.upcoming)).run_at == upcoming.run_at
+
+        assert (await move([ids.upcoming, ids.paused])).status == 200
+        async with sessionmaker() as session:
+            moved = [await session.get(Publication, i) for i in (ids.upcoming, ids.paused)]
+        # 09:30 in Kyiv (UTC+2 in January) is 07:30 UTC; a paused publication stays paused.
+        assert [p.run_at.strftime("%Y-%m-%d %H:%M") for p in moved] == ["2099-01-05 07:30"] * 2
+        assert [p.status for p in moved] == ["pending", "paused"]
+
+        later = await (await client.get("/api/calendar?start=2099-01-07", headers=auth)).json()
+        assert later["start"] == "2099-01-05"
+        assert [(i["id"], i["date"], i["time"]) for i in later["items"]] == [
+            (ids.upcoming, "2099-01-05", "09:30"), (ids.paused, "2099-01-05", "09:30"),
+        ]
+    finally:
+        await client.close()

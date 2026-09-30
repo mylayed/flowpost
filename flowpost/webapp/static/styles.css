@@ -816,3 +816,244 @@ main { flex: 1; padding-bottom: 24px; }
 .star-amount .star-icon { vertical-align: baseline; }
 
 .notice { margin-top: 30vh; text-align: center; color: var(--muted); }
+
+.icon.flip { transform: rotate(180deg); }
+
+.cal-select { margin: 0 0 12px; }
+
+.cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+
+.cal-arrow {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.cal-arrow:active { background: var(--surface-active); }
+
+.cal-arrow .icon { width: 16px; height: 16px; }
+
+.cal-range {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-today { flex: none; }
+
+.cal-board { overflow: hidden; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); }
+
+.cal-head, .cal-grid { display: grid; grid-template-columns: 34px repeat(7, minmax(0, 1fr)); }
+
+.cal-head { padding: 10px 0 8px; border-bottom: 1px solid var(--border); }
+
+.cal-day {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--muted);
+}
+
+.cal-day b {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.cal-day.today { color: var(--accent-2); }
+
+.cal-day.today b { background: var(--accent); color: #fff; }
+
+.cal-body { position: relative; max-height: min(62vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
+
+.cal-grid { position: relative; }
+
+.cal-hours { position: relative; }
+
+.cal-hours span {
+  position: absolute;
+  right: 6px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.cal-col {
+  position: relative;
+  border-left: 1px solid var(--border);
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0, transparent calc(var(--hour) - 1px), var(--border) calc(var(--hour) - 1px), var(--border) var(--hour)
+  );
+}
+
+.cal-past { position: absolute; top: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.18); pointer-events: none; }
+
+.cal-now { position: absolute; left: -1px; right: 0; z-index: 2; height: 2px; background: #ff6b6b; pointer-events: none; }
+
+.cal-now::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff6b6b;
+}
+
+.cal-card {
+  position: absolute;
+  z-index: 1;
+  height: calc(var(--hour) / 2 - 2px);
+  margin-top: 1px;
+  padding: 0 3px;
+  overflow: hidden;
+  border: 0;
+  border-left: 3px solid var(--c);
+  border-radius: 6px;
+  background: rgba(139, 141, 216, 0.22);
+  background: color-mix(in srgb, var(--c) 26%, var(--surface));
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.cal-card.movable { cursor: grab; }
+
+.cal-card.done { border-left-color: var(--muted); background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+
+.cal-card.paused { border-left-style: dashed; opacity: 0.65; }
+
+.cal-card.dragging { opacity: 0.3; }
+
+.cal-ghost {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.cal-ghost.invalid { border-left-color: #ff6b6b; }
+
+.cal-drop {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  z-index: 3;
+  height: calc(var(--hour) / 2 - 2px);
+  margin-top: 1px;
+  border: 1.5px dashed var(--accent-2);
+  border-radius: 6px;
+  background: rgba(139, 141, 216, 0.16);
+  pointer-events: none;
+}
+
+.cal-drop.invalid { border-color: #ff6b6b; background: rgba(255, 107, 107, 0.14); }
+
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+
+.cal-legend .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; cursor: default; }
+
+.cal-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+
+.cal-row { gap: 10px; }
+
+.cal-row .grow { font-weight: 600; }
+
+.cal-row-time { flex: none; width: 40px; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+.cal-row.done { color: var(--muted); }
+
+.cal-row:last-child { border-bottom: 0; }
+
+.cal-badge { flex: none; display: inline-flex; font-size: 12px; font-weight: 600; color: var(--muted); }
+
+.cal-badge .icon { width: 16px; height: 16px; }
+
+.cal-badge.warn { color: #f5a524; }
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(8, 11, 18, 0);
+  pointer-events: none;
+  transition: background 0.2s;
+}
+
+.sheet-backdrop.open { background: rgba(8, 11, 18, 0.6); pointer-events: auto; }
+
+.sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 10px 22px calc(22px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  background: var(--surface);
+  transform: translateY(100%);
+  transition: transform 0.22s ease-out;
+}
+
+.sheet-backdrop.open .sheet { transform: none; }
+
+.sheet-grip { width: 36px; height: 4px; margin: 0 auto 16px; border-radius: 2px; background: rgba(255, 255, 255, 0.15); }
+
+.sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+
+.sheet-head .grow { flex: 1; min-width: 0; }
+
+.sheet-title { font-size: 17px; font-weight: 700; }
+
+.sheet-sub { font-size: 13px; color: var(--muted); }
+
+.sheet-text { margin-bottom: 14px; font-size: 14px; color: var(--text-soft); overflow-wrap: anywhere; }
+
+.sheet-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 18px; }
+
+.sheet-fields .field-label { margin-bottom: 8px; }
+
+.sheet .amount-input { width: 100%; font-size: 16px; }
+
+.sheet .btn { margin-top: 6px; }
+
+.sheet .sheet-btn { margin-top: 18px; }

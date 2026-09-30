@@ -163,6 +163,30 @@ const I18N = {
     invalid_amount: "Введіть цілу суму від {min} до {max} Stars.",
     error: "Щось пішло не так. Спробуйте ще раз.",
     open_in_telegram: "Відкрийте цю сторінку через бота в Telegram.",
+    content: "Контент",
+    calendar: "Календар публікацій",
+    cal_title: "Календар",
+    cal_hint: "Утримуйте пост і перетягніть на інший день чи час. Натисніть, щоб відкрити.",
+    cal_all: "Усі канали",
+    cal_today: "Сьогодні",
+    cal_prev: "Попередній тиждень",
+    cal_next: "Наступний тиждень",
+    cal_empty: "На цьому тижні публікацій немає.",
+    cal_no_text: "Без тексту",
+    cal_channel: "Канал",
+    cal_channels: "Канали",
+    cal_status_pending: "Заплановано",
+    cal_status_paused: "На паузі: у каналу немає тарифу",
+    cal_status_publishing: "Публікується",
+    cal_status_published: "Опубліковано",
+    cal_badge_paused: "Пауза",
+    cal_repeat: "Автоповтор",
+    cal_on: "Увімкнено",
+    cal_date: "Дата",
+    cal_time: "Час",
+    cal_move: "Перенести",
+    cal_past: "Цей час уже минув. Оберіть пізніший.",
+    cal_not_movable: "Цей пост уже публікується або його скасували.",
   },
   en: {
     balance: "Balance",
@@ -317,6 +341,30 @@ const I18N = {
     invalid_amount: "Enter a whole amount from {min} to {max} Stars.",
     error: "Something went wrong. Please try again.",
     open_in_telegram: "Open this page from the bot in Telegram.",
+    content: "Content",
+    calendar: "Publishing calendar",
+    cal_title: "Calendar",
+    cal_hint: "Press and hold a post, then drag it to another day or time. Tap a post to open it.",
+    cal_all: "All channels",
+    cal_today: "Today",
+    cal_prev: "Previous week",
+    cal_next: "Next week",
+    cal_empty: "No posts this week.",
+    cal_no_text: "No text",
+    cal_channel: "Channel",
+    cal_channels: "Channels",
+    cal_status_pending: "Scheduled",
+    cal_status_paused: "Paused: the channel has no plan",
+    cal_status_publishing: "Publishing",
+    cal_status_published: "Published",
+    cal_badge_paused: "Paused",
+    cal_repeat: "Auto-repeat",
+    cal_on: "On",
+    cal_date: "Date",
+    cal_time: "Time",
+    cal_move: "Reschedule",
+    cal_past: "That time has passed. Pick a later one.",
+    cal_not_movable: "This post is already being published or was cancelled.",
   },
 };
 
@@ -329,6 +377,7 @@ const ICONS = {
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
 };
 
 const state = {
@@ -345,6 +394,7 @@ const state = {
   plansUi: null,
   calc: null,
   transfer: null,
+  cal: null,
 };
 
 function loadPref(key, fallback) {
@@ -583,6 +633,8 @@ function renderHome() {
       menuItem("sliders", t("align"), soon),
       menuItem("swap", t("transfer"), () => go("transfer")),
       menuItem("tag", t("plans"), () => go("plans"))),
+    h("div", { class: "section-label" }, t("content")),
+    h("div", { class: "menu" }, menuItem("calendar", t("calendar"), () => go("calendar"))),
     me.channels.length ? null : h("p", { class: "hint" }, t("no_channels")),
     h("div", { class: "menu menu-bottom" }, menuItem("list", t("my_channels"), () => go("channels"))),
   ];
@@ -1483,6 +1535,465 @@ function renderChannel(id) {
   ];
 }
 
+const CAL_HOUR = 44; // px per hour in the week grid
+const CAL_SNAP = 15; // minutes a dragged post snaps to
+const CAL_SPAN = 30; // minutes a card covers in the grid
+const CAL_HOLD = 320; // ms to press a post on a touch screen before it can be dragged
+const CAL_COLORS = ["#8b8dd8", "#34d399", "#f5a524", "#6ab3f3", "#f472b6", "#a3e635", "#fb7185", "#22d3ee"];
+const CAL_MOVABLE = new Set(["pending", "paused"]);
+let calDrag = null;
+let calSheet = null;
+
+function isoAddDays(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function calDate(iso, options) {
+  const locale = state.lang === "en" ? "en-US" : "uk-UA";
+  return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" }).format(new Date(`${iso}T00:00:00Z`));
+}
+
+function hm(minutes) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function toMinutes(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+// The server sends "now" in the user's time zone; this keeps it ticking without a refetch.
+function calNow() {
+  const data = state.cal.data;
+  const minutes = data.now + Math.floor((Date.now() - data.fetchedAt) / 60000);
+  return minutes >= 1440 ? [isoAddDays(data.today, 1), minutes - 1440] : [data.today, minutes];
+}
+
+function calIsPast(date, minutes) {
+  const [today, now] = calNow();
+  return date < today || (date === today && minutes <= now);
+}
+
+function calKey(cal) {
+  return `${cal.start}|${cal.channel}`;
+}
+
+async function loadCalendar(cal) {
+  const query = new URLSearchParams({ channel: String(cal.channel) });
+  if (cal.start) query.set("start", cal.start);
+  const data = await api(`calendar?${query}`);
+  data.fetchedAt = Date.now();
+  cal.start = data.start;
+  cal.data = data;
+  cal.key = calKey(cal);
+}
+
+function channelColor(id) {
+  const index = state.cal.data.channels.findIndex((c) => c.id === id);
+  return CAL_COLORS[Math.max(index, 0) % CAL_COLORS.length];
+}
+
+// One card per post and time: a multiposted post's copies in several channels move together.
+function calGroups(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const done = item.status === "published";
+    const key = `${item.post_id}|${item.date}|${item.time}|${done}`;
+    if (!groups.has(key)) groups.set(key, { date: item.date, minutes: toMinutes(item.time), done, items: [] });
+    groups.get(key).items.push(item);
+  }
+  return [...groups.values()]
+    .map((g) => {
+      const channels = new Set(g.items.map((i) => i.channel_id));
+      const paused = g.items.some((i) => i.status === "paused");
+      let status = g.done ? "published" : "pending";
+      if (g.items.some((i) => i.status === "publishing")) status = "publishing";
+      else if (paused) status = "paused";
+      return {
+        ...g,
+        status,
+        icon: g.items[0].icon,
+        text: g.items[0].text,
+        link: g.items[0].link,
+        repeat: g.items.some((i) => i.repeat),
+        color: channels.size === 1 ? channelColor(g.items[0].channel_id) : "var(--accent-2)",
+        // A pending post that is already due is the worker's to publish; a paused one can still be moved.
+        movable: g.items.every((i) => CAL_MOVABLE.has(i.status)) && (paused || !calIsPast(g.date, g.minutes)),
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.minutes - b.minutes);
+}
+
+// Side-by-side lanes for posts whose cards would overlap in one day column.
+function layoutDay(groups) {
+  const placed = [];
+  let cluster = [];
+  let laneEnds = [];
+  let clusterEnd = -Infinity;
+  const flush = () => {
+    cluster.forEach((p) => { p.lanes = laneEnds.length; });
+    cluster = [];
+    laneEnds = [];
+    clusterEnd = -Infinity;
+  };
+  for (const group of groups) {
+    if (group.minutes >= clusterEnd) flush();
+    let lane = laneEnds.findIndex((end) => end <= group.minutes);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = group.minutes + CAL_SPAN;
+    clusterEnd = Math.max(clusterEnd, group.minutes + CAL_SPAN);
+    const p = { group, lane, lanes: 1 };
+    cluster.push(p);
+    placed.push(p);
+  }
+  flush();
+  return placed;
+}
+
+function calGo(start) {
+  state.cal.start = start;
+  state.cal.scroll = null;
+  render();
+}
+
+function renderCalendar() {
+  const cal = (state.cal ??= { start: null, channel: 0, data: null, key: null, scroll: null });
+  const root = h("div", { class: "cal" });
+  if (cal.data && cal.key === calKey(cal)) paintCalendar(root);
+  else {
+    root.append(h("p", { class: "empty-state" }, "…"));
+    loadCalendar(cal)
+      .then(() => { if (route() === "calendar" && root.isConnected) paintCalendar(root); })
+      .catch(() => root.replaceChildren(h("p", { class: "empty-state" }, t("error"))));
+  }
+  return [
+    h("h1", { class: "title title-tight" }, t("cal_title")),
+    h("div", { class: "subtitle" }, t("cal_hint")),
+    root,
+  ];
+}
+
+function calCard({ group: g, lane, lanes }) {
+  const classes = ["cal-card", g.done && "done", g.status === "paused" && "paused", g.movable && "movable"];
+  const card = h("button", {
+    class: classes.filter(Boolean).join(" "),
+    type: "button",
+    style: `top:${(g.minutes * CAL_HOUR) / 60}px; left:calc(${(lane * 100) / lanes}% + 1px); `
+      + `width:calc(${100 / lanes}% - 2px); --c:${g.color}`,
+    "aria-label": `${hm(g.minutes)} ${g.text || t("cal_no_text")}`,
+    onclick: () => {
+      if (card.dragged) card.dragged = false;
+      else openCalSheet(g);
+    },
+    oncontextmenu: (event) => event.preventDefault(),
+  }, lanes === 1 ? hm(g.minutes) : g.icon);
+  card.addEventListener("pointerdown", (event) => startCalPress(event, card, g));
+  return card;
+}
+
+function calBadge(g) {
+  if (g.status === "paused") return h("span", { class: "cal-badge warn" }, t("cal_badge_paused"));
+  if (g.done) return h("span", { class: "cal-badge" }, icon("check"));
+  if (g.repeat) return h("span", { class: "cal-badge" }, "↻");
+  return null;
+}
+
+function paintCalendar(root) {
+  const cal = state.cal;
+  const data = cal.data;
+  const days = Array.from({ length: 7 }, (_, i) => isoAddDays(data.start, i));
+  const groups = calGroups(data.items);
+  const [today, now] = calNow();
+  const thisWeek = days.includes(today);
+
+  const channelPicker = data.channels.length > 1
+    ? h("div", { class: "select-wrap cal-select" }, dropdown({
+      id: "cal-channel",
+      options: [{ value: 0, label: t("cal_all") }, ...data.channels.map((c) => ({ value: c.id, label: c.title }))],
+      value: cal.channel,
+      onChange: (id) => {
+        cal.channel = Number(id);
+        cal.scroll = null;
+        render();
+      },
+    }))
+    : null;
+
+  const range = `${calDate(days[0], { day: "numeric", month: "short" })} – `
+    + calDate(days[6], { day: "numeric", month: "short", year: "numeric" });
+  const nav = h("div", { class: "cal-nav" },
+    h("button", { class: "cal-arrow", type: "button", "aria-label": t("cal_prev"), onclick: () => calGo(isoAddDays(data.start, -7)) },
+      icon("chevron", "flip")),
+    h("div", { class: "cal-range" }, range),
+    thisWeek ? null : h("button", { class: "chip active cal-today", type: "button", onclick: () => calGo(today) }, t("cal_today")),
+    h("button", { class: "cal-arrow", type: "button", "aria-label": t("cal_next"), onclick: () => calGo(isoAddDays(data.start, 7)) },
+      icon("chevron")));
+
+  const head = h("div", { class: "cal-head" }, h("span"), days.map((d) =>
+    h("div", { class: d === today ? "cal-day today" : "cal-day" },
+      calDate(d, { weekday: "short" }),
+      h("b", {}, String(Number(d.slice(8)))))));
+
+  const cols = days.map((d) => {
+    const col = h("div", { class: "cal-col", "data-date": d });
+    const past = d < today ? 1440 : d === today ? now : 0;
+    if (past) col.append(h("div", { class: "cal-past", style: `height:${(past * CAL_HOUR) / 60}px` }));
+    if (d === today) col.append(h("div", { class: "cal-now", style: `top:${(now * CAL_HOUR) / 60}px` }));
+    col.append(...layoutDay(groups.filter((g) => g.date === d)).map(calCard));
+    return col;
+  });
+  const hours = h("div", { class: "cal-hours" }, Array.from({ length: 23 }, (_, i) =>
+    h("span", { style: `top:${(i + 1) * CAL_HOUR}px` }, hm((i + 1) * 60))));
+  const grid = h("div", { class: "cal-grid", style: `--hour:${CAL_HOUR}px; height:${24 * CAL_HOUR}px` }, hours, cols);
+  const body = h("div", { class: "cal-body" }, grid);
+  body.addEventListener("scroll", () => { cal.scroll = body.scrollTop; }, { passive: true });
+
+  const legend = cal.channel === 0 && data.channels.length > 1
+    ? h("div", { class: "cal-legend" }, data.channels.map((c) =>
+      h("span", { class: "chip" }, h("span", { class: "cal-dot", style: `--c:${channelColor(c.id)}` }), c.title)))
+    : null;
+
+  const agenda = groups.length
+    ? days.map((d) => {
+      const list = groups.filter((g) => g.date === d);
+      if (!list.length) return null;
+      return [
+        h("div", { class: "section-label" }, calDate(d, { weekday: "long", day: "numeric", month: "long" })),
+        h("section", { class: "renew-card" }, list.map((g) =>
+          h("button", { class: g.done ? "renew-row cal-row done" : "renew-row cal-row", type: "button", onclick: () => openCalSheet(g) },
+            h("span", { class: "cal-row-time" }, hm(g.minutes)),
+            h("span", { class: "cal-dot", style: `--c:${g.color}` }),
+            h("span", { class: "grow" }, `${g.icon} ${g.text || t("cal_no_text")}`),
+            calBadge(g),
+            icon("chevron", "chev")))),
+      ];
+    })
+    : h("p", { class: "empty-state" }, t("cal_empty"));
+
+  root.replaceChildren(channelPicker ?? "", nav, h("section", { class: "cal-board" }, head, body), legend ?? "", ...[agenda].flat(2).filter(Boolean));
+  let scroll = cal.scroll;
+  if (scroll == null) {
+    const upcoming = groups.find((g) => !g.done && !calIsPast(g.date, g.minutes));
+    let focus = 8 * 60;
+    if (thisWeek) focus = now;
+    else if (groups.length) focus = groups.reduce((min, g) => Math.min(min, g.minutes), 1440);
+    if (thisWeek && upcoming && upcoming.date === today) focus = Math.min(focus, upcoming.minutes);
+    scroll = Math.max(focus - 60, 0) * (CAL_HOUR / 60);
+  }
+  // The root may not be in the document yet, and a detached element can't scroll.
+  requestAnimationFrame(() => { body.scrollTop = scroll; });
+}
+
+// ---- drag and drop -------------------------------------------------------------------------
+
+// A dragged post must not scroll the grid or collapse the Mini App; only a non-passive listener can stop that.
+document.addEventListener("touchmove", (event) => {
+  if (calDrag?.active) event.preventDefault();
+}, { passive: false });
+
+function startCalPress(event, card, group) {
+  card.dragged = false;
+  if (event.button !== 0 || calDrag || !group.movable) return;
+  const drag = {
+    card, group, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+    touch: event.pointerType !== "mouse", active: false, timer: null, frame: null, target: null,
+  };
+  calDrag = drag;
+  if (drag.touch) drag.timer = setTimeout(() => activateCalDrag(drag), CAL_HOLD);
+  window.addEventListener("pointermove", onCalPointerMove);
+  window.addEventListener("pointerup", onCalPointerUp);
+  window.addEventListener("pointercancel", endCalDrag);
+}
+
+function activateCalDrag(drag) {
+  const body = drag.card.closest(".cal-body");
+  if (!body) {
+    endCalDrag();
+    return;
+  }
+  const rect = drag.card.getBoundingClientRect();
+  drag.active = true;
+  drag.body = body;
+  drag.cols = [...body.querySelectorAll(".cal-col")];
+  drag.offsetY = Math.min(Math.max(drag.y - rect.top, 0), rect.height);
+  drag.ghost = h("div", { class: "cal-card cal-ghost", style: `--c:${drag.group.color}` });
+  drag.marker = h("div", { class: "cal-drop" });
+  document.body.append(drag.ghost);
+  drag.card.classList.add("dragging");
+  drag.card.dragged = true;
+  tg.HapticFeedback?.impactOccurred("medium");
+  updateCalDrag(drag);
+  const tick = () => {
+    const box = drag.body.getBoundingClientRect();
+    const edge = 40;
+    let delta = 0;
+    if (drag.y < box.top + edge) delta = -Math.ceil((box.top + edge - drag.y) / 4);
+    else if (drag.y > box.bottom - edge) delta = Math.ceil((drag.y - box.bottom + edge) / 4);
+    if (delta) {
+      drag.body.scrollTop += delta;
+      updateCalDrag(drag);
+    }
+    drag.frame = requestAnimationFrame(tick);
+  };
+  drag.frame = requestAnimationFrame(tick);
+}
+
+function updateCalDrag(drag) {
+  const rects = drag.cols.map((col) => col.getBoundingClientRect());
+  let index = rects.findIndex((r) => drag.x < r.right);
+  if (index < 0) index = rects.length - 1;
+  const top = drag.y - drag.offsetY - rects[index].top;
+  const minutes = Math.min(Math.max(Math.round((top * 60) / CAL_HOUR / CAL_SNAP) * CAL_SNAP, 0), 1440 - CAL_SNAP);
+  const date = drag.cols[index].dataset.date;
+  const invalid = calIsPast(date, minutes);
+  const changed = !drag.target || drag.target.date !== date || drag.target.minutes !== minutes;
+  drag.target = { date, minutes, invalid };
+
+  const width = Math.max(rects[index].width, 58);
+  drag.ghost.textContent = `${hm(minutes)} ${drag.group.icon}`;
+  drag.ghost.style.width = `${width}px`;
+  drag.ghost.style.left = `${Math.min(Math.max(drag.x - width / 2, 4), window.innerWidth - width - 4)}px`;
+  drag.ghost.style.top = `${drag.y - drag.offsetY}px`;
+  drag.ghost.classList.toggle("invalid", invalid);
+  if (drag.marker.parentNode !== drag.cols[index]) drag.cols[index].append(drag.marker);
+  drag.marker.style.top = `${(minutes * CAL_HOUR) / 60}px`;
+  drag.marker.classList.toggle("invalid", invalid);
+  if (changed) tg.HapticFeedback?.selectionChanged();
+}
+
+function onCalPointerMove(event) {
+  const drag = calDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.active) {
+    const moved = Math.hypot(event.clientX - drag.x, event.clientY - drag.y);
+    // On touch, moving before the hold completes is a scroll; with a mouse it starts the drag.
+    if (drag.touch && moved > 8) endCalDrag();
+    else if (!drag.touch && moved > 4) activateCalDrag(drag);
+    return;
+  }
+  drag.x = event.clientX;
+  drag.y = event.clientY;
+  updateCalDrag(drag);
+}
+
+function onCalPointerUp(event) {
+  const drag = calDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const { active, target, group } = drag;
+  endCalDrag();
+  if (!active || !target) return;
+  if (target.invalid) {
+    tg.HapticFeedback?.notificationOccurred("error");
+    return;
+  }
+  if (target.date !== group.date || target.minutes !== group.minutes) moveCalGroup(group, target.date, hm(target.minutes));
+}
+
+function endCalDrag() {
+  const drag = calDrag;
+  if (!drag) return;
+  calDrag = null;
+  clearTimeout(drag.timer);
+  if (drag.frame) cancelAnimationFrame(drag.frame);
+  window.removeEventListener("pointermove", onCalPointerMove);
+  window.removeEventListener("pointerup", onCalPointerUp);
+  window.removeEventListener("pointercancel", endCalDrag);
+  drag.ghost?.remove();
+  drag.marker?.remove();
+  drag.card.classList.remove("dragging");
+}
+
+async function moveCalGroup(group, date, time) {
+  const cal = state.cal;
+  const ids = group.items.map((i) => i.id);
+  const moved = cal.data.items.filter((i) => ids.includes(i.id));
+  const before = moved.map((i) => [i.date, i.time]);
+  moved.forEach((i) => Object.assign(i, { date, time }));
+  if (route() === "calendar") render();
+  try {
+    await api("calendar/move", { ids, date, time });
+    tg.HapticFeedback?.notificationOccurred("success");
+  } catch (error) {
+    moved.forEach((i, n) => Object.assign(i, { date: before[n][0], time: before[n][1] }));
+    let message = t("error");
+    if (error.message === "past") message = t("cal_past");
+    else if (error.status === 409) message = t("cal_not_movable");
+    tg.showAlert(message);
+  }
+  // Refetch either way: a move to another week leaves this one, and a failed move may mean the post changed.
+  await loadCalendar(cal).catch(() => {});
+  if (route() === "calendar") render();
+}
+
+// ---- post sheet ----------------------------------------------------------------------------
+
+function closeCalSheet() {
+  if (!calSheet) return;
+  const sheet = calSheet;
+  calSheet = null;
+  sheet.classList.remove("open");
+  setTimeout(() => sheet.remove(), 220);
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeCalSheet();
+});
+
+function openCalSheet(g) {
+  closeCalSheet();
+  const channels = g.items.map((i) => state.cal.data.channels.find((c) => c.id === i.channel_id)?.title ?? "—");
+  const content = [
+    h("div", { class: "sheet-grip" }),
+    h("div", { class: "sheet-head" },
+      h("span", { class: "avatar", style: `color:${g.color}` }, g.icon),
+      h("div", { class: "grow" },
+        h("div", { class: "sheet-title" }, calDate(g.date, { weekday: "long", day: "numeric", month: "long" })),
+        h("div", { class: "sheet-sub" }, hm(g.minutes)))),
+    h("div", { class: "info-box sheet-text" }, g.text || t("cal_no_text")),
+    h("div", { class: "info" },
+      infoRow(t(channels.length > 1 ? "cal_channels" : "cal_channel"), channels.join(", ")),
+      infoRow(t("status"), t(`cal_status_${g.status}`), g.status === "paused" ? "warn" : ""),
+      g.repeat ? infoRow(t("cal_repeat"), t("cal_on")) : null),
+  ];
+  if (g.movable) {
+    const dateInput = h("input", { id: "cal-date", class: "amount-input", type: "date", value: g.date, min: calNow()[0] });
+    const timeInput = h("input", { id: "cal-time", class: "amount-input", type: "time", value: hm(g.minutes) });
+    const button = h("button", { class: "btn btn-primary", type: "button" }, t("cal_move"));
+    button.addEventListener("click", () => {
+      const date = dateInput.value;
+      const time = timeInput.value.slice(0, 5);
+      if (!date || !/^\d\d:\d\d$/.test(time)) return;
+      if (calIsPast(date, toMinutes(time))) {
+        tg.showAlert(t("cal_past"));
+        return;
+      }
+      closeCalSheet();
+      if (date !== g.date || toMinutes(time) !== g.minutes) moveCalGroup(g, date, time);
+    });
+    content.push(
+      h("div", { class: "sheet-fields" },
+        h("div", {},
+          h("label", { class: "field-label", for: "cal-date" }, t("cal_date")),
+          h("div", { class: "amount-field" }, dateInput)),
+        h("div", {},
+          h("label", { class: "field-label", for: "cal-time" }, t("cal_time")),
+          h("div", { class: "amount-field" }, timeInput))),
+      button);
+  } else if (g.link) {
+    content.push(h("button", { class: "btn btn-primary sheet-btn", type: "button", onclick: () => tg.openTelegramLink(g.link) },
+      t("open_in_tg")));
+  }
+  const sheet = h("div", { class: "sheet-backdrop" }, h("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, content));
+  sheet.addEventListener("click", (event) => {
+    if (event.target === sheet) closeCalSheet();
+  });
+  document.body.append(sheet);
+  calSheet = sheet;
+  requestAnimationFrame(() => sheet.classList.add("open"));
+}
+
 async function pollBalance(before) {
   for (let i = 0; i < 15; i++) {
     await sleep(1000);
@@ -1511,10 +2022,11 @@ const ROUTES = {
   limits: renderLimits,
   plans: renderPlans,
   transfer: renderTransfer,
+  calendar: renderCalendar,
 };
 const PARENT = {
   topup: "", checkout: "topup", terms: "checkout", channels: "", subscribe: "", renew: "subscribe", limits: "", plans: "",
-  transfer: "",
+  transfer: "", calendar: "",
 };
 let lastHash = null;
 
@@ -1538,6 +2050,10 @@ function go(name) {
 }
 
 function goBack() {
+  if (calSheet) {
+    closeCalSheet();
+    return;
+  }
   const name = route();
   const checkout = state.checkout;
   if (name === "checkout" && checkout?.resume) {
@@ -1559,12 +2075,16 @@ function goBack() {
 
 function render() {
   const [name, param] = currentRoute();
+  closeCalSheet();
   document.documentElement.lang = state.lang;
   langDropdown?.setValue(state.lang);
   currencyButtons.forEach((b) => b.classList.toggle("active", b.dataset.currency === state.currency));
   view.replaceChildren(...ROUTES[name](param).flat(Infinity).filter(Boolean));
   if (name) tg.BackButton.show();
   else tg.BackButton.hide();
+  // A vertical swipe would otherwise collapse the Mini App while a post is being dragged.
+  if (name === "calendar") tg.disableVerticalSwipes?.();
+  else tg.enableVerticalSwipes?.();
   if (location.hash !== lastHash) window.scrollTo(0, 0);
   lastHash = location.hash;
 }
@@ -1618,6 +2138,9 @@ async function init() {
     return;
   }
   state.lang = state.me.user.lang in I18N ? state.me.user.lang : "uk";
+  if (new URLSearchParams(location.search).get("view") === "calendar" && !route()) {
+    history.replaceState(null, "", `${location.pathname}${location.search}#/calendar`);
+  }
   window.addEventListener("hashchange", render);
   render();
 }

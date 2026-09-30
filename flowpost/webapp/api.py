@@ -5,7 +5,8 @@ import hashlib
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -16,15 +17,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Publication, User
+from flowpost.db.models import Channel, Post, Publication, User
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANGS, t
 from flowpost.services.billing import channel_subs, entitlements, limits, plans
 from flowpost.services.billing.stars import create_topup_link
 from flowpost.services.delivery import publication_message_ids
-from flowpost.services.posts import message_link
+from flowpost.services.html_sanitize import snippet
+from flowpost.services.posts import message_link, part_icon, part_preview_text
+from flowpost.services.slots import day_bounds_utc, local_now, to_utc, tz_of
 from flowpost.webapp import BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
 from flowpost.webapp.auth import validate_init_data
 
@@ -322,6 +326,97 @@ async def terms(request: web.Request, session: AsyncSession, user: User) -> web.
     return web.json_response({"html": text})
 
 
+CALENDAR_DAYS = 7
+CALENDAR_SNIPPET = 90
+MAX_MOVE_IDS = 50
+
+
+def _parse_date(value: object) -> date | None:
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _parse_hm(value: object) -> dt_time | None:
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return None
+    try:
+        return dt_time(int(value[:2]), int(value[3:]))
+    except ValueError:
+        return None
+
+
+def _calendar_item(pub: Publication, post: Post | None, channel: Channel, zone) -> dict:
+    published = pub.status == "published"
+    local = (pub.published_at if published else pub.run_at).astimezone(zone)
+    first = post.parts[0] if post and post.parts else None
+    ids = publication_message_ids(pub) if published else []
+    return {
+        "id": pub.id,
+        "post_id": pub.post_id,
+        "channel_id": pub.channel_id,
+        "status": pub.status,
+        "date": local.date().isoformat(),
+        "time": local.strftime("%H:%M"),
+        "icon": part_icon(first) if first else "📝",
+        "text": snippet(part_preview_text(first), CALENDAR_SNIPPET) if first else "",
+        "repeat": pub.repeat_index > 0 or bool(post and post.repeat and post.repeat.active),
+        "link": message_link(channel, ids[0]) if ids else None,
+    }
+
+
+async def calendar(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    """One week (Monday to Sunday, in the user's time zone) of queued and published posts."""
+    now_local = local_now(user.tz)
+    start = _parse_date(request.query.get("start")) or now_local.date()
+    start -= timedelta(days=start.weekday())
+    channels = await channels_repo.list_channels(session, user.id, perm="posts")
+    by_id = {c.id: c for c in channels}
+    channel_id = request.query.get("channel", "0")
+    if not channel_id.isdigit() or (int(channel_id) and int(channel_id) not in by_id):
+        return web.json_response({"error": "not_found"}, status=404)
+    channel_ids = [int(channel_id)] if int(channel_id) else list(by_id)
+    first, _ = day_bounds_utc(start, user.tz)
+    _, last = day_bounds_utc(start + timedelta(days=CALENDAR_DAYS - 1), user.tz)
+    pubs = await pubs_repo.calendar_between(session, user.id, first, last, channel_ids) if channel_ids else []
+    post_ids = {p.post_id for p in pubs}
+    posts = {}
+    if post_ids:
+        posts = {p.id: p for p in (await session.scalars(select(Post).where(Post.id.in_(post_ids)))).all()}
+    zone = tz_of(user.tz)
+    return web.json_response({
+        "start": start.isoformat(),
+        "today": now_local.date().isoformat(),
+        "now": now_local.hour * 60 + now_local.minute,
+        "channels": [{"id": c.id, "title": c.title} for c in channels],
+        "items": [_calendar_item(p, posts.get(p.post_id), by_id[p.channel_id], zone) for p in pubs],
+    })
+
+
+async def calendar_move(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    """Reschedule publications (a post's copies in several channels move together) to a local date and time."""
+    body = await _json_body(request)
+    ids, day, hm = body.get("ids"), _parse_date(body.get("date")), _parse_hm(body.get("time"))
+    if (
+        not isinstance(ids, list)
+        or not 0 < len(ids) <= MAX_MOVE_IDS
+        or not all(_is_int(i) for i in ids)
+        or len(set(ids)) != len(ids)
+        or day is None
+        or hm is None
+    ):
+        return web.json_response({"error": "invalid_request"}, status=400)
+    now = utcnow()
+    run_at = to_utc(day, hm, user.tz)
+    if run_at <= now:
+        return web.json_response({"error": "past"}, status=400)
+    if await pubs_repo.move_queued(session, user.id, ids, run_at, now) != len(ids):
+        await session.rollback()
+        return web.json_response({"error": "not_movable"}, status=409)
+    return web.json_response({"ok": True})
+
+
 def _index_html() -> str:
     """index.html with asset URLs versioned by content, so Telegram's webview never serves a stale app.js."""
     digest = hashlib.sha256()
@@ -354,3 +449,5 @@ def setup_webapp(app: web.Application) -> None:
     app.router.add_post("/api/subscribe", authed(subscribe_channels))
     app.router.add_get("/api/transfer", authed(transfer_options))
     app.router.add_post("/api/transfer", authed(transfer_subscription))
+    app.router.add_get("/api/calendar", authed(calendar))
+    app.router.add_post("/api/calendar/move", authed(calendar_move))

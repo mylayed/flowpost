@@ -35,9 +35,11 @@ async def menu_ad_post(
 
 @router.message(Command("plan"))
 @router.message(F.text.in_(variants("btn.content_plan")))
-async def menu_content_plan(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
+async def menu_content_plan(
+    message: Message, session: AsyncSession, state: FSMContext, user: User, settings: Settings
+) -> None:
     await state.clear()
-    await content_plan.send_plan(message, session, user)
+    await content_plan.send_plan(message, session, user, settings)
 
 
 @router.message(Command("edit"))
