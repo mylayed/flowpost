@@ -8,6 +8,8 @@ let openDropdown = null;
 const currencyButtons = document.querySelectorAll("[data-currency]");
 const homeLink = document.getElementById("home-link");
 const brandLogo = document.getElementById("brand-logo");
+// The same bundle runs two Mini Apps: billing (/app/) and the publishing calendar (/app/calendar/).
+const APP = document.body.dataset.app || "billing";
 
 const I18N = {
   uk: {
@@ -163,8 +165,6 @@ const I18N = {
     invalid_amount: "Введіть цілу суму від {min} до {max} Stars.",
     error: "Щось пішло не так. Спробуйте ще раз.",
     open_in_telegram: "Відкрийте цю сторінку через бота в Telegram.",
-    content: "Контент",
-    calendar: "Календар публікацій",
     cal_title: "Календар",
     cal_hint: "Утримуйте пост і перетягніть на інший день чи час. Натисніть, щоб відкрити.",
     cal_all: "Усі канали",
@@ -341,8 +341,6 @@ const I18N = {
     invalid_amount: "Enter a whole amount from {min} to {max} Stars.",
     error: "Something went wrong. Please try again.",
     open_in_telegram: "Open this page from the bot in Telegram.",
-    content: "Content",
-    calendar: "Publishing calendar",
     cal_title: "Calendar",
     cal_hint: "Press and hold a post, then drag it to another day or time. Tap a post to open it.",
     cal_all: "All channels",
@@ -377,7 +375,6 @@ const ICONS = {
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
-  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
 };
 
 const state = {
@@ -633,8 +630,6 @@ function renderHome() {
       menuItem("sliders", t("align"), soon),
       menuItem("swap", t("transfer"), () => go("transfer")),
       menuItem("tag", t("plans"), () => go("plans"))),
-    h("div", { class: "section-label" }, t("content")),
-    h("div", { class: "menu" }, menuItem("calendar", t("calendar"), () => go("calendar"))),
     me.channels.length ? null : h("p", { class: "hint" }, t("no_channels")),
     h("div", { class: "menu menu-bottom" }, menuItem("list", t("my_channels"), () => go("channels"))),
   ];
@@ -1652,6 +1647,21 @@ function layoutDay(groups) {
   return placed;
 }
 
+// The calendar Mini App opens on the channel whose card it was launched from; one the user can no longer post to
+// falls back to all channels.
+async function initCalendar() {
+  const channel = Number(new URLSearchParams(location.search).get("channel")) || 0;
+  state.cal = { start: null, channel, data: null, key: null, scroll: null };
+  try {
+    await loadCalendar(state.cal);
+  } catch (error) {
+    if (error.status !== 404 || !channel) throw error;
+    state.cal.channel = 0;
+    await loadCalendar(state.cal);
+  }
+  return state.cal.data.lang;
+}
+
 function calGo(start) {
   state.cal.start = start;
   state.cal.scroll = null;
@@ -1933,6 +1943,7 @@ function closeCalSheet() {
   if (!calSheet) return;
   const sheet = calSheet;
   calSheet = null;
+  if (APP === "calendar") tg.BackButton.hide();
   sheet.classList.remove("open");
   setTimeout(() => sheet.remove(), 220);
 }
@@ -1991,6 +2002,7 @@ function openCalSheet(g) {
   });
   document.body.append(sheet);
   calSheet = sheet;
+  tg.BackButton.show();
   requestAnimationFrame(() => sheet.classList.add("open"));
 }
 
@@ -2031,6 +2043,7 @@ const PARENT = {
 let lastHash = null;
 
 function currentRoute() {
+  if (APP === "calendar") return ["calendar", ""];
   const [name = "", param = ""] = location.hash.replace(/^#\/?/, "").split("/");
   if (!(name in ROUTES)) return ["", ""];
   if (name === "checkout" && !state.checkout) return ["", ""];
@@ -2080,7 +2093,7 @@ function render() {
   langDropdown?.setValue(state.lang);
   currencyButtons.forEach((b) => b.classList.toggle("active", b.dataset.currency === state.currency));
   view.replaceChildren(...ROUTES[name](param).flat(Infinity).filter(Boolean));
-  if (name) tg.BackButton.show();
+  if (name && APP === "billing") tg.BackButton.show();
   else tg.BackButton.hide();
   // A vertical swipe would otherwise collapse the Mini App while a post is being dragged.
   if (name === "calendar") tg.disableVerticalSwipes?.();
@@ -2102,7 +2115,7 @@ async function init() {
     value: state.lang,
     onChange: (lang) => {
       state.lang = lang;
-      if (!state.me) return;
+      if (!state.me && !state.cal?.data) return;
       render();
       api("lang", { lang: state.lang })
         .then(() => { if (route() === "terms") render(); })
@@ -2131,16 +2144,14 @@ async function init() {
     render();
   }));
 
+  let lang;
   try {
-    await loadMe();
+    lang = APP === "calendar" ? await initCalendar() : (await loadMe(), state.me.user.lang);
   } catch {
     notice(I18N.uk.error);
     return;
   }
-  state.lang = state.me.user.lang in I18N ? state.me.user.lang : "uk";
-  if (new URLSearchParams(location.search).get("view") === "calendar" && !route()) {
-    history.replaceState(null, "", `${location.pathname}${location.search}#/calendar`);
-  }
+  state.lang = lang in I18N ? lang : "uk";
   window.addEventListener("hashchange", render);
   render();
 }

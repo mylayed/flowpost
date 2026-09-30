@@ -386,6 +386,7 @@ async def calendar(request: web.Request, session: AsyncSession, user: User) -> w
         posts = {p.id: p for p in (await session.scalars(select(Post).where(Post.id.in_(post_ids)))).all()}
     zone = tz_of(user.tz)
     return web.json_response({
+        "lang": user.lang,
         "start": start.isoformat(),
         "today": now_local.date().isoformat(),
         "now": now_local.hour * 60 + now_local.minute,
@@ -417,26 +418,35 @@ async def calendar_move(request: web.Request, session: AsyncSession, user: User)
     return web.json_response({"ok": True})
 
 
-def _index_html() -> str:
-    """index.html with asset URLs versioned by content, so Telegram's webview never serves a stale app.js."""
+def _page_html(name: str) -> str:
+    """A page with asset URLs versioned by content, so Telegram's webview never serves a stale app.js."""
     digest = hashlib.sha256()
     for path in sorted(STATIC.iterdir()):
         if path.is_file():
             digest.update(path.read_bytes())
-    return (STATIC / "index.html").read_text(encoding="utf-8").replace("__V__", digest.hexdigest()[:12])
+    return (STATIC / name).read_text(encoding="utf-8").replace("__V__", digest.hexdigest()[:12])
 
 
 def setup_webapp(app: web.Application) -> None:
-    html = _index_html()
+    def page(name: str) -> Callable[[web.Request], Awaitable[web.Response]]:
+        html = _page_html(name)
 
-    async def index(_request: web.Request) -> web.Response:
-        return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-cache"})
+        async def handler(_request: web.Request) -> web.Response:
+            return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-cache"})
 
-    async def to_index(_request: web.Request) -> web.Response:
-        raise web.HTTPFound("/app/")
+        return handler
 
-    app.router.add_get("/app", to_index)
-    app.router.add_get("/app/", index)
+    def redirect(to: str) -> Callable[[web.Request], Awaitable[web.Response]]:
+        async def handler(request: web.Request) -> web.Response:
+            raise web.HTTPFound(to + (f"?{request.query_string}" if request.query_string else ""))
+
+        return handler
+
+    app.router.add_get("/app", redirect("/app/"))
+    app.router.add_get("/app/", page("index.html"))
+    # The publishing calendar is its own Mini App, opened from a channel's card in the bot.
+    app.router.add_get("/app/calendar", redirect("/app/calendar/"))
+    app.router.add_get("/app/calendar/", page("calendar.html"))
     app.router.add_static("/app/static/", STATIC)
     app.router.add_get("/api/bot-avatar", bot_avatar)
     app.router.add_get("/api/me", authed(me))

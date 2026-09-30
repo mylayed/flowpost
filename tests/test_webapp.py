@@ -401,9 +401,18 @@ async def test_calendar_week_and_move(sessionmaker, seeded):
         ids = SimpleNamespace(upcoming=upcoming.id, due=due.id, paused=paused.id, done=done.id,
                               cancelled=cancelled.id, theirs=theirs.id, foreign=foreign.id)
     try:
+        page = await client.get("/app/calendar/?channel=1")
+        assert page.status == 200 and 'data-app="calendar"' in await page.text()
+        moved_page = await client.get("/app/calendar?channel=1", allow_redirects=False)
+        assert moved_page.headers["Location"] == "/app/calendar/?channel=1"
+        assert settings.calendar_url(7) is None
+        with_url = Settings(bot_token=TOKEN, webapp_url_override="https://flowpost.test/app/", _env_file=None)
+        assert with_url.calendar_url(7) == "https://flowpost.test/app/calendar/?channel=7"
+
         assert (await client.get("/api/calendar")).status == 401
         assert (await client.get(f"/api/calendar?channel={ids.foreign}", headers=auth)).status == 404
         week = await (await client.get("/api/calendar", headers=auth)).json()
+        assert week["lang"] == "uk"
         assert week["channels"] == [{"id": seeded.channel_id, "title": "Наше місто"}]
         assert week["start"] <= week["today"] and 0 <= week["now"] < 1440
         by_id = {i["id"]: i for i in week["items"]}

@@ -131,6 +131,13 @@ class Settings(BaseSettings):
             return None
         return self.webhook_base_url.rstrip("/") + "/app/"
 
+    def calendar_url(self, channel_id: int | None = None) -> str | None:
+        """The publishing calendar Mini App, opened on one channel when `channel_id` is given."""
+        if not self.webapp_url:
+            return None
+        url = self.webapp_url.rstrip("/") + "/calendar/"
+        return f"{url}?channel={channel_id}" if channel_id else url
+
 
 @lru_cache
 def get_settings() -> Settings:

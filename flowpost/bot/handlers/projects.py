@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flowpost.bot.callbacks import Pj
 from flowpost.bot.handlers.channel_settings import card_kwargs, channel_card
 from flowpost.bot.keyboards.common import btn, markup
+from flowpost.config import Settings
 from flowpost.db.models import User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
@@ -58,13 +59,15 @@ async def pj_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
 
 
 @router.callback_query(Pj.filter(F.a == "ch"))
-async def pj_channel(cb: CallbackQuery, callback_data: Pj, session: AsyncSession, user: User) -> None:
+async def pj_channel(
+    cb: CallbackQuery, callback_data: Pj, session: AsyncSession, user: User, settings: Settings
+) -> None:
     channel = await channels_repo.get_channel(session, user.id, callback_data.c)
     if channel is None:
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     await cb.answer()
-    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user, settings)))
 
 
 @router.callback_query(Pj.filter(F.a.in_({"off", "offok"})))

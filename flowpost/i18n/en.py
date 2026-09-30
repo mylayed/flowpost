@@ -491,6 +491,7 @@ TEXTS: dict[str, str] = {
     "plan.empty_published": "Nothing was published on this day.",
     "plan.new_post": "✍️ Create post",
     "plan.calendar": "📅 Weekly calendar",
+    "proj.calendar_btn": "📅 Publishing calendar",
     "plan.post_title": "🗓 <b>Scheduled post</b>",
     "plan.post_title_published": "✅ <b>Published post</b>",
     "plan.edit": "✏️ Edit",

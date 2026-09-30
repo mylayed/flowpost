@@ -8,7 +8,7 @@ from datetime import timedelta
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ca, Cs, Ed, Pj, Px
@@ -16,6 +16,7 @@ from flowpost.bot.handlers.editor.view import render_editor
 from flowpost.bot.keyboards.common import btn, markup, on
 from flowpost.bot.keyboards.main_menu import link_discussion_kb
 from flowpost.bot.states import ChannelInput
+from flowpost.config import Settings
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
@@ -50,6 +51,7 @@ def back_button(channel: Channel, post_id: int):
 
 def channel_card(
     channel: Channel, *, is_owner: bool = True, can_disconnect: bool = True, can_settings: bool = True,
+    calendar_url: str | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     wm = wm_settings(channel.watermark)
     kind = t("proj.kind_channel") if channel.kind == "channel" else t("proj.kind_group")
@@ -70,7 +72,10 @@ def channel_card(
     if channel.is_forum:
         lines.append(t("proj.topic", topic=channel.topic_id or t("proj.topic_general")))
     c = channel.id
-    rows = [[btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))]]
+    rows = []
+    if calendar_url:
+        rows.append([InlineKeyboardButton(text=t("proj.calendar_btn"), web_app=WebAppInfo(url=calendar_url))])
+    rows.append([btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))])
     if can_settings:
         rows.append([btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))])
     stats = btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))
@@ -96,11 +101,15 @@ def channel_card(
     return "\n".join(lines), markup(rows)
 
 
-async def card_kwargs(session: AsyncSession, channel: Channel, user: User) -> dict:
+async def card_kwargs(session: AsyncSession, channel: Channel, user: User, settings: Settings) -> dict:
     is_owner = channel.owner_id == user.id
     can_disconnect = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "disconnect")
     can_settings = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
-    return {"is_owner": is_owner, "can_disconnect": can_disconnect, "can_settings": can_settings}
+    can_posts = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "posts")
+    calendar_url = settings.calendar_url(channel.id) if can_posts else None
+    return {
+        "is_owner": is_owner, "can_disconnect": can_disconnect, "can_settings": can_settings, "calendar_url": calendar_url,
+    }
 
 
 def wm_menu(channel: Channel, post: Post | None, *, can_settings: bool = True) -> tuple[str, InlineKeyboardMarkup]:
@@ -248,7 +257,7 @@ async def _context(
 
 async def _return_after_input(
     message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
-    channel: Channel, note: str,
+    settings: Settings, channel: Channel, note: str,
 ) -> None:
     data = await state.get_data()
     post_id = data.get("cs_post") or 0
@@ -259,7 +268,7 @@ async def _return_after_input(
             await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
             return
     await state.set_state(None)
-    text, kb = channel_card(channel, **await card_kwargs(session, channel, user))
+    text, kb = channel_card(channel, **await card_kwargs(session, channel, user, settings))
     await message.answer(note + "\n\n" + text, reply_markup=kb)
 
 
@@ -296,16 +305,20 @@ async def cs_noop(cb: CallbackQuery) -> None:
 
 
 @router.callback_query(Cs.filter(F.a == "ch"))
-async def cs_card(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+async def cs_card(
+    cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User, settings: Settings
+) -> None:
     channel, _ = await _context(cb, callback_data, session, user, require=None)
     if channel is None:
         return
     await cb.answer()
-    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user, settings)))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"notify_def", "notify_rcpt"})))
-async def cs_notify(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+async def cs_notify(
+    cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User, settings: Settings
+) -> None:
     channel, _ = await _context(cb, callback_data, session, user)
     if channel is None:
         return
@@ -315,7 +328,7 @@ async def cs_notify(cb: CallbackQuery, callback_data: Cs, session: AsyncSession,
         channel.notify_recipients = callback_data.v
     await session.flush()
     await cb.answer()
-    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user)))
+    await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user, settings)))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"wm", "wm_post", "wm_op", "wm_sc", "wm_def", "wm_pos"})))
@@ -511,7 +524,8 @@ async def cs_moderation_words(cb: CallbackQuery, callback_data: Cs, session: Asy
 # ---- text/file inputs ---------------------------------------------------------------------------
 
 @router.message(ChannelInput.wm_text, F.text)
-async def in_wm_text(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_wm_text(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -522,11 +536,12 @@ async def in_wm_text(message: Message, bot: Bot, session: AsyncSession, state: F
     channel.watermark = {**wm_settings(channel.watermark), "type": "text", "text": text, "enabled": True}
     await _enable_for_post(session, state, user)
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("wm.saved"))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("wm.saved"))
 
 
 @router.message(ChannelInput.wm_image, F.photo | F.document)
-async def in_wm_image(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_wm_image(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -537,7 +552,7 @@ async def in_wm_image(message: Message, bot: Bot, session: AsyncSession, state: 
     channel.watermark = {**wm_settings(channel.watermark), "type": "image", "image_file_id": file_id, "enabled": True}
     await _enable_for_post(session, state, user)
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("wm.saved"))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("wm.saved"))
 
 
 async def _enable_for_post(session: AsyncSession, state: FSMContext, user: User) -> None:
@@ -556,7 +571,8 @@ def _template_from_message(message: Message) -> str:
 
 
 @router.message(ChannelInput.signature, F.text)
-async def in_signature(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_signature(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -575,11 +591,12 @@ async def in_signature(message: Message, bot: Bot, session: AsyncSession, state:
         if post is not None:
             post.options = {**(post.options or {}), "signature": True}
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("sig.saved"))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("sig.saved"))
 
 
 @router.message(ChannelInput.ai_style, F.text)
-async def in_ai_style(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_ai_style(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -589,11 +606,12 @@ async def in_ai_style(message: Message, bot: Bot, session: AsyncSession, state: 
         return
     channel.ai_style_prompt = text
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("ai.style_saved"))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("ai.style_saved"))
 
 
 @router.message(ChannelInput.topic, F.text)
-async def in_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_topic(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -604,11 +622,12 @@ async def in_topic(message: Message, bot: Bot, session: AsyncSession, state: FSM
         return
     channel.topic_id = ref.topic_id
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("topic.saved", topic=ref.topic_id))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("topic.saved", topic=ref.topic_id))
 
 
 @router.message(ChannelInput.banned_words, F.text)
-async def in_banned_words(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher) -> None:
+async def in_banned_words(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+                   settings: Settings) -> None:
     channel = await _input_channel(message, session, state, user)
     if channel is None:
         return
@@ -619,7 +638,7 @@ async def in_banned_words(message: Message, bot: Bot, session: AsyncSession, sta
     mod = moderation_settings(channel.moderation)
     channel.moderation = {**mod, "banned_words": words}
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, channel, t("mod.words_saved", n=len(words)))
+    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("mod.words_saved", n=len(words)))
 
 
 @router.message(ChannelInput.wm_image)

@@ -90,8 +90,8 @@ async def plan_view(
         rows.append([btn(label, Cp(a="post", d=ordinal, id=post.id, m=mode, c=c))])
     lines.append((t("plan.count_published", n=len(seen)) if seen else t("plan.empty_published")) if published
                  else (t("plan.count", n=len(seen)) if seen else t("plan.empty")))
-    if settings is not None and settings.webapp_url:
-        url = f"{settings.webapp_url}?view=calendar"
+    url = settings.calendar_url(channel_id) if settings is not None else None
+    if url:
         rows.append([InlineKeyboardButton(text=t("plan.calendar"), web_app=WebAppInfo(url=url))])
     rows.append([btn(t("plan.new_post"), Cp(a="new"))])
     return "\n".join(lines), markup(rows)
