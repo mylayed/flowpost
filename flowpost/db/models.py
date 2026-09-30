@@ -81,6 +81,9 @@ class Channel(Base):
     translate_lang: Mapped[str | None] = mapped_column(String(8))
     weekly_report: Mapped[bool] = mapped_column(Boolean, default=True)
     report_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Opt-in reminder that tomorrow has nothing scheduled; the (owner's local) day the last one was sent.
+    gap_reminder: Mapped[bool] = mapped_column(Boolean, default=False)
+    gap_reminded_on: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

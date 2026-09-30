@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -17,11 +17,11 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from flowpost.bot.callbacks import Px
+from flowpost.bot.callbacks import Cp, Cs, Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
@@ -31,7 +31,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics, broadcast, growth, rss
+from flowpost.services import analytics, broadcast, gaps, growth, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -56,6 +56,7 @@ BATCH = 20
 FEEDS_PER_TICK = 5
 MEMBERS_EVERY = timedelta(hours=1)
 REPORTS_EVERY = timedelta(minutes=10)
+GAPS_EVERY = timedelta(minutes=10)
 
 
 def next_day_same_time(run_at: datetime, tz_name: str, now: datetime) -> datetime:
@@ -78,6 +79,8 @@ class Worker:
         self._wake = asyncio.Event()
         self._members_at: datetime | None = None
         self._reports_at: datetime | None = None
+        self._gaps_at: datetime | None = None
+        self._gaps_checked: dict[int, date] = {}  # channel id -> the owner's local day it was last checked
         self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
 
     def wake(self) -> None:
@@ -110,6 +113,7 @@ class Worker:
         await self.poll_feeds(now)
         await self.snapshot_members(now)
         await self.weekly_reports(now)
+        await self.gap_reminders(now)
 
     async def recover_stale(self) -> None:
         """Publications stuck in 'publishing' after a crash are marked failed instead of risking duplicates."""
@@ -587,6 +591,57 @@ class Worker:
                     continue
                 session.add(MemberCount(channel_id=channel.id, day=today, count=count))
             await session.commit()
+
+    async def gap_reminders(self, now: datetime) -> None:
+        """Tell the owner and the posting admins that tomorrow has nothing scheduled (see services.gaps).
+
+        Each opted-in channel is looked at once a day, after 10:00 in its owner's zone; the answer for the day is kept
+        in memory so the ten-minute ticks don't repeat the queries (a restart just checks again)."""
+        if self._gaps_at is not None and now - self._gaps_at < GAPS_EVERY:
+            return
+        self._gaps_at = now
+        outbox: list[tuple[User, Channel, str, bool]] = []
+        async with self.sessionmaker() as session:
+            rows = (await session.execute(
+                select(Channel, User)
+                .join(User, User.id == Channel.owner_id)
+                .where(
+                    Channel.is_active.is_(True), Channel.gap_reminder.is_(True), User.is_blocked.is_(False),
+                    Channel.created_at < now - timedelta(days=1),
+                )
+            )).tuples().all()
+            for channel, owner in rows:
+                today = gaps.check_day(owner, now)
+                if today is None or self._gaps_checked.get(channel.id) == today:
+                    continue
+                self._gaps_checked[channel.id] = today
+                if not gaps.due_again(channel, today):
+                    continue
+                entitlement = await entitlements.for_channel(session, self.settings, channel, owner, now)
+                if entitlement.plan == "none" or await gaps.is_dormant(session, channel, now):
+                    continue
+                empty = await gaps.empty_days(session, channel, owner, today)
+                if today + timedelta(days=1) not in empty:
+                    continue
+                channel.gap_reminded_on = today
+                for recipient, can_mute in await gaps.recipients(session, channel, owner):
+                    text = await gaps.reminder_text(session, channel, recipient, empty, today)
+                    outbox.append((recipient, channel, text, can_mute))
+            await session.commit()
+        for recipient, channel, text, can_mute in outbox:
+            url = self.settings.calendar_url(channel.id)
+            label = t("gap.calendar_btn", locale=recipient.lang)
+            open_btn = (InlineKeyboardButton(text=label, web_app=WebAppInfo(url=url)) if url
+                        else btn(t("gap.plan_btn", locale=recipient.lang), Cp(a="day", c=channel.id)))
+            rows = [[open_btn]]
+            if can_mute:
+                rows.append([btn(t("gap.off_btn", locale=recipient.lang), Cs(a="gap_off", c=channel.id))])
+            try:
+                await self.bot.send_message(recipient.tg_id, text, reply_markup=markup(rows))
+            except TelegramForbiddenError:
+                await self._mark_blocked(recipient)
+            except TelegramAPIError as e:
+                log.info("gap reminder for %s not delivered: %s", recipient.tg_id, e)
 
     async def weekly_reports(self, now: datetime) -> None:
         if self._reports_at is not None and now - self._reports_at < REPORTS_EVERY:

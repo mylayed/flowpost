@@ -6,9 +6,10 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Ed, Nc, Pj, Px
+from flowpost.bot.callbacks import Cs, Ed, Nc, Pj, Px
 from flowpost.db.models import (
-    Channel, Commenter, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication, User,
+    Channel, ChannelAdmin, Commenter, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication,
+    User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services import ideas as ideas_service
@@ -381,6 +382,115 @@ async def test_weekly_report_goes_out_on_monday_morning_once(h: Harness):
 
     await h.click(Px(a="rep_off", c=channel_id))
     assert (await h.db(lambda s: s.get(Channel, channel_id))).weekly_report is False
+
+
+# ---- reminders about an empty tomorrow ----------------------------------------------------------
+
+MONDAY = datetime(2026, 9, 21, 8, 0, tzinfo=timezone.utc)  # 11:00 in Kyiv
+
+
+async def _seed_gap_channel(h: Harness, *, planned_days: tuple[int, ...] = (), reminders: bool = True) -> int:
+    """A channel that posted two days before MONDAY, with a pending post at noon (Kyiv) on each of `planned_days`."""
+    channel_id, pub_id = await _seed_published(h, message_id=4242)
+
+    async def prepare(s):
+        await s.execute(update(Channel).values(created_at=MONDAY - timedelta(days=30), gap_reminder=reminders,
+                                               trial_ends_at=MONDAY + timedelta(days=10)))
+        pub = await s.get(Publication, pub_id)
+        pub.published_at = MONDAY - timedelta(days=2)
+        owner_id = (await s.get(Channel, channel_id)).owner_id
+        for day in planned_days:
+            s.add(Publication(post_id=pub.post_id, channel_id=channel_id, owner_id=owner_id, status="pending",
+                              run_at=datetime(2026, 9, day, 9, 0, tzinfo=timezone.utc)))
+        await s.commit()
+    await h.db(prepare)
+    return channel_id
+
+
+async def _gap_check(h: Harness, at: datetime, chat_id: int = USER_ID) -> list:
+    worker = h.dp.workflow_data["worker"]
+    h.session.clear()
+    worker._gaps_at = None  # the ten-minute throttle isn't what is being tested
+    await worker.gap_reminders(at)
+    return _sent(h, "SendMessage", chat_id)
+
+
+async def test_gap_reminders_are_off_until_the_owner_turns_them_on(h: Harness):
+    channel_id = await _seed_gap_channel(h, reminders=False)
+    assert not await _gap_check(h, MONDAY)
+
+    await h.click(Cs(a="gap_t", c=channel_id))
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).gap_reminder is True
+    assert await _gap_check(h, MONDAY + timedelta(days=1))
+
+
+async def test_gap_reminder_comes_only_when_tomorrow_is_empty_and_not_too_often(h: Harness):
+    channel_id = await _seed_gap_channel(h, planned_days=(23,))  # Wednesday is planned, Tuesday is not
+    assert not await _gap_check(h, MONDAY - timedelta(hours=2))  # 09:00 in Kyiv: too early
+
+    reminder = (await _gap_check(h, MONDAY))[0]
+    assert "Test Channel" in reminder.text and "завтра, чт, 24 вер" in reminder.text and "ср," not in reminder.text
+    buttons = reminder.reply_markup.inline_keyboard
+    assert buttons[0][0].web_app.url == f"https://flowpost.test/app/calendar/?channel={channel_id}"
+    assert buttons[1][0].text == "🔕 Не нагадувати"
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).gap_reminded_on == MONDAY.date()
+
+    assert not await _gap_check(h, MONDAY + timedelta(hours=3))  # already looked at today
+    assert not await _gap_check(h, MONDAY + timedelta(days=1))  # Wednesday is planned
+    assert not await _gap_check(h, MONDAY + timedelta(days=2))  # Thursday is empty, but the last one is 2 days old
+    assert await _gap_check(h, MONDAY + timedelta(days=3))  # 3 days after the last one, Friday is empty
+
+    await h.click(Cs(a="gap_off", c=channel_id))
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).gap_reminder is False
+    assert not await _gap_check(h, MONDAY + timedelta(days=6))
+
+
+async def test_gap_reminder_ignores_later_empty_days_when_tomorrow_is_planned(h: Harness):
+    await _seed_gap_channel(h, planned_days=(22,))  # only Tuesday; Wednesday and Thursday are empty
+    assert not await _gap_check(h, MONDAY)
+
+
+async def test_gap_reminder_skips_a_dormant_channel(h: Harness):
+    channel_id, pub_id = await _seed_published(h, message_id=4242)
+
+    async def prepare(s):
+        await s.execute(update(Channel).values(created_at=MONDAY - timedelta(days=60), gap_reminder=True,
+                                               trial_ends_at=MONDAY + timedelta(days=10)))
+        (await s.get(Publication, pub_id)).published_at = MONDAY - timedelta(days=20)
+        await s.commit()
+    await h.db(prepare)
+    assert not await _gap_check(h, MONDAY)
+
+
+async def test_gap_reminder_also_goes_to_admins_who_may_post(h: Harness):
+    channel_id = await _seed_gap_channel(h)
+
+    async def add_admins(s):
+        for tg_id, lang, posts, settings_, blocked in (
+            (7001, "en", True, False, False),   # posts only: gets the reminder, can't switch it off
+            (7002, "uk", True, True, False),    # also manages settings: can switch it off
+            (7003, "uk", False, True, False),   # may not post
+            (7004, "uk", True, True, True),     # blocked the bot
+        ):
+            user = User(tg_id=tg_id, lang=lang, tz="Europe/Kyiv", trial_ends_at=utcnow(), is_blocked=blocked)
+            s.add(user)
+            await s.flush()
+            s.add(ChannelAdmin(channel_id=channel_id, user_id=user.id, can_posts=posts, can_settings=settings_))
+        await s.commit()
+    await h.db(add_admins)
+
+    h.session.clear()
+    worker = h.dp.workflow_data["worker"]
+    worker._gaps_at = None
+    await worker.gap_reminders(MONDAY)
+
+    assert len(_sent(h, "SendMessage", USER_ID)) == 1
+    (posts_only,) = _sent(h, "SendMessage", 7001)
+    assert "nothing is scheduled for tomorrow" in posts_only.text
+    assert [[b.text for b in row] for row in posts_only.reply_markup.inline_keyboard] == [["📅 Open calendar"]]
+    (manager,) = _sent(h, "SendMessage", 7002)
+    assert "завтра" in manager.text and len(manager.reply_markup.inline_keyboard) == 2
+    assert not _sent(h, "SendMessage", 7003) and not _sent(h, "SendMessage", 7004)
 
 
 # ---- giveaway among commenters ------------------------------------------------------------------

@@ -68,6 +68,7 @@ def channel_card(
         else t("proj.notify_off"),
         t("proj.comments_on", title=html.escape(channel.discussion_title or "")) if channel.discussion_chat_id
         else t("proj.comments_off"),
+        t("proj.gap_on") if channel.gap_reminder else t("proj.gap_off"),
     ]
     if channel.is_forum:
         lines.append(t("proj.topic", topic=channel.topic_id or t("proj.topic_general")))
@@ -91,6 +92,7 @@ def channel_card(
                 btn(on(recipients == "admin") + t("proj.notify_rcpt_admin"), Cs(a="notify_rcpt", c=c, v="admin")),
                 btn(on(recipients == "both") + t("proj.notify_rcpt_both"), Cs(a="notify_rcpt", c=c, v="both")),
             ])
+        rows.append([btn(t("proj.gap_toggle_on") if channel.gap_reminder else t("proj.gap_toggle_off"), Cs(a="gap_t", c=c))])
         if channel.is_forum:
             rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=c))])
     if is_owner:
@@ -315,7 +317,7 @@ async def cs_card(
     await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user, settings)))
 
 
-@router.callback_query(Cs.filter(F.a.in_({"notify_def", "notify_rcpt"})))
+@router.callback_query(Cs.filter(F.a.in_({"notify_def", "notify_rcpt", "gap_t"})))
 async def cs_notify(
     cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User, settings: Settings
 ) -> None:
@@ -324,11 +326,29 @@ async def cs_notify(
         return
     if callback_data.a == "notify_def":
         channel.notify_published = not channel.notify_published
+    elif callback_data.a == "gap_t":
+        channel.gap_reminder = not channel.gap_reminder
     elif callback_data.v in ("owner", "admin", "both"):
         channel.notify_recipients = callback_data.v
     await session.flush()
     await cb.answer()
     await _edit(cb, *channel_card(channel, **await card_kwargs(session, channel, user, settings)))
+
+
+@router.callback_query(Cs.filter(F.a == "gap_off"))
+async def cs_gap_off(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    """«Не нагадувати» under a reminder about empty days."""
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    channel.gap_reminder = False
+    await session.flush()
+    await cb.answer(t("gap.off_done"), show_alert=True)
+    if cb.message is not None:
+        try:
+            await cb.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
 
 
 @router.callback_query(Cs.filter(F.a.in_({"wm", "wm_post", "wm_op", "wm_sc", "wm_def", "wm_pos"})))
