@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import html
 import re
-from datetime import timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
@@ -25,15 +24,15 @@ from flowpost.db.models import Channel, Commenter, Feed, InviteLink, Post, Publi
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
-from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics, giveaway, growth, rss
-from flowpost.services.ai import LANG_NAMES, AIError, AIService
-from flowpost.services.billing import entitlements, limits
-from flowpost.services.delivery import engagement_score, publication_message_ids
+from flowpost.services import giveaway, growth, rss
+from flowpost.services import ideas as ideas_service
+from flowpost.services.ai import LANG_NAMES, AIService
+from flowpost.services.billing import entitlements
+from flowpost.services.delivery import publication_message_ids
 from flowpost.services.html_sanitize import snippet
-from flowpost.services.posts import channel_defaults, initial_options, message_link, part_preview_text
+from flowpost.services.posts import initial_options, message_link, part_preview_text
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import tz_of
 from flowpost.services.worker import Worker
@@ -41,7 +40,6 @@ from flowpost.services.worker import Worker
 router = Router(name="pro")
 
 MAX_FEEDS = 10
-PLAN_SIZE = 7
 GIVEAWAY_POSTS = 10
 LANG_FLAGS = {"uk": "🇺🇦", "en": "🇬🇧", "pl": "🇵🇱", "de": "🇩🇪", "es": "🇪🇸", "fr": "🇫🇷", "it": "🇮🇹", "pt": "🇵🇹"}
 
@@ -591,21 +589,6 @@ async def px_rss_skip(cb: CallbackQuery, callback_data: Px, session: AsyncSessio
 
 # ---- AI content plan ----------------------------------------------------------------------------
 
-async def _examples(session: AsyncSession, user: User, channel: Channel) -> list[str]:
-    """Texts of the channel's most engaging posts of the last 30 days, for the AI to take after."""
-    now = utcnow()
-    pubs = await pubs_repo.published_between(session, user.id, now - timedelta(days=30), now, channel_ids=[channel.id])
-    texts: list[str] = []
-    for pub in sorted(pubs, key=engagement_score, reverse=True):
-        post = await session.get(Post, pub.post_id)
-        text = part_preview_text(post.parts[0]).strip() if post and post.parts else ""
-        if text and text not in texts:
-            texts.append(text[:700])
-        if len(texts) >= 8:
-            break
-    return texts
-
-
 def plan_view(channel: Channel, ideas: list[str]) -> tuple[str, InlineKeyboardMarkup]:
     lines = [t("plan.title", title=html.escape(channel.title)), ""]
     for i, idea in enumerate(ideas, 1):
@@ -627,27 +610,16 @@ async def px_plan(cb: CallbackQuery, callback_data: Px, session: AsyncSession, s
     if not ai.enabled:
         await cb.answer(t("ai.disabled"), show_alert=True)
         return
-    used = await analytics.count_since(session, user.id, "ai_call", utcnow() - timedelta(days=1))
-    if used >= settings.ai_daily_limit_paid:
-        await cb.answer(t("ai.quota_over"), show_alert=True)
-        return
-    if not await limits.take(session, channel.id, "ai_text"):
-        await cb.answer(t("ai.quota_channel_over"), show_alert=True)
-        return
-    await session.commit()  # the AI text is spent before the long request, so two taps can't both use the last one
     await cb.answer()
     await _edit(cb, t("plan.working"), None)
     try:
-        ideas = await ai.content_plan(
-            channel_title=channel.title, style=channel.ai_style_prompt,
-            examples=await _examples(session, user, channel), lang=user.lang, count=PLAN_SIZE,
-        )
-    except AIError as e:
-        await limits.add(session, channel.id, "ai_text", 1)
+        ideas = await ideas_service.generate(session, settings, ai, user, channel)
+    except ideas_service.IdeasError as e:
         await _edit(cb, t(e.key), markup([_back(channel)]))
         return
-    analytics.track(session, user.id, "ai_call", action="plan")
-    await state.update_data(plan_channel=channel.id, plan_ideas=ideas)
+    # Kept as idea posts, so the week's drafts also wait in the channel's calendar to be dragged onto a day.
+    posts = await ideas_service.save(session, channel, ideas)
+    await state.update_data(plan_channel=channel.id, plan_ideas=[p.id for p in posts])
     await _edit(cb, *plan_view(channel, ideas))
 
 
@@ -660,14 +632,13 @@ async def px_plan_use(cb: CallbackQuery, callback_data: Px, bot: Bot, session: A
     data = await state.get_data()
     ideas = data.get("plan_ideas") or []
     idx = int(callback_data.v) if callback_data.v.isdigit() else -1
-    if data.get("plan_channel") != channel.id or not 0 <= idx < len(ideas):
+    post = None
+    if data.get("plan_channel") == channel.id and 0 <= idx < len(ideas) and isinstance(ideas[idx], int):
+        post = await posts_repo.get_post(session, user.id, ideas[idx])
+    if post is None:
         await cb.answer(t("plan.expired"), show_alert=True)
         return
     await cb.answer()
-    post = await posts_repo.create_post(
-        session, channel.owner_id, [channel.id], options=initial_options(channel, False), text=ideas[idx],
-        buttons=channel_defaults(channel)["buttons"],
-    )
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("plan.opened", n=idx + 1))
 
 

@@ -450,3 +450,61 @@ async def test_calendar_week_and_move(sessionmaker, seeded):
         ]
     finally:
         await client.close()
+
+
+class FakeAI:
+    enabled = True
+
+    def __init__(self):
+        self.calls = 0
+
+    async def content_plan(self, **kwargs):
+        self.calls += 1
+        return [f"<b>Ідея {i}</b> для «{kwargs['channel_title']}»" for i in range(1, 4)]
+
+
+async def test_calendar_ideas_generate_schedule_and_delete(sessionmaker, seeded):
+    settings = Settings(bot_token=TOKEN, webapp_enabled=True, liqpay_enabled=False, _env_file=None)
+    ai = FakeAI()
+    client = TestClient(TestServer(build_web_app(settings, InvoiceBot(), sessionmaker, ai)))
+    await client.start_server()
+    auth = {"Authorization": "tma " + init_data({"id": seeded.tg_id, "first_name": "Олена"})}
+    try:
+        week = await (await client.get("/api/calendar", headers=auth)).json()
+        # The user's only channel is the one ideas belong to, even with "all channels" selected.
+        assert (week["ideas_channel"], week["ideas"], week["ideas_enabled"]) == (seeded.channel_id, [], True)
+
+        resp = await client.post("/api/ideas", json={"channel_id": seeded.channel_id}, headers=auth)
+        assert resp.status == 409 and "AI-текстів" in (await resp.json())["message"] and ai.calls == 0
+        async with sessionmaker() as session:
+            await limits.add(session, seeded.channel_id, "ai_text", 1)
+            await session.commit()
+        assert (await client.post("/api/ideas", json={"channel_id": 999999}, headers=auth)).status == 404
+        ideas = (await (await client.post("/api/ideas", json={"channel_id": seeded.channel_id}, headers=auth)).json())["ideas"]
+        assert [i["text"] for i in ideas] == [f"Ідея {i} для «Наше місто»" for i in (3, 2, 1)]
+        async with sessionmaker() as session:
+            assert (await limits.remaining(session, seeded.channel_id))["ai_text"] == 0
+
+        first, second = ideas[0]["id"], ideas[1]["id"]
+        schedule = {"id": first, "date": "2099-01-05", "time": "10:00"}
+        assert (await client.post("/api/ideas/schedule", json={**schedule, "date": "2020-01-01"}, headers=auth)).status == 400
+        assert (await client.post("/api/ideas/schedule", json={**schedule, "id": seeded.post_id}, headers=auth)).status == 404
+        assert (await client.post("/api/ideas/schedule", json=schedule, headers=auth)).status == 200
+        assert (await client.post("/api/ideas/schedule", json=schedule, headers=auth)).status == 404  # no longer an idea
+        async with sessionmaker() as session:
+            post = await session.get(Post, first)
+            pubs = (await session.scalars(select(Publication).where(Publication.post_id == first))).all()
+        assert post.status == "scheduled" and "idea" not in post.options
+        assert [(p.channel_id, p.status, p.run_at.strftime("%Y-%m-%d %H:%M")) for p in pubs] == [
+            (seeded.channel_id, "pending", "2099-01-05 08:00"),
+        ]
+
+        assert (await client.post("/api/ideas/delete", json={"id": second}, headers=auth)).status == 200
+        week = await (await client.get(f"/api/calendar?channel={seeded.channel_id}", headers=auth)).json()
+        assert [i["text"] for i in week["ideas"]] == ["Ідея 1 для «Наше місто»"]
+
+        other = {"Authorization": "tma " + init_data({"id": 777, "first_name": "Чужий"})}
+        assert (await client.post("/api/ideas/delete", json={"id": week["ideas"][0]["id"]}, headers=other)).status == 404
+        assert (await client.post("/api/ideas", json={"channel_id": seeded.channel_id}, headers=other)).status == 404
+    finally:
+        await client.close()

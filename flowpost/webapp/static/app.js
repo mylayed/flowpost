@@ -187,6 +187,18 @@ const I18N = {
     cal_move: "Перенести",
     cal_past: "Цей час уже минув. Оберіть пізніший.",
     cal_not_movable: "Цей пост уже публікується або його скасували.",
+    ideas_title: "Ідеї на тиждень",
+    ideas_hint: "Утримуйте ідею й перетягніть її в календар на потрібний день і час.",
+    ideas_empty: "ШІ підготує 7 чернеток постів під тематику каналу, а ви розкладете їх по днях.",
+    ideas_locked: "Ідеї від ШІ доступні на платному тарифі каналу або в пробному періоді.",
+    ideas_pick_channel: "Оберіть канал угорі, щоб побачити ідеї для нього.",
+    ideas_generate: "✨ Згенерувати",
+    ideas_more: "✨ Ще ідеї",
+    ideas_working: "Готую ідеї… Це може зайняти до хвилини.",
+    ideas_idea: "Ідея",
+    ideas_schedule: "Запланувати",
+    ideas_delete: "Видалити ідею",
+    ideas_delete_confirm: "Видалити цю ідею?",
   },
   en: {
     balance: "Balance",
@@ -363,6 +375,18 @@ const I18N = {
     cal_move: "Reschedule",
     cal_past: "That time has passed. Pick a later one.",
     cal_not_movable: "This post is already being published or was cancelled.",
+    ideas_title: "Ideas for the week",
+    ideas_hint: "Press and hold an idea, then drag it onto a day and time in the calendar.",
+    ideas_empty: "AI will draft 7 posts on the channel's topic for you to spread across the week.",
+    ideas_locked: "AI ideas come with the channel's paid plan or trial.",
+    ideas_pick_channel: "Pick a channel above to see its ideas.",
+    ideas_generate: "✨ Generate",
+    ideas_more: "✨ More ideas",
+    ideas_working: "Coming up with ideas… This can take up to a minute.",
+    ideas_idea: "Idea",
+    ideas_schedule: "Schedule",
+    ideas_delete: "Delete idea",
+    ideas_delete_confirm: "Delete this idea?",
   },
 };
 
@@ -567,7 +591,7 @@ async function api(path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data.error || response.statusText), { status: response.status });
+  if (!response.ok) throw Object.assign(new Error(data.error || response.statusText), { status: response.status, data });
   return data;
 }
 
@@ -1782,7 +1806,9 @@ function paintCalendar(root) {
     })
     : h("p", { class: "empty-state" }, t("cal_empty"));
 
-  root.replaceChildren(channelPicker ?? "", nav, h("section", { class: "cal-board" }, head, body), legend ?? "", ...[agenda].flat(2).filter(Boolean));
+  root.replaceChildren(
+    channelPicker ?? "", nav, renderIdeas(cal) ?? "", h("section", { class: "cal-board" }, head, body), legend ?? "",
+    ...[agenda].flat(2).filter(Boolean));
   let scroll = cal.scroll;
   if (scroll == null) {
     const upcoming = groups.find((g) => !g.done && !calIsPast(g.date, g.minutes));
@@ -1818,7 +1844,7 @@ function startCalPress(event, card, group) {
 }
 
 function activateCalDrag(drag) {
-  const body = drag.card.closest(".cal-body");
+  const body = document.querySelector(".cal-body");
   if (!body) {
     endCalDrag();
     return;
@@ -1827,7 +1853,8 @@ function activateCalDrag(drag) {
   drag.active = true;
   drag.body = body;
   drag.cols = [...body.querySelectorAll(".cal-col")];
-  drag.offsetY = Math.min(Math.max(drag.y - rect.top, 0), rect.height);
+  // An idea card is much taller than a slot in the grid, so it is held by the middle of a slot instead.
+  drag.offsetY = drag.group.idea ? CAL_HOUR / 4 : Math.min(Math.max(drag.y - rect.top, 0), rect.height);
   drag.ghost = h("div", { class: "cal-card cal-ghost", style: `--c:${drag.group.color}` });
   drag.marker = h("div", { class: "cal-drop" });
   document.body.append(drag.ghost);
@@ -1839,8 +1866,10 @@ function activateCalDrag(drag) {
     const box = drag.body.getBoundingClientRect();
     const edge = 40;
     let delta = 0;
-    if (drag.y < box.top + edge) delta = -Math.ceil((box.top + edge - drag.y) / 4);
-    else if (drag.y > box.bottom - edge) delta = Math.ceil((drag.y - box.bottom + edge) / 4);
+    if (calInside(drag, box)) {
+      if (drag.y < box.top + edge) delta = -Math.ceil((box.top + edge - drag.y) / 4);
+      else if (drag.y > box.bottom - edge) delta = Math.ceil((drag.y - box.bottom + edge) / 4);
+    }
     if (delta) {
       drag.body.scrollTop += delta;
       updateCalDrag(drag);
@@ -1850,7 +1879,23 @@ function activateCalDrag(drag) {
   drag.frame = requestAnimationFrame(tick);
 }
 
+function calInside(drag, box) {
+  return drag.x >= box.left && drag.x <= box.right && drag.y >= box.top && drag.y <= box.bottom;
+}
+
 function updateCalDrag(drag) {
+  const width = Math.max(drag.cols[0].getBoundingClientRect().width, 58);
+  drag.ghost.style.width = `${width}px`;
+  drag.ghost.style.left = `${Math.min(Math.max(drag.x - width / 2, 4), window.innerWidth - width - 4)}px`;
+  drag.ghost.style.top = `${drag.y - drag.offsetY}px`;
+  if (!calInside(drag, drag.body.getBoundingClientRect())) {
+    // Let go outside the grid and nothing moves.
+    drag.target = null;
+    drag.marker.remove();
+    drag.ghost.textContent = drag.group.icon;
+    drag.ghost.classList.remove("invalid");
+    return;
+  }
   const rects = drag.cols.map((col) => col.getBoundingClientRect());
   let index = rects.findIndex((r) => drag.x < r.right);
   if (index < 0) index = rects.length - 1;
@@ -1861,11 +1906,7 @@ function updateCalDrag(drag) {
   const changed = !drag.target || drag.target.date !== date || drag.target.minutes !== minutes;
   drag.target = { date, minutes, invalid };
 
-  const width = Math.max(rects[index].width, 58);
   drag.ghost.textContent = `${hm(minutes)} ${drag.group.icon}`;
-  drag.ghost.style.width = `${width}px`;
-  drag.ghost.style.left = `${Math.min(Math.max(drag.x - width / 2, 4), window.innerWidth - width - 4)}px`;
-  drag.ghost.style.top = `${drag.y - drag.offsetY}px`;
   drag.ghost.classList.toggle("invalid", invalid);
   if (drag.marker.parentNode !== drag.cols[index]) drag.cols[index].append(drag.marker);
   drag.marker.style.top = `${(minutes * CAL_HOUR) / 60}px`;
@@ -1898,7 +1939,8 @@ function onCalPointerUp(event) {
     tg.HapticFeedback?.notificationOccurred("error");
     return;
   }
-  if (target.date !== group.date || target.minutes !== group.minutes) moveCalGroup(group, target.date, hm(target.minutes));
+  if (group.idea) scheduleIdea(group, target.date, hm(target.minutes));
+  else if (target.date !== group.date || target.minutes !== group.minutes) moveCalGroup(group, target.date, hm(target.minutes));
 }
 
 function endCalDrag() {
@@ -1952,8 +1994,47 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeCalSheet();
 });
 
-function openCalSheet(g) {
+function showSheet(content) {
   closeCalSheet();
+  const sheet = h("div", { class: "sheet-backdrop" }, h("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, content.flat(Infinity)));
+  sheet.addEventListener("click", (event) => {
+    if (event.target === sheet) closeCalSheet();
+  });
+  document.body.append(sheet);
+  calSheet = sheet;
+  tg.BackButton.show();
+  requestAnimationFrame(() => sheet.classList.add("open"));
+}
+
+// Date and time pickers with a button that hands a future local date and "HH:MM" to `onPick`.
+function whenFields(date, minutes, label, onPick) {
+  const dateInput = h("input", { id: "cal-date", class: "amount-input", type: "date", value: date, min: calNow()[0] });
+  const timeInput = h("input", { id: "cal-time", class: "amount-input", type: "time", value: hm(minutes) });
+  const button = h("button", { class: "btn btn-primary", type: "button" }, label);
+  button.addEventListener("click", () => {
+    const day = dateInput.value;
+    const time = timeInput.value.slice(0, 5);
+    if (!day || !/^\d\d:\d\d$/.test(time)) return;
+    if (calIsPast(day, toMinutes(time))) {
+      tg.showAlert(t("cal_past"));
+      return;
+    }
+    closeCalSheet();
+    onPick(day, time);
+  });
+  return [
+    h("div", { class: "sheet-fields" },
+      h("div", {},
+        h("label", { class: "field-label", for: "cal-date" }, t("cal_date")),
+        h("div", { class: "amount-field" }, dateInput)),
+      h("div", {},
+        h("label", { class: "field-label", for: "cal-time" }, t("cal_time")),
+        h("div", { class: "amount-field" }, timeInput))),
+    button,
+  ];
+}
+
+function openCalSheet(g) {
   const channels = g.items.map((i) => state.cal.data.channels.find((c) => c.id === i.channel_id)?.title ?? "—");
   const content = [
     h("div", { class: "sheet-grip" }),
@@ -1969,41 +2050,133 @@ function openCalSheet(g) {
       g.repeat ? infoRow(t("cal_repeat"), t("cal_on")) : null),
   ];
   if (g.movable) {
-    const dateInput = h("input", { id: "cal-date", class: "amount-input", type: "date", value: g.date, min: calNow()[0] });
-    const timeInput = h("input", { id: "cal-time", class: "amount-input", type: "time", value: hm(g.minutes) });
-    const button = h("button", { class: "btn btn-primary", type: "button" }, t("cal_move"));
-    button.addEventListener("click", () => {
-      const date = dateInput.value;
-      const time = timeInput.value.slice(0, 5);
-      if (!date || !/^\d\d:\d\d$/.test(time)) return;
-      if (calIsPast(date, toMinutes(time))) {
-        tg.showAlert(t("cal_past"));
-        return;
-      }
-      closeCalSheet();
+    content.push(whenFields(g.date, g.minutes, t("cal_move"), (date, time) => {
       if (date !== g.date || toMinutes(time) !== g.minutes) moveCalGroup(g, date, time);
-    });
-    content.push(
-      h("div", { class: "sheet-fields" },
-        h("div", {},
-          h("label", { class: "field-label", for: "cal-date" }, t("cal_date")),
-          h("div", { class: "amount-field" }, dateInput)),
-        h("div", {},
-          h("label", { class: "field-label", for: "cal-time" }, t("cal_time")),
-          h("div", { class: "amount-field" }, timeInput))),
-      button);
+    }));
   } else if (g.link) {
     content.push(h("button", { class: "btn btn-primary sheet-btn", type: "button", onclick: () => tg.openTelegramLink(g.link) },
       t("open_in_tg")));
   }
-  const sheet = h("div", { class: "sheet-backdrop" }, h("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, content));
-  sheet.addEventListener("click", (event) => {
-    if (event.target === sheet) closeCalSheet();
+  showSheet(content);
+}
+
+// ---- ideas -------------------------------------------------------------------------------------
+
+function renderIdeas(cal) {
+  const data = cal.data;
+  if (data.ideas == null) {
+    return data.channels.length > 1
+      ? h("section", { class: "card ideas-card" },
+        h("div", { class: "card-label" }, t("ideas_title")),
+        h("p", { class: "hint" }, t("ideas_pick_channel")))
+      : null;
+  }
+  const ideas = data.ideas;
+  const button = data.ideas_enabled
+    ? h("button", { class: "text-btn", type: "button", disabled: cal.generating, onclick: generateIdeas },
+      t(ideas.length ? "ideas_more" : "ideas_generate"))
+    : null;
+  let body;
+  if (cal.generating) body = h("p", { class: "hint" }, t("ideas_working"));
+  else if (ideas.length) {
+    body = [h("div", { class: "ideas-strip" }, ideas.map(ideaCard)), h("p", { class: "fineprint" }, t("ideas_hint"))];
+  } else body = h("p", { class: "hint" }, t(data.ideas_enabled ? "ideas_empty" : "ideas_locked"));
+  return h("section", { class: "card ideas-card" },
+    h("div", { class: "ideas-head" },
+      h("div", { class: "card-label" }, t("ideas_title"), ideas.length ? h("span", { class: "count" }, ` · ${ideas.length}`) : null),
+      button),
+    body);
+}
+
+function ideaCard(idea) {
+  const item = { ...idea, idea: true, movable: true, color: channelColor(state.cal.data.ideas_channel) };
+  const card = h("button", {
+    class: "idea-card",
+    type: "button",
+    style: `--c:${item.color}`,
+    onclick: () => {
+      if (card.dragged) card.dragged = false;
+      else openIdeaSheet(item);
+    },
+    oncontextmenu: (event) => event.preventDefault(),
+  }, h("span", { class: "idea-icon" }, idea.icon), h("span", { class: "idea-text" }, idea.text || t("cal_no_text")));
+  card.addEventListener("pointerdown", (event) => startCalPress(event, card, item));
+  return card;
+}
+
+function openIdeaSheet(idea) {
+  const data = state.cal.data;
+  const channel = data.channels.find((c) => c.id === data.ideas_channel)?.title ?? "";
+  // Suggest the next whole hour that is at least an hour away.
+  const [today, now] = calNow();
+  let minutes = Math.ceil((now + 60) / 60) * 60;
+  let date = today;
+  if (minutes >= 1440) {
+    minutes -= 1440;
+    date = isoAddDays(today, 1);
+  }
+  showSheet([
+    h("div", { class: "sheet-grip" }),
+    h("div", { class: "sheet-head" },
+      h("span", { class: "avatar", style: `color:${idea.color}` }, idea.icon),
+      h("div", { class: "grow" },
+        h("div", { class: "sheet-title" }, t("ideas_idea")),
+        h("div", { class: "sheet-sub" }, channel))),
+    h("div", { class: "info-box sheet-text full" }, idea.full || idea.text || t("cal_no_text")),
+    whenFields(date, minutes, t("ideas_schedule"), (day, time) => scheduleIdea(idea, day, time)),
+    h("button", { class: "text-link danger", type: "button", onclick: () => deleteIdea(idea) }, t("ideas_delete")),
+  ]);
+}
+
+async function generateIdeas() {
+  const cal = state.cal;
+  const data = cal.data;
+  if (cal.generating) return;
+  cal.generating = true;
+  render();
+  try {
+    const { ideas } = await api("ideas", { channel_id: data.ideas_channel });
+    data.ideas = ideas;
+    tg.HapticFeedback?.notificationOccurred("success");
+  } catch (error) {
+    tg.showAlert(error.data?.message || t("error"));
+  } finally {
+    cal.generating = false;
+    if (route() === "calendar") render();
+  }
+}
+
+async function scheduleIdea(idea, date, time) {
+  const cal = state.cal;
+  const data = cal.data;
+  data.ideas = data.ideas.filter((i) => i.id !== idea.id);
+  data.items.push({
+    id: -idea.id, post_id: idea.id, channel_id: data.ideas_channel, status: "pending", date, time,
+    icon: idea.icon, text: idea.text, repeat: false, link: null,
   });
-  document.body.append(sheet);
-  calSheet = sheet;
-  tg.BackButton.show();
-  requestAnimationFrame(() => sheet.classList.add("open"));
+  if (route() === "calendar") render();
+  try {
+    await api("ideas/schedule", { id: idea.id, date, time });
+    tg.HapticFeedback?.notificationOccurred("success");
+  } catch (error) {
+    tg.showAlert(error.message === "past" ? t("cal_past") : t("error"));
+  }
+  await loadCalendar(cal).catch(() => {});
+  if (route() === "calendar") render();
+}
+
+function deleteIdea(idea) {
+  tg.showConfirm(t("ideas_delete_confirm"), async (ok) => {
+    if (!ok) return;
+    closeCalSheet();
+    try {
+      await api("ideas/delete", { id: idea.id });
+      state.cal.data.ideas = state.cal.data.ideas.filter((i) => i.id !== idea.id);
+    } catch {
+      tg.showAlert(t("error"));
+    }
+    if (route() === "calendar") render();
+  });
 }
 
 async function pollBalance(before) {

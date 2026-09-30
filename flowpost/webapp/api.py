@@ -18,18 +18,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
 from flowpost.db.models import Channel, Post, Publication, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANGS, t
+from flowpost.services import ideas as ideas_service
 from flowpost.services.billing import channel_subs, entitlements, limits, plans
 from flowpost.services.billing.stars import create_topup_link
 from flowpost.services.delivery import publication_message_ids
-from flowpost.services.html_sanitize import snippet
+from flowpost.services.html_sanitize import html_to_plain, snippet
 from flowpost.services.posts import message_link, part_icon, part_preview_text
 from flowpost.services.slots import day_bounds_utc, local_now, to_utc, tz_of
-from flowpost.webapp import BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
+from flowpost.webapp import AI_KEY, BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
 from flowpost.webapp.auth import validate_init_data
 
 log = logging.getLogger(__name__)
@@ -328,6 +331,8 @@ async def terms(request: web.Request, session: AsyncSession, user: User) -> web.
 
 CALENDAR_DAYS = 7
 CALENDAR_SNIPPET = 90
+IDEA_SNIPPET = 140
+IDEA_TEXT = 1500
 MAX_MOVE_IDS = 50
 
 
@@ -366,6 +371,42 @@ def _calendar_item(pub: Publication, post: Post | None, channel: Channel, zone) 
     }
 
 
+def _idea_item(post: Post) -> dict:
+    first = post.parts[0] if post.parts else None
+    text = part_preview_text(first) if first else ""
+    return {
+        "id": post.id,
+        "icon": part_icon(first) if first else "📝",
+        "text": snippet(text, IDEA_SNIPPET),
+        "full": html_to_plain(text)[:IDEA_TEXT].strip(),
+    }
+
+
+async def _can_generate_ideas(request: web.Request, session: AsyncSession, user: User, channel: Channel) -> bool:
+    """Generating ideas is a PRO tool: the channel's owner or an admin with settings rights, on a paid plan/trial."""
+    ai = request.app.get(AI_KEY)
+    if ai is None or not ai.enabled:
+        return False
+    if channel.owner_id != user.id and not await channel_admins_repo.has_permission(
+        session, channel.id, user.id, "settings"
+    ):
+        return False
+    return await ideas_service.can_generate(session, request.app[SETTINGS_KEY], channel)
+
+
+async def _calendar_channel(session: AsyncSession, user: User, channel_id: object) -> Channel | None:
+    """A channel `user` may post to."""
+    if not _is_int(channel_id):
+        return None
+    channels = await channels_repo.list_channels(session, user.id, perm="posts")
+    return next((c for c in channels if c.id == channel_id), None)
+
+
+async def _idea_post(session: AsyncSession, user: User, post_id: object) -> Post | None:
+    post = await posts_repo.get_post(session, user.id, post_id) if _is_int(post_id) else None
+    return post if post is not None and ideas_service.is_idea(post) else None
+
+
 async def calendar(request: web.Request, session: AsyncSession, user: User) -> web.Response:
     """One week (Monday to Sunday, in the user's time zone) of queued and published posts."""
     now_local = local_now(user.tz)
@@ -385,8 +426,14 @@ async def calendar(request: web.Request, session: AsyncSession, user: User) -> w
     if post_ids:
         posts = {p.id: p for p in (await session.scalars(select(Post).where(Post.id.in_(post_ids)))).all()}
     zone = tz_of(user.tz)
+    # Ideas belong to one channel: the selected one, or the only one the user has.
+    selected = by_id.get(int(channel_id)) or (channels[0] if len(channels) == 1 else None)
+    ideas = [_idea_item(p) for p in await ideas_service.for_channel(session, selected)] if selected else None
     return web.json_response({
         "lang": user.lang,
+        "ideas": ideas,
+        "ideas_channel": selected.id if selected else None,
+        "ideas_enabled": bool(selected) and await _can_generate_ideas(request, session, user, selected),
         "start": start.isoformat(),
         "today": now_local.date().isoformat(),
         "now": now_local.hour * 60 + now_local.minute,
@@ -415,6 +462,46 @@ async def calendar_move(request: web.Request, session: AsyncSession, user: User)
     if await pubs_repo.move_queued(session, user.id, ids, run_at, now) != len(ids):
         await session.rollback()
         return web.json_response({"error": "not_movable"}, status=409)
+    return web.json_response({"ok": True})
+
+
+async def generate_ideas(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    """A week of AI drafts for one channel, kept as its ideas until they're dragged onto the calendar."""
+    channel = await _calendar_channel(session, user, (await _json_body(request)).get("channel_id"))
+    if channel is None:
+        return web.json_response({"error": "not_found"}, status=404)
+    if channel.owner_id != user.id and not await channel_admins_repo.has_permission(
+        session, channel.id, user.id, "settings"
+    ):
+        return web.json_response({"error": "forbidden", "message": t("err.not_found", locale=user.lang)}, status=403)
+    try:
+        texts = await ideas_service.generate(session, request.app[SETTINGS_KEY], request.app.get(AI_KEY), user, channel)
+    except ideas_service.IdeasError as e:
+        return web.json_response({"error": "ideas", "message": t(e.key, locale=user.lang)}, status=409)
+    await ideas_service.save(session, channel, texts)
+    return web.json_response({"ideas": [_idea_item(p) for p in await ideas_service.for_channel(session, channel)]})
+
+
+async def schedule_idea(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    body = await _json_body(request)
+    day, hm = _parse_date(body.get("date")), _parse_hm(body.get("time"))
+    if day is None or hm is None:
+        return web.json_response({"error": "invalid_request"}, status=400)
+    post = await _idea_post(session, user, body.get("id"))
+    if post is None:
+        return web.json_response({"error": "not_found"}, status=404)
+    run_at = to_utc(day, hm, user.tz)
+    if run_at <= utcnow():
+        return web.json_response({"error": "past"}, status=400)
+    await ideas_service.schedule(session, user, post, run_at)
+    return web.json_response({"ok": True})
+
+
+async def delete_idea(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    post = await _idea_post(session, user, (await _json_body(request)).get("id"))
+    if post is None:
+        return web.json_response({"error": "not_found"}, status=404)
+    await session.delete(post)
     return web.json_response({"ok": True})
 
 
@@ -461,3 +548,6 @@ def setup_webapp(app: web.Application) -> None:
     app.router.add_post("/api/transfer", authed(transfer_subscription))
     app.router.add_get("/api/calendar", authed(calendar))
     app.router.add_post("/api/calendar/move", authed(calendar_move))
+    app.router.add_post("/api/ideas", authed(generate_ideas))
+    app.router.add_post("/api/ideas/schedule", authed(schedule_idea))
+    app.router.add_post("/api/ideas/delete", authed(delete_idea))

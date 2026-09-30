@@ -73,7 +73,7 @@ async def run(settings: Settings) -> None:
         raise SystemExit(1)
     log.info("Starting as @%s", me.username)
     await setup_bot_profile(bot)
-    app = build_web_app(settings, bot, sessionmaker)
+    app = build_web_app(settings, bot, sessionmaker, ai)
     webhook_url = settings.webhook_url
     if webhook_url:
         SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=settings.webhook_secret or None).register(

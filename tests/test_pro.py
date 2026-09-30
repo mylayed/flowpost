@@ -11,6 +11,7 @@ from flowpost.db.models import (
     Channel, Commenter, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication, User,
 )
 from flowpost.db.types import utcnow
+from flowpost.services import ideas as ideas_service
 from flowpost.services import rss
 from flowpost.services.growth import join_settings
 from test_bot_flow import BOT_ID, CHANNEL_CHAT, DISCUSSION_CHAT, USER_ID, Harness, _post, _seed_published, h  # noqa: F401
@@ -295,10 +296,16 @@ async def test_ai_content_plan_turns_an_idea_into_a_draft(h: Harness):
     shown = h.session.calls[-1][1]
     assert "1. Ідея 1" in shown.text and "7. Ідея 7" in shown.text
 
+    # The week's drafts are kept as ideas of the channel, so the calendar Mini App can schedule them too.
+    async def ideas(s):
+        channel = await s.get(Channel, c)
+        return [p.parts[0].text_html for p in await ideas_service.for_channel(s, channel)]
+    assert await h.db(ideas) == [f"<b>Ідея {i}</b>\nТекст поста {i}" for i in range(7, 0, -1)]
+
+    h.session.clear()
     await h.click(Px(a="plan_use", c=c, v="2"))
-    post = await _post(h)
-    assert post.parts[0].text_html == "<b>Ідея 3</b>\nТекст поста 3" and post.channel_ids == [c]
-    assert "Пост №3" in h.session.texts()
+    texts = h.session.texts()
+    assert "Пост №3" in texts and "Текст поста 3" in texts
 
 
 # ---- translation for multiposting ---------------------------------------------------------------

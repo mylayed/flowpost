@@ -1057,3 +1057,65 @@ main { flex: 1; padding-bottom: 24px; }
 .sheet .btn { margin-top: 6px; }
 
 .sheet .sheet-btn { margin-top: 18px; }
+
+.ideas-card { margin-bottom: 12px; padding: 16px 16px 14px; }
+
+.ideas-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.ideas-head .card-label { margin-bottom: 0; }
+
+.ideas-head .count { font-weight: 600; letter-spacing: 0; }
+
+.ideas-head .text-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ideas-card .hint { margin: 10px 0 0; }
+
+.ideas-card .fineprint { margin-top: 8px; }
+
+.ideas-strip {
+  display: flex;
+  gap: 8px;
+  margin: 12px -16px 0;
+  padding: 0 16px 2px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.ideas-strip::-webkit-scrollbar { display: none; }
+
+.idea-card {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 150px;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--c);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  cursor: grab;
+  scroll-snap-align: start;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.idea-card:active { background: var(--surface-active); }
+
+.idea-card.dragging { opacity: 0.3; }
+
+.idea-icon { font-size: 16px; line-height: 1; }
+
+.idea-text { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+
+.sheet-text.full { max-height: 38vh; overflow-y: auto; white-space: pre-wrap; }
+
+.text-link.danger { color: #ff6b6b; }

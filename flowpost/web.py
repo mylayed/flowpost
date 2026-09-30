@@ -12,6 +12,7 @@ from flowpost.config import Settings
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services import analytics
+from flowpost.services.ai import AIService
 from flowpost.services.billing.liqpay import (
     CANCEL_STATUSES,
     FAIL_STATUSES,
@@ -21,7 +22,7 @@ from flowpost.services.billing.liqpay import (
 )
 from flowpost.services.billing.subscriptions import extend_subscription, get_subscription, record_payment
 from flowpost.services.slots import fmt_date, tz_of
-from flowpost.webapp import BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
+from flowpost.webapp import AI_KEY, BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
 from flowpost.webapp.api import setup_webapp
 
 log = logging.getLogger(__name__)
@@ -105,11 +106,15 @@ async def liqpay_callback(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-def build_web_app(settings: Settings, bot: Bot, sessionmaker: async_sessionmaker) -> web.Application:
+def build_web_app(
+    settings: Settings, bot: Bot, sessionmaker: async_sessionmaker, ai: AIService | None = None
+) -> web.Application:
     app = web.Application()
     app[SETTINGS_KEY] = settings
     app[BOT_KEY] = bot
     app[SESSIONMAKER_KEY] = sessionmaker
+    if ai is not None:
+        app[AI_KEY] = ai
     app.router.add_get("/health", health)
     app.router.add_post("/pay/liqpay/callback", liqpay_callback)
     if settings.webapp_enabled:
