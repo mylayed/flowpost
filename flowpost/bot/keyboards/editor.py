@@ -8,6 +8,7 @@ from flowpost.bot.callbacks import Ed
 from flowpost.bot.keyboards.common import btn, chunked, markup, on, page_nav, paged
 from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
+from flowpost.services import ideas
 from flowpost.services.posts import options_of
 from flowpost.services.slots import fmt_date, fmt_hm
 
@@ -66,8 +67,12 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
          btn(on(repeat_on) + t("ed.repeat"), Ed(a="rep", p=p))],
         [btn(t("ed.schedule"), Ed(a="sch", p=p)), btn(multi_label, Ed(a="multi", p=p))],
         [btn(t("ed.publish"), Ed(a="pub", p=p))],
-        [btn(t("ed.cancel"), Ed(a="cancel", p=p))],
     ]
+    cancel = btn(t("ed.cancel"), Ed(a="cancel", p=p))
+    if ideas.can_keep(post):
+        rows.append([btn(t("ed.idea_keep") if ideas.is_idea(post) else t("ed.idea"), Ed(a="idea", p=p)), cancel])
+    else:
+        rows.append([cancel])
     return markup(rows)
 
 

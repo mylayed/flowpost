@@ -1,4 +1,4 @@
-"""Editor → «Опублікувати», «Скасувати і назад», and saving edits of already-published posts."""
+"""Editor → «Опублікувати», «💡 В ідеї», «Скасувати і назад», and saving edits of already-published posts."""
 from __future__ import annotations
 
 import html
@@ -20,18 +20,21 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from flowpost.bot.callbacks import Ed
+from flowpost.bot.callbacks import Ed, Px
 from flowpost.bot.handlers.editor.defaults import done_screen
 from flowpost.bot.handlers.editor.view import close_editor, post_from_callback, show_panel
+from flowpost.bot.keyboards.common import btn, markup, paywall_kb
 from flowpost.bot.keyboards.editor import confirm_kb
 from flowpost.bot.keyboards.main_menu import main_menu_kb
 from flowpost.bot.states import Editor
+from flowpost.config import Settings
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services import ideas as ideas_service
 from flowpost.services.delivery import DeliveryOutcome
 from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.posts import build_markup, final_text, options_of, part_buttons, part_warnings, post_is_empty
@@ -151,6 +154,33 @@ async def ed_cancel(
     await close_editor(bot, cb.from_user.id, state, delete_preview=is_draft)
     key = "cancel.done" if is_draft else "cancel.closed"
     await bot.send_message(cb.from_user.id, t(key), reply_markup=main_menu_kb())
+
+
+@router.callback_query(Ed.filter(F.a == "idea"))
+async def ed_idea(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    settings: Settings,
+) -> None:
+    """«💡 В ідеї»: whatever was sent to the bot waits in the channel's ideas (a PRO tool) instead of going out now."""
+    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        await state.clear()
+        return
+    channel = await session.get(Channel, post.channel_ids[0]) if ideas_service.can_keep(post) else None
+    if channel is None:
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return
+    if not await ideas_service.can_generate(session, settings, channel):
+        await cb.answer(t("paywall.extras_short"), show_alert=True)
+        await bot.send_message(cb.from_user.id, t("idea.paywall"), reply_markup=paywall_kb(settings))
+        return
+    await ideas_service.keep(session, post)
+    await cb.answer()
+    await close_editor(bot, cb.from_user.id, state, delete_preview=True)
+    await bot.send_message(
+        cb.from_user.id, t("idea.saved", title=html.escape(channel.title)),
+        reply_markup=markup([[btn(t("idea.all"), Px(a="ideas", c=channel.id))]]),
+    )
 
 
 async def _edit_published_part(

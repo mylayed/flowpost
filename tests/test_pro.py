@@ -309,6 +309,91 @@ async def test_ai_content_plan_turns_an_idea_into_a_draft(h: Harness):
     assert "Пост №3" in texts and "Текст поста 3" in texts
 
 
+# ---- idea bank ----------------------------------------------------------------------------------
+
+def _keyboard(h: Harness) -> str:
+    return str([m for n, m in h.session.calls if getattr(m, "reply_markup", None) is not None][-1].reply_markup)
+
+
+async def test_anything_sent_to_the_bot_can_be_parked_in_the_channels_ideas(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    h.session.clear()
+    await h.photo()
+    await h.text("Думка на потім")
+    p = (await _post(h)).id
+    assert Ed(a="idea", p=p).pack() in _keyboard(h)
+
+    h.session.clear()
+    await h.click(Ed(a="idea", p=p))
+    assert "Збережено в ідеї каналу «Test Channel»" in h.session.texts()
+    post = await _post(h)
+    assert post.status == "draft" and ideas_service.is_idea(post)
+
+    # The bank lists it; opening it brings the editor back, where it can be kept or scheduled.
+    h.session.clear()
+    await h.click(Px(a="ideas", c=c))
+    assert "Банк ідей" in h.session.texts() and "Думка на потім" in _keyboard(h)
+    h.session.clear()
+    await h.click(Px(a="idea_open", c=c, id=p))
+    assert "Ідея з банку ідей" in h.session.texts() and "Залишити в ідеях" in _keyboard(h)
+
+
+async def test_a_channel_admin_who_may_post_keeps_ideas_too(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    admin_tg = 7001
+    await h.text("/start", uid=admin_tg)
+
+    async def add_admin(s):
+        admin = await s.scalar(select(User).where(User.tg_id == admin_tg))
+        s.add(ChannelAdmin(channel_id=c, user_id=admin.id, can_posts=True, can_settings=False))
+        await s.commit()
+    await h.db(add_admin)
+
+    await h.text("Ідея від адміна", uid=admin_tg)
+    p = (await _post(h)).id
+    h.session.clear()
+    await h.click(Ed(a="idea", p=p), uid=admin_tg)
+    assert "Збережено в ідеї каналу" in h.session.texts()
+    assert ideas_service.is_idea(await _post(h))
+
+    # Without the PRO tools (no settings rights), the bank opens from the channel card and leads back to it.
+    h.session.clear()
+    await h.click(Pj(a="ch", c=c), uid=admin_tg)
+    card = _keyboard(h)
+    assert Px(a="ideas", c=c, v="ch").pack() in card and Px(a="menu", c=c).pack() not in card
+    h.session.clear()
+    await h.click(Px(a="ideas", c=c, v="ch"), uid=admin_tg)
+    kb = _keyboard(h)
+    assert "Ідея від адміна" in kb and Pj(a="ch", c=c).pack() in kb
+    h.session.clear()
+    await h.click(Px(a="idea_open", c=c, id=p), uid=admin_tg)
+    assert "Ідея з банку ідей" in h.session.texts()
+
+
+async def test_idea_bank_needs_a_paid_plan_or_trial(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    await h.text("Думка на потім")
+    p = (await _post(h)).id
+
+    async def expire(s):
+        await s.execute(update(Channel).values(trial_ends_at=utcnow() - timedelta(days=1)))
+        await s.execute(update(User).values(trial_ends_at=utcnow() - timedelta(days=1)))
+        await s.commit()
+    await h.db(expire)
+
+    h.session.clear()
+    await h.click(Ed(a="idea", p=p))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+    assert "платний тариф" in h.session.texts()
+    assert not ideas_service.is_idea(await _post(h))
+    h.session.clear()
+    await h.click(Px(a="ideas", c=c))
+    assert "платний тариф" in h.session.texts()
+
+
 # ---- translation for multiposting ---------------------------------------------------------------
 
 async def test_multiposted_post_is_translated_for_a_channel_with_its_own_language(h: Harness):

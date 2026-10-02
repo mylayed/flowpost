@@ -30,7 +30,7 @@ from flowpost.i18n import t
 from flowpost.services.ai import AIService
 from flowpost.services.billing.stars import make_payload
 from flowpost.services.publisher import Publisher
-from flowpost.services.slots import local_now
+from flowpost.services.slots import MONTHS_FULL, local_now
 from flowpost.services.worker import Worker
 from flowpost.web import process_liqpay_payload
 
@@ -1228,7 +1228,7 @@ async def test_scheduling_offers_to_save_the_posts_settings_as_channel_defaults(
     # the «Готово» confirmation names the post, the full date and the channel, and offers the button
     done = [m for name, m in h.session.calls if name in ("SendMessage", "EditMessageText")][-1]
     assert "Готово" in done.text and "Безкоштовний майстер-клас" in done.text
-    assert f"{tomorrow.day} вересня {tomorrow.year}, 09:30" in done.text
+    assert f"{tomorrow.day} {MONTHS_FULL['uk'][tomorrow.month - 1]} {tomorrow.year}, 09:30" in done.text
     assert done.reply_markup.inline_keyboard[0][0].text == t("ed.def_btn", locale="uk")
 
     # «Зберегти форматування та налаштування» → confirmation → saved onto the channel

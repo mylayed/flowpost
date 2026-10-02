@@ -1,5 +1,5 @@
-"""«⭐ PRO-інструменти» of a channel: tracked ad links, join requests, RSS sources, the AI content plan,
-translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial.
+"""«⭐ PRO-інструменти» of a channel: tracked ad links, join requests, RSS sources, the AI content plan, the idea
+bank, translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial.
 The giveaway among commenters lives here too, but it is free for every channel."""
 from __future__ import annotations
 
@@ -115,6 +115,7 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
     c = channel.id
     feeds = await session.scalar(select(func.count(Feed.id)).where(Feed.channel_id == c)) or 0
     links = len(await growth.channel_links(session, c))
+    ideas = len(await ideas_service.for_channel(session, channel))
     lines = [t("pro.title", title=html.escape(channel.title)), "", t("pro.help")]
     if not await _extras(session, settings, channel):
         lines += ["", t("pro.locked")]
@@ -124,6 +125,7 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
         [btn(on(growth.handles_requests(channel)) + t("pro.join"), Px(a="join", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
         [btn(t("pro.plan"), Px(a="plan", c=c))],
+        [btn(t("pro.ideas") + (f" ({ideas})" if ideas else ""), Px(a="ideas", c=c))],
         [btn(t("pro.translate", lang=(LANG_FLAGS.get(lang, "") + " " + LANG_NAMES[lang]) if lang in LANG_NAMES
                else t("pro.translate_off")), Px(a="tr", c=c))],
         [btn(on(channel.weekly_report) + t("pro.report"), Px(a="rep_t", c=c))],
@@ -640,6 +642,77 @@ async def px_plan_use(cb: CallbackQuery, callback_data: Px, bot: Bot, session: A
         return
     await cb.answer()
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("plan.opened", n=idx + 1))
+
+
+# ---- ideas: whatever the owner sent the bot and parked with «💡 В ідеї», plus the AI plan's drafts ----------------
+
+IDEAS_SHOWN = 20
+
+
+async def _poster_channel(
+    cb: CallbackQuery, data: Px, session: AsyncSession, user: User, settings: Settings,
+) -> Channel | None:
+    """Like `_channel`, but anyone who may post to the channel may keep ideas for it."""
+    channel = await channels_repo.get_channel(session, user.id, data.c)
+    if channel is not None and channel.owner_id != user.id and not await channel_admins_repo.has_permission(
+        session, channel.id, user.id, "posts"
+    ):
+        channel = None
+    if channel is None:
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return None
+    if not await _extras(session, settings, channel):
+        await cb.answer(t("paywall.extras_short"), show_alert=True)
+        if cb.message is not None:
+            await cb.message.answer(t("idea.paywall"), reply_markup=paywall_kb(settings))
+        return None
+    return channel
+
+
+async def ideas_view(
+    session: AsyncSession, user: User, channel: Channel, *, from_card: bool = False,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """The channel's ideas. «Назад» leads to the PRO tools, or to the channel card for whoever came from there or
+    may post but not see the PRO tools."""
+    posts = (await ideas_service.for_channel(session, channel))[:IDEAS_SHOWN]
+    lines = [t("idea.title", title=html.escape(channel.title)), "", t("idea.help")]
+    lines += ["", t("idea.pick") if posts else t("idea.empty")]
+    rows = []
+    for i, post in enumerate(posts, 1):
+        first = post.parts[0] if post.parts else None
+        text = snippet(part_preview_text(first), 40) if first else ""
+        icon = "🖼 " if first and first.media else ""
+        rows.append([btn(f"{i}. {icon}{text or t('parts.no_text')}", Px(a="idea_open", c=channel.id, id=post.id))])
+    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(
+        session, channel.id, user.id, "settings"
+    )
+    to_menu = can_settings and not from_card
+    rows.append([btn(t("btn.back"), Px(a="menu", c=channel.id) if to_menu else Pj(a="ch", c=channel.id))])
+    return "\n".join(lines), markup(rows)
+
+
+@router.callback_query(Px.filter(F.a == "ideas"))
+async def px_ideas(cb: CallbackQuery, callback_data: Px, session: AsyncSession, user: User, settings: Settings) -> None:
+    channel = await _poster_channel(cb, callback_data, session, user, settings)
+    if channel is None:
+        return
+    await cb.answer()
+    await _edit(cb, *await ideas_view(session, user, channel, from_card=callback_data.v == "ch"))
+
+
+@router.callback_query(Px.filter(F.a == "idea_open"))
+async def px_idea_open(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
+                       user: User, settings: Settings, publisher: Publisher) -> None:
+    channel = await _poster_channel(cb, callback_data, session, user, settings)
+    if channel is None:
+        return
+    post = await posts_repo.get_post(session, user.id, callback_data.id)
+    if post is None or not ideas_service.is_idea(post) or post.channel_ids != [channel.id]:
+        await cb.answer(t("idea.gone"), show_alert=True)
+        await _edit(cb, *await ideas_view(session, user, channel))
+        return
+    await cb.answer()
+    await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("idea.opened"))
 
 
 # ---- giveaway among commenters: free for every channel, opened from the channel card ------------------------------------------------------------

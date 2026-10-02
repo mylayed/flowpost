@@ -68,6 +68,7 @@ TEXTS: dict[str, str] = {
         "🧠 AI content plan — 7 ready posts for the week, each opens in the editor\n"
         "🌐 auto-translation — in multiposting a post comes out in each channel's language\n"
         "📊 weekly report — every Monday: growth, best posts, best time and days without posts\n"
+        "💡 idea bank — send the bot anything (text, a photo, a forwarded post, a link) and tap “💡 To ideas”\n"
         "🔒 hidden text — only subscribers can see it (editor → More settings)"
     ),
     "btn.create_post": "✍️ Create post",
@@ -143,6 +144,8 @@ TEXTS: dict[str, str] = {
     "ed.multipost": "📡 Multiposting",
     "ed.publish": "🚀 Publish",
     "ed.cancel": "✖️ Cancel and back",
+    "ed.idea": "💡 To ideas",
+    "ed.idea_keep": "💡 Keep in ideas",
     "ed.save_published": "💾 Save in channel",
     "ed.exit": "↩️ Close editor",
     "ed.sum_signature": "signature",
@@ -764,7 +767,7 @@ TEXTS: dict[str, str] = {
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
         "Tools to grow the channel: ad links that count subscribers, auto-approving join requests with a "
-        "welcome, autoposting from RSS, an AI content plan, auto-translation and a weekly report."
+        "welcome, autoposting from RSS, an AI content plan, an idea bank, auto-translation and a weekly report."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
@@ -772,6 +775,7 @@ TEXTS: dict[str, str] = {
     "pro.join": "🚪 Join requests & welcome",
     "pro.rss": "📰 Autoposting from RSS",
     "pro.plan": "🧠 AI content plan for the week",
+    "pro.ideas": "💡 Idea bank",
     "pro.translate": "🌐 Auto-translation: {lang}",
     "pro.translate_off": "off",
     "pro.report": "📊 Weekly report",
@@ -867,6 +871,23 @@ TEXTS: dict[str, str] = {
     "plan.again": "🔄 Another plan",
     "plan.expired": "This plan is out of date. Generate a new one.",
     "plan.opened": "🧠 Post #{n} from the content plan",
+
+    "idea.title": "💡 <b>Idea bank · {title}</b>",
+    "idea.help": (
+        "Send the bot anything that could become a post: a thought as text, a photo, a link, someone else's "
+        "forwarded post. Tap “💡 To ideas” in the editor and it waits here until you get to it. "
+        "Ideas also show up in the channel's calendar, where you can drag them onto a day."
+    ),
+    "idea.pick": "Tap an idea to open it in the editor: polish it with AI, schedule or publish it.",
+    "idea.empty": "No ideas yet.",
+    "idea.saved": "💡 Saved to the ideas of “{title}”. Come back to it when you have time.",
+    "idea.all": "💡 All ideas",
+    "idea.opened": "💡 An idea from the idea bank",
+    "idea.gone": "This idea is gone: it was published, scheduled or deleted.",
+    "idea.paywall": (
+        "💡 The idea bank comes with the channel's paid plan and trial. Get a plan in billing to collect "
+        "everything that could become a post here."
+    ),
 
     "gw.btn": "🎁 Giveaway",
     "gw.title": "🎁 <b>Comment giveaway · {title}</b>",

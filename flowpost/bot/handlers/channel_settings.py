@@ -51,7 +51,7 @@ def back_button(channel: Channel, post_id: int):
 
 def channel_card(
     channel: Channel, *, is_owner: bool = True, can_disconnect: bool = True, can_settings: bool = True,
-    calendar_url: str | None = None,
+    can_posts: bool = True, calendar_url: str | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     wm = wm_settings(channel.watermark)
     kind = t("proj.kind_channel") if channel.kind == "channel" else t("proj.kind_group")
@@ -76,6 +76,8 @@ def channel_card(
     rows = []
     if calendar_url:
         rows.append([InlineKeyboardButton(text=t("proj.calendar_btn"), web_app=WebAppInfo(url=calendar_url))])
+    if can_posts:
+        rows.append([btn(t("pro.ideas"), Px(a="ideas", c=c, v="ch"))])
     rows.append([btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))])
     if can_settings:
         rows.append([btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))])
@@ -110,7 +112,8 @@ async def card_kwargs(session: AsyncSession, channel: Channel, user: User, setti
     can_posts = is_owner or await channel_admins_repo.has_permission(session, channel.id, user.id, "posts")
     calendar_url = settings.calendar_url(channel.id) if can_posts else None
     return {
-        "is_owner": is_owner, "can_disconnect": can_disconnect, "can_settings": can_settings, "calendar_url": calendar_url,
+        "is_owner": is_owner, "can_disconnect": can_disconnect, "can_settings": can_settings, "can_posts": can_posts,
+        "calendar_url": calendar_url,
     }
 
 

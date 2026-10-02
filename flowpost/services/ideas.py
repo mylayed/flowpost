@@ -98,6 +98,17 @@ def is_idea(post: Post) -> bool:
     return post.status == "draft" and bool((post.options or {}).get(IDEA_FLAG))
 
 
+def can_keep(post: Post) -> bool:
+    """A draft for exactly one channel can be parked in that channel's ideas."""
+    return post.status == "draft" and len(post.targets) == 1
+
+
+async def keep(session: AsyncSession, post: Post) -> None:
+    """Park a draft (anything the owner sent the bot) among its channel's ideas, to be scheduled later."""
+    post.options = {**(post.options or {}), IDEA_FLAG: True}
+    await session.flush()
+
+
 async def for_channel(session: AsyncSession, channel: Channel) -> list[Post]:
     """The channel's unscheduled ideas, newest first."""
     stmt = (
