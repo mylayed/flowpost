@@ -58,6 +58,8 @@ TEXTS: dict[str, str] = {
         "🔁 duplicate protection — warns if similar text or media was already published\n"
         "🎯 smart posting time — suggests the best slots based on subscriber activity\n"
         "📊 polls & quizzes — a post type of their own (just send a poll like any other content)\n"
+        "🎠 carousel — 2–10 photos or videos flipped with arrows or a swipe, with buttons under the post "
+        "(editor → “Carousel”)\n"
         "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)\n"
         "🎁 comment giveaway — the bot counts everyone who comments on a post and randomly picks winners "
         "(My Projects → channel → “🎁 Giveaway”)\n\n"
@@ -138,6 +140,7 @@ TEXTS: dict[str, str] = {
     "ed.signature": "✍️ Auto-signature",
     "ed.ai": "🤖 AI assistant",
     "ed.more": "⚙️ More settings",
+    "ed.carousel": "Carousel",
     "ed.messages": "➕ Messages",
     "ed.repeat": "🔁 Auto-repeat",
     "ed.schedule": "🕒 Schedule",
@@ -964,6 +967,7 @@ TEXTS: dict[str, str] = {
     "more.hidden_removed": "Hidden text removed",
     "more.hidden_saved": "✅ Hidden text added",
     "ed.sum_hidden": "🔒 hidden text",
+    "ed.sum_carousel": "🎠 carousel",
     "warn.translate_failed": "couldn't translate the post — published in the original language",
     "warn.translate_no_quota": "AI text limit used up — the post went out untranslated",
 }

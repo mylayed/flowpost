@@ -35,6 +35,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import ideas as ideas_service
+from flowpost.services import rich
 from flowpost.services.delivery import DeliveryOutcome
 from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.posts import build_markup, final_text, options_of, part_buttons, part_warnings, post_is_empty
@@ -191,6 +192,21 @@ async def _edit_published_part(
 ) -> None:
     chat_id = channel.chat_id
     markup = build_markup(buttons)
+    if rec.get("rich_msg"):
+        # A carousel is a single rich message: text, slides and buttons are replaced together.
+        if not rich.carousel_ready(part.media):
+            warnings.append("save.media_count")
+            return
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id, message_id=rec["rich_msg"], reply_markup=markup,
+                rich_message=rich.build(text, [(item["type"], item["file_id"]) for item in part.media]),
+            )
+        except TelegramBadRequest as e:
+            if "not modified" not in str(e):
+                raise
+        rec["markup_msg"] = rec["rich_msg"] if markup else None
+        return
     media_msgs = rec.get("media_msgs") or []
     host = rec.get("caption_msg") or rec.get("text_msg")
     markup_host = rec.get("markup_msg") or (host if markup else None)

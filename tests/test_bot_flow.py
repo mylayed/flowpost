@@ -76,6 +76,8 @@ class MockSession(BaseSession):
                 else:
                     result.append(self._message(chat_id, video=Video(file_id="gv", file_unique_id="gv", width=1, height=1, duration=1)))
             return result
+        if name == "SendRichMessage":
+            return self._message(chat_id)
         if name in ("SendMessage", "SendAnimation", "SendDocument", "SendAudio", "EditMessageText",
                     "EditMessageCaption", "EditMessageMedia"):
             return self._message(chat_id)
@@ -1486,3 +1488,68 @@ async def test_admin_broadcast_copies_the_message_to_the_chosen_audience(h: Harn
     await run_due()
     assert copies() == [999, 555, 444, ADMIN_ID]
     assert "Доставлено: 5 / 5" in h.session.texts()
+
+
+async def test_album_goes_out_as_a_carousel_with_buttons_and_stays_editable(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    await asyncio.gather(*[
+        h.feed(message=h._message(
+            USER_ID, media_group_id="mg-c", caption="Перший рядок\n\nДругий абзац" if i == 0 else None,
+            photo=[{"file_id": f"c{i}", "file_unique_id": f"c{i}", "width": 800, "height": 600}],
+        ))
+        for i in range(3)
+    ])
+    p = (await _post(h)).id
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_set", p=p))
+    await h.text("Читати — https://t.me/testchan")
+    panel = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1]
+    assert Ed(a="carousel", p=p).pack() in str(panel.reply_markup)
+
+    # Turned on, the preview is one rich message: a slideshow with the text under it and the buttons attached.
+    h.session.clear()
+    await h.click(Ed(a="carousel", p=p))
+    assert (await _post(h)).options["carousel"] is True
+    (preview,) = [m for n, m in h.session.calls if n == "SendRichMessage"]
+    assert "SendMediaGroup" not in h.session.names()
+    assert preview.rich_message.html.startswith('<tg-slideshow><img src="tg://photo?id=m0"/>')
+    assert "<p>Перший рядок</p><p>Другий абзац</p>" in preview.rich_message.html
+    assert [m.media.media for m in preview.rich_message.media] == ["c0", "c1", "c2"]
+    assert preview.reply_markup is not None
+    assert "карусель" in h.session.texts() and "окремим повідомленням" not in h.session.texts()
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    channel_calls = [(n, m) for n, m in h.session.calls if getattr(m, "chat_id", None) == CHANNEL_CHAT]
+    assert [n for n, _ in channel_calls if n.startswith("Send")] == ["SendRichMessage"]
+    pub = await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
+    record = pub.message_ids["parts"][0]
+    assert record["rich_msg"] == record["ids"][0] == record["markup_msg"]
+
+    # Editing the published post rewrites the same rich message.
+    await h.text("/edit")
+    await h.click(Ep(a="open", id=p))
+    await h.text("Виправлений текст")
+    h.session.clear()
+    await h.click(Ed(a="save", p=p))
+    edits = [m for n, m in h.session.calls if n == "EditMessageText" and getattr(m, "chat_id", None) == CHANNEL_CHAT]
+    assert len(edits) == 1 and edits[0].message_id == record["rich_msg"]
+    assert "<p>Виправлений текст</p>" in edits[0].rich_message.html
+
+
+def test_rich_text_keeps_paragraphs_line_breaks_quotes_and_spoilers():
+    from flowpost.services.rich import carousel_ready, text_blocks
+
+    html_text = text_blocks(
+        'Рядок\nще <b>жирний</b>\n\nАбзац <span class="tg-spoiler">спойлер</span>\n'
+        "<blockquote>цитата\nдва</blockquote>\nкінець"
+    )
+    assert html_text == (
+        "<p>Рядок<br>ще <b>жирний</b></p><p>Абзац <tg-spoiler>спойлер</tg-spoiler></p>"
+        "<blockquote>цитата<br>два</blockquote><p>кінець</p>"
+    )
+    assert carousel_ready([{"type": "photo"}, {"type": "video"}])
+    assert not carousel_ready([{"type": "photo"}])
+    assert not carousel_ready([{"type": "photo"}, {"type": "document"}])

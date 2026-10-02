@@ -414,6 +414,22 @@ async def alb_replace_item(
     await show_album(bot, message.chat.id, session, state, user, post, publisher, i, note=t("alb.replaced"))
 
 
+@router.callback_query(Ed.filter(F.a == "carousel"))
+async def ed_carousel(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+    publisher: Publisher,
+) -> None:
+    """«Карусель»: the album goes out as one slideshow to flip through instead of a grid of photos."""
+    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    post.options = {**(post.options or {}), "carousel": not options_of(post)["carousel"]}
+    await session.flush()
+    await cb.answer()
+    await state.set_state(Editor.content)
+    await render_editor(bot, cb.from_user.id, session, state, user, post, publisher)
+
+
 @router.message(Editor.album)
 async def alb_wrong(message: Message) -> None:
     await message.answer(t("alb.help"))

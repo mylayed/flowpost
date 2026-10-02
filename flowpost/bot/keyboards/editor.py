@@ -10,6 +10,7 @@ from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
 from flowpost.services import ideas
 from flowpost.services.posts import options_of
+from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm
 
 
@@ -62,6 +63,8 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
             [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],
             [btn(t("ed.ai"), Ed(a="ai", p=p)), btn(t("ed.more"), Ed(a="more", p=p))],
         ]
+        if carousel_ready(part.media):
+            rows.append([btn(on(opts["carousel"]) + t("ed.carousel"), Ed(a="carousel", p=p))])
     rows += [
         [btn(t("ed.messages") + (f" ({n})" if n > 1 else ""), Ed(a="parts", p=p)),
          btn(on(repeat_on) + t("ed.repeat"), Ed(a="rep", p=p))],

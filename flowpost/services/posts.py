@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from flowpost.db.models import Channel, Post, PostPart
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import has_custom_emoji, visible_len
+from flowpost.services.rich import carousel_ready
 from flowpost.services.watermark import wm_configured, wm_settings
 
 MAX_MEDIA = 10
@@ -26,6 +27,7 @@ DEFAULT_OPTIONS: dict = {
     "ad_label": False,
     "comments": True,
     "hidden_text": None,  # shown only to channel subscribers, behind a button under the post
+    "carousel": False,  # an album goes out as a slideshow to flip through (see services/rich.py)
 }
 
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}
@@ -245,9 +247,10 @@ def part_warnings(
     keys: list[str] = []
     text = final_text(part.text_html, opts, channel, is_last=is_last, lang=lang)
     text_len = visible_len(text)
-    if len(part.media) > 1 and part.buttons:
+    carousel = bool(opts.get("carousel")) and carousel_ready(part.media)
+    if len(part.media) > 1 and part.buttons and not carousel:
         keys.append("warn.album_buttons")
-    if part.media and text_len > CAPTION_LIMIT:
+    if part.media and text_len > CAPTION_LIMIT and not carousel:
         keys.append("warn.long_caption")
     if text_len > TEXT_LIMIT:
         keys.append("warn.text_too_long")

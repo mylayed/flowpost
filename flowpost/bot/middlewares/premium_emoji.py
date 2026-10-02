@@ -55,4 +55,10 @@ class StripCustomEmojiMiddleware(BaseRequestMiddleware):
         cleaned = [i.model_copy(update=_changes(i)) if hasattr(i, "caption") else i for i in items]
         if cleaned != items:
             method.media = cleaned if isinstance(media, list) else cleaned[0]
+        # A carousel (send_rich_message / edit_message_text) carries its text as rich HTML.
+        rich = getattr(method, "rich_message", None)
+        if rich is not None and rich.html:
+            stripped = strip_custom_emoji(rich.html)
+            if stripped != rich.html:
+                method.rich_message = rich.model_copy(update={"html": stripped})
         return await make_request(bot, method)

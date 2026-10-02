@@ -21,6 +21,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from flowpost.db.models import Channel, Post
 from flowpost.services.billing import limits
 from flowpost.services.html_sanitize import visible_len
+from flowpost.services import rich
 from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of, part_buttons
 from flowpost.services.watermark import Watermarker, WatermarkSkipped, item_wm, wm_cache_key
 
@@ -37,6 +38,7 @@ class SendOptions:
     silent: bool = False
     protect: bool = False
     link_preview: bool = True
+    carousel: bool = False
 
 
 @dataclass
@@ -54,16 +56,20 @@ class SentPart:
     caption_msg: int | None = None
     text_msg: int | None = None
     markup_msg: int | None = None
+    rich_msg: int | None = None  # a carousel: media, text and buttons in one rich message
     new_file_ids: list[str | None] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "ids": self.ids,
             "media_msgs": self.media_msgs,
             "caption_msg": self.caption_msg,
             "text_msg": self.text_msg,
             "markup_msg": self.markup_msg,
         }
+        if self.rich_msg:
+            out["rich_msg"] = self.rich_msg
+        return out
 
 
 @dataclass
@@ -162,6 +168,16 @@ async def send_part(
         sent.ids = [m.message_id]
         sent.text_msg = m.message_id
         sent.markup_msg = m.message_id if markup else None
+        return sent
+
+    if opts.carousel and rich.carousel_ready([om.source for om in media]):
+        m = await bot.send_rich_message(
+            chat_id, rich.build(text, [(om.type, om.media) for om in media]), reply_markup=markup, **common,
+        )
+        sent.ids = [m.message_id]
+        sent.rich_msg = m.message_id
+        sent.markup_msg = m.message_id if markup else None
+        sent.new_file_ids = rich.sent_file_ids(m)
         return sent
 
     fits = visible_len(text) <= CAPTION_LIMIT
@@ -331,6 +347,7 @@ class Publisher:
             silent=False if preview else bool(opts["silent"]),
             protect=False if preview else bool(opts["protect"]),
             link_preview=bool(opts["link_preview"]),
+            carousel=bool(opts["carousel"]),
         )
         indexes = part_indexes if part_indexes is not None else list(range(len(post.parts)))
         result = PublishResult()
