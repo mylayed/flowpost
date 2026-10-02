@@ -15,6 +15,7 @@ class Editor(StatesGroup):
     pin_hours = State()      # custom pin duration
     confirm = State()        # yes/no confirmation screen: text input is ignored, only buttons act
     hidden_text = State()    # «Прихований текст» for subscribers only
+    paid_price = State()     # «Вигляд медіа → Ціна поста»: Stars for paid media
 
 
 class ChannelInput(StatesGroup):

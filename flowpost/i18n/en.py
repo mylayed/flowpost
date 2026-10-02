@@ -141,6 +141,18 @@ TEXTS: dict[str, str] = {
     "ed.ai": "🤖 AI assistant",
     "ed.more": "⚙️ More settings",
     "ed.carousel": "Carousel",
+    "ed.media_view": "🎞 Media display",
+    "mv.title": "🎞 <b>Media display</b>",
+    "mv.help": (
+        "Choose how subscribers see the post's photos and videos.\n\n"
+        "⭐ <b>Paid post</b> — the media stays blurred until the reader unlocks it for Stars. In a channel the "
+        "Stars go to the channel's balance.\n"
+        "🫥 <b>Spoiler</b> — the media stays blurred until the reader taps it."
+    ),
+    "mv.paid": "Paid post",
+    "mv.price": "Post price: {n} ⭐",
+    "mv.spoiler": "Spoiler",
+    "mv.price_prompt": "⭐ <b>Post price</b>\n\nSend the bot the price of the post in Stars (1 to {max}).",
     "ed.messages": "➕ Messages",
     "ed.repeat": "🔁 Auto-repeat",
     "ed.schedule": "🕒 Schedule",
@@ -752,6 +764,8 @@ TEXTS: dict[str, str] = {
     "err.text_too_long": "The text is too long: Telegram allows up to {max} characters.",
     "err.unknown_command": "Unknown command. Menu — /start, help — /help.",
     "err.unsupported_content": "This message type isn't supported. Send a photo, video, GIF, document, audio or text.",
+    "warn.paid_types": "only a post with photos and videos (up to 10) can be paid — this one goes out free",
+    "warn.paid_group": "in a group the Stars for a paid post would go to the bot, not to you, so this post goes out free there",
     "warn.album_buttons": "Telegram doesn't show buttons under albums — the text and buttons will go in a separate message right after the album.",
     "warn.long_caption": "The text is longer than 1024 characters — media and text will go out as two messages.",
     "warn.text_too_long": "The text with the signature is longer than 4096 characters — please shorten it.",
@@ -968,6 +982,8 @@ TEXTS: dict[str, str] = {
     "more.hidden_saved": "✅ Hidden text added",
     "ed.sum_hidden": "🔒 hidden text",
     "ed.sum_carousel": "🎠 carousel",
+    "ed.sum_paid": "⭐ paid post: {n} ⭐",
+    "ed.sum_spoiler": "🫥 spoiler",
     "warn.translate_failed": "couldn't translate the post — published in the original language",
     "warn.translate_no_quota": "AI text limit used up — the post went out untranslated",
 }

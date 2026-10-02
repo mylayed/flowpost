@@ -38,7 +38,15 @@ from flowpost.services import ideas as ideas_service
 from flowpost.services import rich
 from flowpost.services.delivery import DeliveryOutcome
 from flowpost.services.duplicates import find_duplicates, warning_lines
-from flowpost.services.posts import build_markup, final_text, options_of, part_buttons, part_warnings, post_is_empty
+from flowpost.services.posts import (
+    SPOILERABLE,
+    build_markup,
+    final_text,
+    options_of,
+    part_buttons,
+    part_warnings,
+    post_is_empty,
+)
 from flowpost.services.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -189,6 +197,7 @@ async def ed_idea(
 
 async def _edit_published_part(
     bot: Bot, channel: Channel, rec: dict, part, text: str, warnings: list[str], buttons: list[list[dict]],
+    *, spoiler: bool = False,
 ) -> None:
     chat_id = channel.chat_id
     markup = build_markup(buttons)
@@ -200,7 +209,7 @@ async def _edit_published_part(
         try:
             await bot.edit_message_text(
                 chat_id=chat_id, message_id=rec["rich_msg"], reply_markup=markup,
-                rich_message=rich.build(text, [(item["type"], item["file_id"]) for item in part.media]),
+                rich_message=rich.build(text, [(item["type"], item["file_id"]) for item in part.media], spoiler=spoiler),
             )
         except TelegramBadRequest as e:
             if "not modified" not in str(e):
@@ -220,12 +229,20 @@ async def _edit_published_part(
             if "not modified" not in str(e):
                 raise
 
-    if part.media and len(part.media) == len(media_msgs):
+    if rec.get("paid_msg"):
+        # Sold media can't be replaced, only its caption and buttons.
+        if rec.get("caption_msg"):
+            await run(bot.edit_message_caption(
+                chat_id=chat_id, message_id=rec["caption_msg"], caption=text,
+                reply_markup=markup if rec["caption_msg"] == markup_host else None,
+            ))
+    elif part.media and len(part.media) == len(media_msgs):
         for mid, item in zip(media_msgs, part.media):
             cls = INPUT_MEDIA[item["type"]]
             caption = text if mid == rec.get("caption_msg") else None
+            hidden = {"has_spoiler": True} if spoiler and item["type"] in SPOILERABLE else {}
             await run(bot.edit_message_media(
-                media=cls(media=item["file_id"], caption=caption), chat_id=chat_id, message_id=mid,
+                media=cls(media=item["file_id"], caption=caption, **hidden), chat_id=chat_id, message_id=mid,
                 reply_markup=markup if mid == markup_host else None,
             ))
     elif part.media or media_msgs:
@@ -276,7 +293,9 @@ async def ed_save_published(
                     continue
                 text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang)
                 buttons = part_buttons(post, i, user.lang)
-                await _edit_published_part(bot, channel, records[i], part, text, warnings, buttons)
+                await _edit_published_part(
+                    bot, channel, records[i], part, text, warnings, buttons, spoiler=bool(opts["spoiler"]),
+                )
             flag_modified(pub, "message_ids")
             lines.append(t("save.ok_line", title=html.escape(channel.title)))
         except TelegramAPIError as e:

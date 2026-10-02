@@ -28,19 +28,42 @@ DEFAULT_OPTIONS: dict = {
     "comments": True,
     "hidden_text": None,  # shown only to channel subscribers, behind a button under the post
     "carousel": False,  # an album goes out as a slideshow to flip through (see services/rich.py)
+    "spoiler": False,  # photos and videos come blurred until tapped
+    "paid": False,  # photos and videos are unlocked for Stars (paid media)
+    "paid_stars": 1,
 }
 
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}
 WATERMARKABLE = {"photo", "video", "animation"}
+SPOILERABLE = {"photo", "video", "animation"}
+PAID_TYPES = {"photo", "video"}
+MAX_PAID_STARS = 25000  # Telegram's limit for paid media
 
 # «Реклама» belongs to the /ad flow and a hidden text to its own post, so neither is carried over into other posts.
-DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text"))
+DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text", "paid", "paid_stars"))
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 
 
 def options_of(post: Post) -> dict:
     return {**DEFAULT_OPTIONS, **(post.options or {})}
+
+
+def has_visual_media(media: list[dict]) -> bool:
+    """Media the «Вигляд медіа» settings (spoiler, paid) can apply to."""
+    return any(item.get("type") in SPOILERABLE for item in media)
+
+
+def paid_ready(media: list[dict]) -> bool:
+    """Telegram sells only photos and videos, up to 10 at a time."""
+    return 0 < len(media) <= MAX_MEDIA and all(item.get("type") in PAID_TYPES for item in media)
+
+
+def paid_stars(opts: dict, media: list[dict]) -> int | None:
+    """The price of a part's media in Stars, or None when it goes out free."""
+    if not opts.get("paid") or not paid_ready(media):
+        return None
+    return min(max(int(opts.get("paid_stars") or 1), 1), MAX_PAID_STARS)
 
 
 def post_defaults(post: Post) -> dict:
@@ -247,8 +270,13 @@ def part_warnings(
     keys: list[str] = []
     text = final_text(part.text_html, opts, channel, is_last=is_last, lang=lang)
     text_len = visible_len(text)
-    carousel = bool(opts.get("carousel")) and carousel_ready(part.media)
-    if len(part.media) > 1 and part.buttons and not carousel:
+    paid = paid_stars(opts, part.media) is not None
+    carousel = bool(opts.get("carousel")) and carousel_ready(part.media) and not paid
+    if opts.get("paid") and part.media and not paid:
+        keys.append("warn.paid_types")
+    elif paid and channel is not None and channel.kind != "channel":
+        keys.append("warn.paid_group")
+    if len(part.media) > 1 and part.buttons and not carousel and not paid:
         keys.append("warn.album_buttons")
     if part.media and text_len > CAPTION_LIMIT and not carousel:
         keys.append("warn.long_caption")

@@ -12,6 +12,8 @@ from aiogram.types import (
     InputMediaDocument,
     InputMediaPhoto,
     InputMediaVideo,
+    InputPaidMediaPhoto,
+    InputPaidMediaVideo,
     LinkPreviewOptions,
     Message,
 )
@@ -22,7 +24,16 @@ from flowpost.db.models import Channel, Post
 from flowpost.services.billing import limits
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services import rich
-from flowpost.services.posts import CAPTION_LIMIT, WATERMARKABLE, build_markup, final_text, options_of, part_buttons
+from flowpost.services.posts import (
+    CAPTION_LIMIT,
+    SPOILERABLE,
+    WATERMARKABLE,
+    build_markup,
+    final_text,
+    options_of,
+    paid_stars,
+    part_buttons,
+)
 from flowpost.services.watermark import Watermarker, WatermarkSkipped, item_wm, wm_cache_key
 
 log = logging.getLogger(__name__)
@@ -39,6 +50,8 @@ class SendOptions:
     protect: bool = False
     link_preview: bool = True
     carousel: bool = False
+    spoiler: bool = False
+    paid_stars: int | None = None  # set per part: its media is sold for this many Stars
 
 
 @dataclass
@@ -57,6 +70,7 @@ class SentPart:
     text_msg: int | None = None
     markup_msg: int | None = None
     rich_msg: int | None = None  # a carousel: media, text and buttons in one rich message
+    paid_msg: int | None = None  # paid media: its media can't be edited later, only the caption
     new_file_ids: list[str | None] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -69,6 +83,8 @@ class SentPart:
         }
         if self.rich_msg:
             out["rich_msg"] = self.rich_msg
+        if self.paid_msg:
+            out["paid_msg"] = self.paid_msg
         return out
 
 
@@ -89,11 +105,22 @@ def _file_id_of(message: Message, media_type: str) -> str | None:
     return getattr(obj, "file_id", None)
 
 
-def _input_media(item: OutMedia, caption: str | None):
+def _paid_file_ids(message: Message) -> list[str | None]:
+    """File ids of sold media as Telegram stored them (to reuse watermarked uploads)."""
+    info = getattr(message, "paid_media", None)
+    ids: list[str | None] = []
+    for item in (info.paid_media if info else []) or []:
+        photo = getattr(item, "photo", None)
+        video = getattr(item, "video", None)
+        ids.append(photo[-1].file_id if photo else getattr(video, "file_id", None))
+    return ids
+
+
+def _input_media(item: OutMedia, caption: str | None, spoiler: bool = False):
     if item.type == "photo":
-        return InputMediaPhoto(media=item.media, caption=caption)
+        return InputMediaPhoto(media=item.media, caption=caption, has_spoiler=spoiler or None)
     if item.type == "video":
-        return InputMediaVideo(media=item.media, caption=caption, supports_streaming=True)
+        return InputMediaVideo(media=item.media, caption=caption, supports_streaming=True, has_spoiler=spoiler or None)
     if item.type == "document":
         return InputMediaDocument(media=item.media, caption=caption)
     if item.type == "audio":
@@ -101,7 +128,9 @@ def _input_media(item: OutMedia, caption: str | None):
     raise ValueError(f"{item.type} can't be part of a media group")
 
 
-async def _send_single(bot: Bot, chat_id: int, item: OutMedia, **kw) -> Message:
+async def _send_single(bot: Bot, chat_id: int, item: OutMedia, *, spoiler: bool = False, **kw) -> Message:
+    if spoiler and item.type in SPOILERABLE:
+        kw["has_spoiler"] = True
     if item.type == "photo":
         return await bot.send_photo(chat_id, item.media, **kw)
     if item.type == "video":
@@ -170,9 +199,34 @@ async def send_part(
         sent.markup_msg = m.message_id if markup else None
         return sent
 
+    fits = visible_len(text) <= CAPTION_LIMIT
+
+    if opts.paid_stars:
+        caption = text if (fits and text) else None
+        paid = [
+            InputPaidMediaPhoto(media=om.media) if om.type == "photo"
+            else InputPaidMediaVideo(media=om.media, supports_streaming=True)
+            for om in media
+        ]
+        m = await bot.send_paid_media(
+            chat_id, opts.paid_stars, paid, caption=caption, reply_markup=markup if fits else None, **common,
+        )
+        sent.ids = [m.message_id]
+        sent.paid_msg = m.message_id
+        sent.new_file_ids = _paid_file_ids(m)
+        sent.caption_msg = m.message_id if caption else None
+        sent.markup_msg = m.message_id if (markup and fits) else None
+        if text and not fits:
+            tm = await bot.send_message(chat_id, text, reply_markup=markup, link_preview_options=preview, **common)
+            sent.ids.append(tm.message_id)
+            sent.text_msg = tm.message_id
+            sent.markup_msg = tm.message_id if markup else None
+        return sent
+
     if opts.carousel and rich.carousel_ready([om.source for om in media]):
         m = await bot.send_rich_message(
-            chat_id, rich.build(text, [(om.type, om.media) for om in media]), reply_markup=markup, **common,
+            chat_id, rich.build(text, [(om.type, om.media) for om in media], spoiler=opts.spoiler),
+            reply_markup=markup, **common,
         )
         sent.ids = [m.message_id]
         sent.rich_msg = m.message_id
@@ -180,12 +234,12 @@ async def send_part(
         sent.new_file_ids = rich.sent_file_ids(m)
         return sent
 
-    fits = visible_len(text) <= CAPTION_LIMIT
-
     if len(media) == 1:
         item = media[0]
         caption = text if (fits and text) else None
-        m = await _send_single(bot, chat_id, item, caption=caption, reply_markup=markup if fits else None, **common)
+        m = await _send_single(
+            bot, chat_id, item, spoiler=opts.spoiler, caption=caption, reply_markup=markup if fits else None, **common,
+        )
         sent.ids.append(m.message_id)
         sent.media_msgs = [m.message_id]
         sent.new_file_ids = [_file_id_of(m, item.type)]
@@ -201,7 +255,10 @@ async def send_part(
     # Media group: Telegram doesn't allow inline buttons on albums, so buttons (and an
     # over-long text) travel in a separate message right after the album.
     move_text = bool(markup) or not fits
-    group = [_input_media(item, text if (i == 0 and text and not move_text) else None) for i, item in enumerate(media)]
+    group = [
+        _input_media(item, text if (i == 0 and text and not move_text) else None, opts.spoiler)
+        for i, item in enumerate(media)
+    ]
     msgs = await bot.send_media_group(chat_id, group, **common)
     sent.ids = [m.message_id for m in msgs]
     sent.media_msgs = list(sent.ids)
@@ -348,6 +405,7 @@ class Publisher:
             protect=False if preview else bool(opts["protect"]),
             link_preview=bool(opts["link_preview"]),
             carousel=bool(opts["carousel"]),
+            spoiler=bool(opts["spoiler"]),
         )
         indexes = part_indexes if part_indexes is not None else list(range(len(post.parts)))
         result = PublishResult()
@@ -368,6 +426,9 @@ class Publisher:
                 part.media, channel, opts, session, charge=not preview, wm_allowed=wm_allowed, defer=defer_wm,
             )
             buttons = part_buttons(post, idx, lang, hidden=wm_allowed)
+            # Telegram credits Stars to the chat only in channels; in a group they'd land on FlowPost's balance.
+            sellable = preview or channel is None or channel.kind == "channel"
+            send_opts.paid_stars = paid_stars(opts, part.media) if sellable else None
             sent = await send_part(self.bot, target, text, media, buttons, send_opts)
             if self.remember_uploads(media, sent):
                 flag_modified(part, "media")

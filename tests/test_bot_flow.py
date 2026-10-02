@@ -76,7 +76,7 @@ class MockSession(BaseSession):
                 else:
                     result.append(self._message(chat_id, video=Video(file_id="gv", file_unique_id="gv", width=1, height=1, duration=1)))
             return result
-        if name == "SendRichMessage":
+        if name in ("SendRichMessage", "SendPaidMedia"):
             return self._message(chat_id)
         if name in ("SendMessage", "SendAnimation", "SendDocument", "SendAudio", "EditMessageText",
                     "EditMessageCaption", "EditMessageMedia"):
@@ -1553,3 +1553,90 @@ def test_rich_text_keeps_paragraphs_line_breaks_quotes_and_spoilers():
     assert carousel_ready([{"type": "photo"}, {"type": "video"}])
     assert not carousel_ready([{"type": "photo"}])
     assert not carousel_ready([{"type": "photo"}, {"type": "document"}])
+
+
+async def _album(h: Harness, group: str, caption: str, count: int = 2) -> int:
+    await asyncio.gather(*[
+        h.feed(message=h._message(
+            USER_ID, media_group_id=group, caption=caption if i == 0 else None,
+            photo=[{"file_id": f"{group}{i}", "file_unique_id": f"{group}{i}", "width": 800, "height": 600}],
+        ))
+        for i in range(count)
+    ])
+    return (await _post(h)).id
+
+
+async def test_media_can_be_sold_for_stars_at_a_typed_price(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    p = await _album(h, "pd", "Ексклюзив")
+    panel = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1]
+    assert Ed(a="mview", p=p).pack() in str(panel.reply_markup)
+
+    await h.click(Ed(a="mview", p=p))
+    menu = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1]
+    assert "Вигляд медіа" in menu.text and Ed(a="mv_paid", p=p).pack() in str(menu.reply_markup)
+
+    h.session.clear()
+    await h.click(Ed(a="mv_paid", p=p))
+    (preview,) = [m for n, m in h.session.calls if n == "SendPaidMedia"]
+    assert preview.star_count == 1 and preview.caption.startswith("Ексклюзив") and len(preview.media) == 2
+    menu = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1]
+    assert "Ціна поста: 1 ⭐" in str(menu.reply_markup) and Ed(a="mv_spoiler", p=p).pack() not in str(menu.reply_markup)
+
+    await h.click(Ed(a="mv_price", p=p))
+    h.session.clear()
+    await h.text("сто")
+    assert "від 1 до 25000" in h.session.texts()
+    h.session.clear()
+    await h.text("150")
+    (preview,) = [m for n, m in h.session.calls if n == "SendPaidMedia"]
+    assert preview.star_count == 150
+    assert (await _post(h)).options["paid_stars"] == 150
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    sent = [m for n, m in h.session.calls if n.startswith("Send") and getattr(m, "chat_id", None) == CHANNEL_CHAT]
+    assert [type(m).__name__ for m in sent] == ["SendPaidMedia"] and sent[0].star_count == 150
+    pub = await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))
+    record = pub.message_ids["parts"][0]
+    assert record["paid_msg"] == record["caption_msg"] == record["ids"][0]
+
+    # Once sold, only the caption can change.
+    await h.text("/edit")
+    await h.click(Ep(a="open", id=p))
+    await h.text("Новий підпис")
+    h.session.clear()
+    await h.click(Ed(a="save", p=p))
+    names = [n for n, m in h.session.calls if getattr(m, "chat_id", None) == CHANNEL_CHAT]
+    assert names == ["EditMessageCaption"]
+
+
+async def test_spoiler_blurs_photos_in_an_album_and_a_single_photo(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    p = await _album(h, "sp", "Сюрприз")
+    h.session.clear()
+    await h.click(Ed(a="mv_spoiler", p=p))
+    (group,) = [m for n, m in h.session.calls if n == "SendMediaGroup"]
+    assert all(item.has_spoiler for item in group.media)
+    assert "спойлер" in h.session.texts()
+
+    await h.click(Ed(a="cancel", p=p))
+    await h.click(Ed(a="cancelok", p=p))
+    await h.photo(file_id="solo")
+    p = (await _post(h)).id
+    h.session.clear()
+    await h.click(Ed(a="mv_spoiler", p=p))
+    (photo,) = [m for n, m in h.session.calls if n == "SendPhoto"]
+    assert photo.has_spoiler is True
+
+
+def test_paid_media_takes_only_photos_and_videos():
+    from flowpost.services.posts import paid_stars
+
+    assert paid_stars({"paid": True, "paid_stars": 30}, [{"type": "photo"}, {"type": "video"}]) == 30
+    assert paid_stars({"paid": True, "paid_stars": 30}, [{"type": "photo"}, {"type": "document"}]) is None
+    assert paid_stars({"paid": False, "paid_stars": 30}, [{"type": "photo"}]) is None
+    assert paid_stars({"paid": True, "paid_stars": 99999}, [{"type": "photo"}]) == 25000

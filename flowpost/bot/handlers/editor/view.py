@@ -21,7 +21,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import set_locale, t
 from flowpost.services.billing import entitlements
-from flowpost.services.posts import options_of, part_is_empty, part_warnings
+from flowpost.services.posts import has_visual_media, options_of, paid_ready, part_is_empty, part_warnings
 from flowpost.services.publisher import Publisher
 from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm, tz_of
@@ -103,8 +103,12 @@ def _summary(post: Post, opts: dict) -> list[str]:
         items.append(t("ed.sum_delete", hours=opts["auto_delete_hours"]))
     if opts["hidden_text"]:
         items.append(t("ed.sum_hidden"))
-    if opts["carousel"] and any(carousel_ready(part.media) for part in post.parts):
+    if opts["paid"] and any(paid_ready(part.media) for part in post.parts):
+        items.append(t("ed.sum_paid", n=opts["paid_stars"]))
+    elif opts["carousel"] and any(carousel_ready(part.media) for part in post.parts):
         items.append(t("ed.sum_carousel"))
+    if opts["spoiler"] and not opts["paid"] and any(has_visual_media(part.media) for part in post.parts):
+        items.append(t("ed.sum_spoiler"))
     if post.repeat and post.repeat.active:
         items.append(t("ed.sum_repeat", interval=fmt_interval(post.repeat.interval_minutes)))
     return items

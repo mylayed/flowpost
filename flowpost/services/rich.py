@@ -88,17 +88,18 @@ def text_blocks(text_html: str) -> str:
     return "".join(out)
 
 
-def build(text_html: str, media: list[tuple[str, object]]) -> InputRichMessage:
+def build(text_html: str, media: list[tuple[str, object]], *, spoiler: bool = False) -> InputRichMessage:
     """A carousel of `media` ((type, file id or upload) pairs) with the post text under it."""
     slides: list[str] = []
     attached: list[InputRichMessageMedia] = []
+    hide = " tg-spoiler" if spoiler else ""
     for i, (kind, file) in enumerate(media):
         ref = f"m{i}"
         if kind == "photo":
-            slides.append(f'<img src="tg://photo?id={ref}"/>')
+            slides.append(f'<img src="tg://photo?id={ref}"{hide}/>')
             attached.append(InputRichMessageMedia(id=ref, media=InputMediaPhoto(media=file)))
         else:
-            slides.append(f'<video src="tg://video?id={ref}"/>')
+            slides.append(f'<video src="tg://video?id={ref}"{hide}/>')
             attached.append(InputRichMessageMedia(id=ref, media=InputMediaVideo(media=file, supports_streaming=True)))
     html = "<tg-slideshow>" + "".join(slides) + "</tg-slideshow>" + text_blocks(text_html)
     return InputRichMessage(html=html, media=attached)
