@@ -19,7 +19,7 @@ from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import entitlements, limits
 from flowpost.services.delivery import engagement_score
-from flowpost.services.posts import channel_defaults, initial_options, part_preview_text
+from flowpost.services.posts import channel_defaults, initial_options, part_preview_text, post_is_empty
 
 PLAN_SIZE = 7
 IDEA_FLAG = "idea"
@@ -121,7 +121,7 @@ async def for_channel(session: AsyncSession, channel: Channel) -> list[Post]:
         .order_by(Post.created_at.desc(), Post.id.desc())
         .limit(MAX_LISTED * 4)
     )
-    posts = [p for p in (await session.scalars(stmt)).all() if is_idea(p)]
+    posts = [p for p in (await session.scalars(stmt)).all() if is_idea(p) and not post_is_empty(p)]
     return posts[:MAX_LISTED]
 
 

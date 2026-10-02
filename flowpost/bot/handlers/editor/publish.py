@@ -174,6 +174,9 @@ async def ed_idea(
         await cb.answer(t("paywall.extras_short"), show_alert=True)
         await bot.send_message(cb.from_user.id, t("idea.paywall"), reply_markup=paywall_kb(settings))
         return
+    if post_is_empty(post):
+        await cb.answer(t("idea.empty_post"), show_alert=True)
+        return
     await ideas_service.keep(session, post)
     await cb.answer()
     await close_editor(bot, cb.from_user.id, state, delete_preview=True)

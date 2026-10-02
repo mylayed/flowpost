@@ -880,6 +880,7 @@ TEXTS: dict[str, str] = {
     ),
     "idea.pick": "Tap an idea to open it in the editor: polish it with AI, schedule or publish it.",
     "idea.empty": "No ideas yet.",
+    "idea.empty_post": "You haven't sent anything yet. Send a text, photo or video, then you can save it to ideas.",
     "idea.saved": "💡 Saved to the ideas of “{title}”. Come back to it when you have time.",
     "idea.all": "💡 All ideas",
     "idea.opened": "💡 An idea from the idea bank",

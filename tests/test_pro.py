@@ -339,6 +339,29 @@ async def test_anything_sent_to_the_bot_can_be_parked_in_the_channels_ideas(h: H
     assert "Ідея з банку ідей" in h.session.texts() and "Залишити в ідеях" in _keyboard(h)
 
 
+async def test_an_empty_post_is_not_saved_as_an_idea(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    await h.text("/newpost")
+    p = (await _post(h)).id
+    h.session.clear()
+    await h.click(Ed(a="idea", p=p))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert and "нічого не надіслали" in m.text
+               for n, m in h.session.calls)
+    assert not ideas_service.is_idea(await _post(h))
+
+    # Ideas saved empty before this check stay out of the bank.
+    async def force_idea(s):
+        post = await s.get(Post, p)
+        post.options = {**(post.options or {}), ideas_service.IDEA_FLAG: True}
+        await s.commit()
+    await h.db(force_idea)
+
+    async def listed(s):
+        return await ideas_service.for_channel(s, await s.get(Channel, c))
+    assert await h.db(listed) == []
+
+
 async def test_a_channel_admin_who_may_post_keeps_ideas_too(h: Harness):
     await h.text("/start")
     c = await _connect(h)
