@@ -3,13 +3,14 @@
 TEXTS: dict[str, str] = {
     # ---- Bot profile & commands --------------------------------------------------------------
     "bot.description": (
-        "👋 I'm FlowPost — an SMM assistant that never takes a day off and never forgets a post.\n\n"
-        "✍️ I build beautiful posts with photos, videos, buttons and an auto-signature\n"
+        "👋 I'm FlowPost — an SMM assistant that never takes a day off.\n\n"
+        "✍️ I build posts with photos, videos, buttons and an auto-signature\n"
+        "🎠 Carousels, spoilers and paid posts for Stars\n"
         "🕒 I publish on schedule — even while you sleep\n"
         "🤖 I turn raw text or a screenshot into a ready post with AI\n"
         "🎁 I run comment giveaways and pick winners at random\n"
-        "⭐ PRO: ad links that count subscribers, auto-approved join requests, RSS autoposting, "
-        "an AI content plan, auto-translation and a weekly report\n\n"
+        "⭐ PRO: ad links, auto-approved join requests, RSS, an idea bank, an AI content plan, "
+        "auto-translation and a weekly report\n\n"
         "Tap /start — let's go!"
     ),
     "bot.short_description": "Autoposting for Telegram channels: scheduling, AI, watermarks, buttons.",
@@ -60,6 +61,8 @@ TEXTS: dict[str, str] = {
         "📊 polls & quizzes — a post type of their own (just send a poll like any other content)\n"
         "🎠 carousel — 2–10 photos or videos flipped with arrows or a swipe, with buttons under the post "
         "(editor → “Carousel”)\n"
+        "🎞 media display — a spoiler, or a paid post: photos and videos unlock for Stars that go to the "
+        "channel's balance (editor → “🎞 Media display”)\n"
         "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)\n"
         "🎁 comment giveaway — the bot counts everyone who comments on a post and randomly picks winners "
         "(My Projects → channel → “🎁 Giveaway”)\n\n"
