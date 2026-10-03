@@ -437,6 +437,45 @@ TEXTS: dict[str, str] = {
     "ai.failed": "Couldn't get a response from the AI. Please try again.",
     "ai.refused": "The AI declined to process this text.",
     "ai.empty": "The AI returned an empty response. Please try again.",
+    "ai.check": "🔎 Check before publishing",
+    "ai.series": "🧵 Series from a long text",
+    "ai.free_help": "🆓 «Check» and «Series» are free.",
+    "ai.free_quota_over": "The daily limit of free AI checks is used up. Please try again later.",
+    # ---- Check before publishing -------------------------------------------------------------
+    "check.title": "🔎 <b>Check before publishing</b>",
+    "check.working": "⏳ Checking the text…",
+    "check.clean": "✅ No mistakes, unnatural wording or factual risks found.",
+    "check.kind_error": "Mistakes",
+    "check.kind_surzhyk": "Unnatural wording (surzhyk)",
+    "check.kind_fact": "Factual risks — worth checking",
+    "check.over_limit": "⛔ The text is too long for Telegram: {n} characters, the limit is {limit}.",
+    "check.too_long": "📏 The text is too long ({n} characters).",
+    "check.length_ok": "📏 The length is fine ({n} characters).",
+    "check.cta_ok": "📣 There is a call to action.",
+    "check.cta_missing": "📣 No call to action.",
+    "check.apply_fix": "✅ Fix the mistakes",
+    "check.again": "🔄 Check again",
+    "check.fixed": "✅ Fixes applied",
+    # ---- Series from a long text -------------------------------------------------------------
+    "series.prompt": (
+        "🧵 <b>Series from a long text</b>\n\n"
+        "Send a long text or a link to an article — the AI will split it into 3–5 posts that become the messages "
+        "of this post's series. Then you pick the publishing time right away."
+    ),
+    "series.use_current": "📄 Use the current message's text",
+    "series.fetching": "⏳ Loading the article…",
+    "series.working": "⏳ The AI is splitting the text into posts…",
+    "series.too_short": "The text is too short for a series — it needs at least {n} characters. Send a longer text or a link to an article.",
+    "series.err_fetch": "Couldn't open the link. Check the address or send the article's text itself.",
+    "series.err_too_big": "The page is too big. Send the article's text itself.",
+    "series.err_no_text": "No article text found on the page. Send the text itself.",
+    "series.result": "🧵 <b>A series of {n} posts:</b>",
+    "series.result_help": "<i>The posts become the messages of the series and go out one after another. The current message texts will be replaced; media stays.</i>",
+    "series.apply_schedule": "✅ Make a series and schedule",
+    "series.apply": "✅ Just make a series",
+    "series.applied": "✅ A series of {n} posts is ready",
+    "series.published": "A series can only be made from a new or scheduled post.",
+    "series.has_poll": "The post has a poll — remove it to make a series.",
 
     # ---- More settings -----------------------------------------------------------------------
     "more.title": "⚙️ <b>More settings</b>",

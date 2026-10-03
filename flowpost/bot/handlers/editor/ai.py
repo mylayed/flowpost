@@ -43,11 +43,16 @@ def ai_menu(
     p = post.id
     lines = [t("ai.title"), ""]
     lines.append(t("ai.help") if enabled else t("ai.disabled"))
+    if enabled:
+        lines.append(t("ai.free_help"))
     if left is not None:
         lines.append(t("ai.quota", left=max(0, left)))
     if channel_left is not None:
         lines.append(t("ai.quota_channel", left=max(0, channel_left)))
-    rows = [
+    rows = [[btn(t("ai.check"), Ed(a="chk", p=p))]]
+    if not is_published_mode(post):
+        rows.append([btn(t("ai.series"), Ed(a="sr", p=p))])
+    rows += [
         [btn(t("ai.format"), Ed(a="ai_run", p=p, v="format"))],
         [btn(t("ai.shorten"), Ed(a="ai_run", p=p, v="shorten")), btn(t("ai.fix"), Ed(a="ai_run", p=p, v="fix"))],
         [btn(t("ai.emoji"), Ed(a="ai_run", p=p, v="emoji")), btn(t("ai.custom"), Ed(a="ai_custom", p=p))],

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     ai_fallbacks: bool = True
     ai_daily_limit_trial: int = 20
     ai_daily_limit_paid: int = 150
+    ai_free_daily_limit: int = 30  # free AI tools («Перевірити», «Серія з довгого тексту») per user per day
 
     # --- Billing ---
     trial_days: int = 30

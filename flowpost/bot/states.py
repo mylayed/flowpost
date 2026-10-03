@@ -9,6 +9,7 @@ class Editor(StatesGroup):
     buttons = State()        # waiting for "Текст — посилання" lines
     ai_custom = State()      # free-form AI instruction
     ai_image = State()       # screenshot for AI vision
+    ai_series = State()      # long text or article link for «Серія з довгого тексту»
     schedule = State()       # schedule screen: date/slot picker; also accepts typed "ГГ:ХХ" directly
     repeat_hours = State()   # custom auto-repeat interval
     delete_hours = State()   # custom auto-delete delay

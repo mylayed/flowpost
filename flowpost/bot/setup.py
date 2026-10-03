@@ -32,6 +32,7 @@ from flowpost.bot.handlers import (
 )
 from flowpost.bot.handlers.editor import (
     ai,
+    ai_tools,
     album,
     buttons,
     content,
@@ -102,6 +103,7 @@ def build_dispatcher(settings: Settings, sessionmaker: async_sessionmaker, stora
         album.router,
         settings_menus.router,
         ai.router,
+        ai_tools.router,
         more.router,
         parts.router,
         repeat.router,
