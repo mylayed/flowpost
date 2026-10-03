@@ -900,6 +900,34 @@ async def test_auto_comment_is_off_by_default_and_replies_once_under_the_post(h:
     assert "SendMessage" not in h.session.names()
 
 
+async def test_auto_comment_can_be_set_up_by_an_admin_with_settings_rights(h: Harness):
+    channel_id, _ = await _seed_published(h, message_id=4242)
+
+    async def add_admin(s, can_settings):
+        admin = await s.scalar(select(User).where(User.tg_id == ADMIN_ID))
+        if admin is None:
+            admin = User(tg_id=ADMIN_ID, lang="uk", tz="Europe/Kyiv", trial_ends_at=utcnow())
+            s.add(admin)
+            await s.flush()
+        row = await s.scalar(select(ChannelAdmin).where(ChannelAdmin.user_id == admin.id))
+        if row is None:
+            row = ChannelAdmin(channel_id=channel_id, user_id=admin.id)
+            s.add(row)
+        row.can_posts, row.can_settings = True, can_settings
+        await s.commit()
+
+    await h.db(lambda s: add_admin(s, False))
+    await h.click(Cs(a="ac_t", c=channel_id), uid=ADMIN_ID)
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).auto_comment == {}
+
+    await h.db(lambda s: add_admin(s, True))
+    await h.click(Cs(a="ac_t", c=channel_id), uid=ADMIN_ID)
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).auto_comment["enabled"] is True
+    await h.click(Cs(a="ac_text", c=channel_id), uid=ADMIN_ID)
+    await h.text("Пишіть нам", uid=ADMIN_ID)
+    assert (await h.db(lambda s: s.get(Channel, channel_id))).auto_comment == {"enabled": True, "html": "Пишіть нам"}
+
+
 async def test_auto_comment_skipped_when_comments_are_off_for_the_post(h: Harness):
     channel_id, pub_id = await _seed_published(h, message_id=4242)
 
