@@ -25,6 +25,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.auto_comment import MAX_AUTO_COMMENT, auto_comment_settings
+from flowpost.services.growth import handles_requests
 from flowpost.services.delivery import engagement_score, publication_message_ids, reactions_total
 from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
 from flowpost.services.moderation import MAX_BANNED_WORDS, moderation_settings
@@ -82,6 +83,7 @@ def channel_card(
     rows.append([btn(t("ed.signature"), Cs(a="sig", c=c)), btn(t("ed.watermark"), Cs(a="wm", c=c))])
     if can_settings:
         rows.append([btn(t("proj.ai_style_btn"), Cs(a="ai_style", c=c)), btn(t("proj.comments_btn"), Cs(a="cm", c=c))])
+        rows.append([btn(on(handles_requests(channel)) + t("pro.join"), Px(a="join", c=c))])
     stats = btn(t("proj.stats_btn"), Cs(a="stats", c=c, v="7"))
     rows.append([stats, btn(t("gw.btn"), Px(a="gw", c=c))] if can_settings else [stats])
     if can_settings:

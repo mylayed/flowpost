@@ -9,7 +9,8 @@ TEXTS: dict[str, str] = {
         "🕒 I publish on schedule — even while you sleep\n"
         "🤖 I turn raw text or a screenshot into a ready post with AI\n"
         "🎁 I run comment giveaways and pick winners at random\n"
-        "⭐ PRO: ad links, auto-approved join requests, RSS, an idea bank, an AI content plan, "
+        "🚪 I approve join requests and greet new subscribers\n"
+        "⭐ PRO: ad links, RSS, an idea bank, an AI content plan, "
         "auto-translation and a weekly report\n\n"
         "Tap /start — let's go!"
     ),
@@ -65,10 +66,11 @@ TEXTS: dict[str, str] = {
         "channel's balance (editor → “🎞 Media display”)\n"
         "🛡 comment moderation — removes profanity and spam in the discussion group (My Projects → Comments)\n"
         "🎁 comment giveaway — the bot counts everyone who comments on a post and randomly picks winners "
-        "(My Projects → channel → “🎁 Giveaway”)\n\n"
+        "(My Projects → channel → “🎁 Giveaway”)\n"
+        "🚪 join requests & welcome — the bot approves join requests and greets new people in private "
+        "(My Projects → channel → “🚪 Join requests & welcome”)\n\n"
         "<b>⭐ PRO tools</b> (My projects → channel → «⭐ PRO tools»; paid plan or trial):\n"
         "🔗 ad links — a link per ad: how many came, how many left, and the cost per subscriber\n"
-        "🚪 join requests & welcome — the bot approves join requests and greets new people in private\n"
         "📰 RSS autoposting — new items from sites become posts, rewritten by AI in the channel's style\n"
         "🧠 AI content plan — 7 ready posts for the week, each opens in the editor\n"
         "🌐 auto-translation — in multiposting a post comes out in each channel's language\n"
@@ -800,8 +802,8 @@ TEXTS: dict[str, str] = {
     "pro.btn": "⭐ PRO tools",
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
-        "Tools to grow the channel: ad links that count subscribers, auto-approving join requests with a "
-        "welcome, autoposting from RSS, an AI content plan, an idea bank, auto-translation and a weekly report."
+        "Tools to grow the channel: ad links that count subscribers, autoposting from RSS, "
+        " an AI content plan, an idea bank, auto-translation and a weekly report."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",

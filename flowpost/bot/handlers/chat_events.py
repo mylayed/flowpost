@@ -8,13 +8,11 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, ChatJoinRequest, ChatMemberUpdated
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.config import Settings
 from flowpost.db.models import Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
 from flowpost.services import growth
-from flowpost.services.billing import entitlements
 from flowpost.services.posts import HIDDEN_PREFIX, options_of
 
 log = logging.getLogger(__name__)
@@ -29,7 +27,7 @@ def _is_in(member) -> bool:
 
 
 @router.chat_join_request()
-async def on_join_request(request: ChatJoinRequest, bot: Bot, session: AsyncSession, settings: Settings) -> None:
+async def on_join_request(request: ChatJoinRequest, bot: Bot, session: AsyncSession) -> None:
     channel = next(
         (c for c in await channels_repo.channels_by_chat(session, request.chat.id) if c.is_active and growth.handles_requests(c)),
         None,
@@ -37,9 +35,6 @@ async def on_join_request(request: ChatJoinRequest, bot: Bot, session: AsyncSess
     if channel is None:
         return
     now = utcnow()
-    owner = await session.get(User, channel.owner_id)
-    if owner is None or not entitlements.has_extras(await entitlements.for_channel(session, settings, channel, owner, now)):
-        return
     url = request.invite_link.invite_link if request.invite_link else None
     row = await growth.queue_request(session, channel, request.from_user.id, url, now)
     if growth.join_settings(channel.join_settings)["welcome"]:

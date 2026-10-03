@@ -122,7 +122,6 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
     lang = channel.translate_lang
     rows = [
         [btn(t("pro.links") + (f" ({links})" if links else ""), Px(a="links", c=c))],
-        [btn(on(growth.handles_requests(channel)) + t("pro.join"), Px(a="join", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
         [btn(t("pro.plan"), Px(a="plan", c=c))],
         [btn(t("pro.ideas") + (f" ({ideas})" if ideas else ""), Px(a="ideas", c=c))],
@@ -357,14 +356,14 @@ def join_view(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     ]
     if not s["link"]:
         rows.append([btn(t("jr.link_btn"), Px(a="jr_link", c=c))])
-    rows.append(_back(channel))
+    rows.append([btn(t("btn.back"), Pj(a="ch", c=c))])
     return "\n".join(lines), markup(rows)
 
 
 @router.callback_query(Px.filter(F.a.in_({"join", "jr_ap", "jr_wt", "jr_link"})))
 async def px_join(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession, state: FSMContext,
                   user: User, settings: Settings) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     if channel is None:
         return
     s = growth.join_settings(channel.join_settings)
@@ -392,7 +391,7 @@ async def px_join(cb: CallbackQuery, callback_data: Px, bot: Bot, session: Async
 @router.callback_query(Px.filter(F.a == "jr_wtext"))
 async def px_welcome_ask(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
                          settings: Settings) -> None:
-    channel = await _channel(cb, callback_data, session, user, settings)
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
     if channel is None:
         return
     await state.set_state(ProInput.welcome)

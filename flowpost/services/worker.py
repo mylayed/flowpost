@@ -475,7 +475,7 @@ class Worker:
             )).all()
             for row in rows:
                 channel = await session.get(Channel, row.channel_id)
-                if channel is None or not channel.is_active or await self._has_extras(session, channel, now) is None:
+                if channel is None or not channel.is_active:
                     row.approve_at = None  # left for the channel's admins to handle by hand
                     continue
                 await growth.approve_request(self.bot, session, channel, row, now)

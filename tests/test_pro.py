@@ -121,6 +121,19 @@ async def test_ad_link_counts_who_came_who_left_and_the_price_per_subscriber(h: 
 async def test_join_requests_are_welcomed_and_approved_right_away_or_later(h: Harness):
     await h.text("/start")
     c = await _connect(h)
+
+    # a free feature: it works with the trial over, and lives in the channel card rather than the PRO menu
+    async def expire(s):
+        await s.execute(update(Channel).values(trial_ends_at=utcnow() - timedelta(days=1)))
+        await s.execute(update(User).values(trial_ends_at=utcnow() - timedelta(days=1)))
+        await s.commit()
+    await h.db(expire)
+    h.session.clear()
+    await h.click(Pj(a="ch", c=c))
+    assert Px(a="join", c=c).pack() in str(h.session.calls[-1][1].reply_markup)
+    await h.click(Px(a="menu", c=c))
+    assert Px(a="join", c=c).pack() not in str(h.session.calls[-1][1].reply_markup)
+
     await h.click(Px(a="join", c=c))
     await h.click(Px(a="jr_ap", c=c))  # off → right away
     await h.click(Px(a="jr_wtext", c=c))
