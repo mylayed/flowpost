@@ -812,9 +812,9 @@ def test_ai_moderation_queue_sends_full_or_waited_batches():
 
     queue = Queue(batch=2, wait_seconds=60)
     item = lambda n: Pending(chat_id=1, message_id=n, user_tg_id=n, text=f"comment {n}", publication_id=None)  # noqa: E731
-    queue.add(5, item(1), now=0)
+    assert queue.add(5, item(1), now=0) is False
     assert queue.due(now=30) == []
-    queue.add(5, item(2), now=30)
+    assert queue.add(5, item(2), now=30) is True  # a full batch: the handler wakes the worker
     queue.add(5, item(3), now=31)
     (full,) = queue.due(now=31)
     assert full[0] == 5 and [i.message_id for i in full[1]] == [1, 2]

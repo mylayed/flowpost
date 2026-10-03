@@ -174,10 +174,12 @@ async def on_discussion_comment(
             pub.discussion_thread_id = message.message_thread_id
     text = (message.text or message.caption or "").strip()
     if worker is not None and mod["enabled"] and mod["ai"] and text:
-        worker.ai_moderation.add(channel.id, ai_moderation.Pending(
+        full = worker.ai_moderation.add(channel.id, ai_moderation.Pending(
             chat_id=message.chat.id, message_id=message.message_id, user_tg_id=message.from_user.id, text=text,
             publication_id=pub.id if pub is not None else None,
         ))
+        if full:
+            worker.wake()
     if pub is None:
         return
     pub.comments_count = (pub.comments_count or 0) + 1

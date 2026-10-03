@@ -90,8 +90,8 @@ class Settings(BaseSettings):
     rss_interval_minutes: int = 15  # how often each RSS source is checked
     rss_items_per_check: int = 3  # new items taken from a source per check, so a busy feed can't flood a channel
     # AI comment moderation: comments are checked in batches; one batch costs one «ai_mod» check of the channel
-    ai_mod_batch: int = 20  # a batch goes out once this many comments are waiting...
-    ai_mod_wait_seconds: int = 60  # ...or once the oldest of them has waited this long
+    ai_mod_batch: int = 5  # a batch goes out once this many comments are waiting...
+    ai_mod_wait_seconds: int = 20  # ...or once the oldest of them has waited this long
 
     # --- Media / worker ---
     ffmpeg_bin: str = "ffmpeg"

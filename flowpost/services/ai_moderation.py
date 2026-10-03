@@ -31,11 +31,13 @@ class Queue:
         self.wait_seconds = wait_seconds
         self._pending: dict[int, _Batch] = {}
 
-    def add(self, channel_id: int, item: Pending, *, now: float | None = None) -> None:
+    def add(self, channel_id: int, item: Pending, *, now: float | None = None) -> bool:
+        """Queue a comment; True once the channel has a full batch waiting, so it can be checked right away."""
         now = time.monotonic() if now is None else now
         pending = self._pending.setdefault(channel_id, _Batch(since=now))
         if len(pending.items) < self.MAX_PER_CHANNEL:
             pending.items.append(item)
+        return len(pending.items) >= self.batch
 
     def due(self, *, now: float | None = None, flush: bool = False) -> list[tuple[int, list[Pending]]]:
         """Take the batches ready to be checked: full ones, ones whose oldest comment waited long enough, or all."""
