@@ -199,6 +199,9 @@ def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
         "", t("cm.moderation_on") if mod["enabled"] else t("cm.moderation_off"),
         t("cm.banned_words_count", n=len(mod["banned_words"])),
     ]
+    lines.append(t("cm.aimod_on") if mod["ai"] else t("cm.aimod_off"))
+    if mod["ai"] and mod["ai_out"]:
+        lines.append(t("cm.aimod_paused"))
     auto = auto_comment_settings(channel.auto_comment)
     lines += ["", t("cm.auto_on") if auto["enabled"] else t("cm.auto_off")]
     if auto["enabled"]:
@@ -212,6 +215,7 @@ def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
         btn(on(mod["enabled"]) + t("cm.moderation_toggle"), Cs(a="mod_t", c=c)),
         btn(t("cm.banned_words_btn"), Cs(a="mod_words", c=c)),
     ])
+    rows.append([btn(on(mod["ai"]) + t("cm.aimod_btn"), Px(a="aimod", c=c, v="cm"))])
     rows.append([
         btn(on(auto["enabled"]) + t("cm.auto_btn"), Cs(a="ac_t", c=c)),
         btn(t("cm.auto_text_btn"), Cs(a="ac_text", c=c)),

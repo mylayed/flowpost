@@ -1,4 +1,4 @@
-"""Extra per-channel usage packs (watermarks, AI texts) bought from the Stars wallet on top of the plan."""
+"""Extra per-channel usage packs (watermarks, AI texts, AI moderation checks) bought from the Stars wallet on top of the plan."""
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from flowpost.db.models import ChannelQuota
 from flowpost.services import analytics
 from flowpost.services.billing.wallet import debit
 
-LIMIT_KINDS = ("wm_photo", "wm_video", "ai_text")
+LIMIT_KINDS = ("wm_photo", "wm_video", "ai_text", "ai_mod")
 
 
 def public_prices(prices: dict[str, dict[int, int]]) -> dict[str, dict[str, int]]:

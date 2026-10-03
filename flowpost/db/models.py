@@ -370,7 +370,7 @@ class ChannelQuota(Base):
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(16))  # wm_photo | wm_video | ai_text
+    kind: Mapped[str] = mapped_column(String(16))  # wm_photo | wm_video | ai_text | ai_mod
     remaining: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 

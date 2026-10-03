@@ -12,6 +12,7 @@ def trial_terms(settings: Settings) -> dict[str, int]:
     return {
         "days": settings.trial_days, "posts": settings.trial_posts,
         "photo": q.get("wm_photo", 0), "video": q.get("wm_video", 0), "ai": q.get("ai_text", 0),
+        "mod": q.get("ai_mod", 0),
     }
 
 
@@ -47,6 +48,7 @@ def catalog(settings: Settings) -> dict:
                 "wm_photo": plan.get("wm_photo", 0),
                 "wm_video": plan.get("wm_video", 0),
                 "ai_text": plan.get("ai_text", 0),
+                "ai_mod": plan.get("ai_mod", 0),
             }
             for posts, plan in sorted(settings.posting_plans.items())
         ],

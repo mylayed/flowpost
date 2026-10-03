@@ -18,20 +18,20 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flowpost.bot.callbacks import Cp, Cs, Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
-from flowpost.db.models import Broadcast, Channel, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.models import Broadcast, Channel, Commenter, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics, broadcast, gaps, growth, rss
+from flowpost.services import ai_moderation, analytics, broadcast, gaps, growth, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -44,6 +44,7 @@ from flowpost.services.delivery import (
     publication_message_ids,
 )
 from flowpost.services.html_sanitize import visible_len
+from flowpost.services.moderation import moderation_settings
 from flowpost.services.posts import TEXT_LIMIT, channel_defaults, initial_options, render_signature
 from flowpost.services.publisher import EmptyPostError, Publisher
 from flowpost.services.reports import report_due_since, weekly_report
@@ -82,6 +83,7 @@ class Worker:
         self._gaps_at: datetime | None = None
         self._gaps_checked: dict[int, date] = {}  # channel id -> the owner's local day it was last checked
         self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
+        self.ai_moderation = ai_moderation.Queue(settings.ai_mod_batch, settings.ai_mod_wait_seconds)
 
     def wake(self) -> None:
         self._wake.set()
@@ -114,6 +116,7 @@ class Worker:
         await self.snapshot_members(now)
         await self.weekly_reports(now)
         await self.gap_reminders(now)
+        await self.process_ai_moderation()
 
     async def recover_stale(self) -> None:
         """Publications stuck in 'publishing' after a crash are marked failed instead of risking duplicates."""
@@ -465,6 +468,77 @@ class Worker:
             return None
         entitlement = await entitlements.for_channel(session, self.settings, channel, owner, now)
         return owner if entitlements.has_extras(entitlement) else None
+
+    async def process_ai_moderation(self, *, flush: bool = False) -> None:
+        """Check the comments waiting in the AI moderation queue; `flush` sends every batch without waiting."""
+        if self.ai is None or not self.ai.enabled:
+            return
+        for channel_id, items in self.ai_moderation.due(flush=flush):
+            try:
+                await self._moderate_batch(channel_id, items)
+            except Exception:  # noqa: BLE001 - one channel's batch mustn't stop the others
+                log.exception("AI moderation failed for channel %s", channel_id)
+
+    async def _moderate_batch(self, channel_id: int, items: list[ai_moderation.Pending]) -> None:
+        now = utcnow()
+        notify: tuple[int, str, str] | None = None
+        async with self.sessionmaker() as session:
+            channel = await session.get(Channel, channel_id)
+            mod = moderation_settings(channel.moderation if channel else None)
+            if channel is None or not channel.is_active or not (mod["enabled"] and mod["ai"]):
+                return
+            owner = await self._has_extras(session, channel, now)
+            if owner is None:
+                return
+            paused = not await limits.take(session, channel.id, "ai_mod")
+            if paused and not mod["ai_out"]:
+                channel.moderation = {**mod, "ai_out": True}
+                notify = (owner.tg_id, owner.lang, channel.title)
+            elif not paused and mod["ai_out"]:
+                channel.moderation = {**mod, "ai_out": False}
+            title = channel.title
+            await session.commit()
+        if paused:
+            # Out of checks: the word/link filters keep working; the owner hears about it once until they top up.
+            if notify is None:
+                return
+            tg_id, lang, title = notify
+            kb = markup([[pay_btn(self.settings, t("aimod.buy_btn", locale=lang))]])
+            try:
+                await self.bot.send_message(tg_id, t("aimod.out", locale=lang, title=html.escape(title)), reply_markup=kb)
+            except TelegramAPIError as e:
+                log.info("AI moderation pause notice not delivered: %s", e)
+            return
+        try:
+            verdicts = await self.ai.moderate([item.text for item in items], channel_title=title)  # type: ignore[union-attr]
+        except AIError as e:
+            log.info("AI moderation for channel %s failed: %s", channel_id, e.key)
+            async with self.sessionmaker() as session:
+                await limits.add(session, channel_id, "ai_mod", 1)
+                await session.commit()
+            return
+        deleted: list[ai_moderation.Pending] = []
+        for item, verdict in zip(items, verdicts):
+            if verdict == "ok":
+                continue
+            try:
+                await self.bot.delete_message(item.chat_id, item.message_id)
+                deleted.append(item)
+                log.info("AI moderation deleted a %s comment in chat %s", verdict, item.chat_id)
+            except TelegramAPIError as e:
+                log.info("AI moderation delete failed in chat %s: %s", item.chat_id, e)
+        if not deleted:
+            return
+        async with self.sessionmaker() as session:
+            for item in deleted:
+                pub = await session.get(Publication, item.publication_id) if item.publication_id else None
+                if pub is None:
+                    continue
+                pub.comments_count = max((pub.comments_count or 0) - 1, 0)
+                await session.execute(
+                    delete(Commenter).where(Commenter.publication_id == pub.id, Commenter.user_tg_id == item.user_tg_id)
+                )
+            await session.commit()
 
     async def process_join_approvals(self, now: datetime) -> None:
         async with self.sessionmaker() as session:

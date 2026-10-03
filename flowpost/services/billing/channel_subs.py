@@ -13,7 +13,7 @@ from flowpost.services import analytics
 from flowpost.services.billing import limits
 from flowpost.services.billing.wallet import debit
 
-PLAN_QUOTAS = ("wm_photo", "wm_video", "ai_text")
+PLAN_QUOTAS = ("wm_photo", "wm_video", "ai_text", "ai_mod")
 
 
 async def buy(

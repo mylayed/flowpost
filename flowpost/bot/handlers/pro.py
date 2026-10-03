@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Cs, Pj, Px
+from flowpost.bot.handlers.channel_settings import cm_menu
 from flowpost.bot.handlers.editor.publish import publish_now
 from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import open_editor
@@ -29,9 +30,10 @@ from flowpost.i18n import t
 from flowpost.services import giveaway, growth, rss
 from flowpost.services import ideas as ideas_service
 from flowpost.services.ai import LANG_NAMES, AIService
-from flowpost.services.billing import entitlements
+from flowpost.services.billing import entitlements, limits
 from flowpost.services.delivery import publication_message_ids
 from flowpost.services.html_sanitize import snippet
+from flowpost.services.moderation import moderation_settings
 from flowpost.services.posts import initial_options, message_link, part_preview_text
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import tz_of
@@ -120,6 +122,8 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
     if not await _extras(session, settings, channel):
         lines += ["", t("pro.locked")]
     lang = channel.translate_lang
+    ai_mod = moderation_settings(channel.moderation)["ai"]
+    checks_left = (await limits.remaining(session, c))["ai_mod"]
     rows = [
         [btn(t("pro.links") + (f" ({links})" if links else ""), Px(a="links", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
@@ -128,6 +132,7 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
         [btn(t("pro.translate", lang=(LANG_FLAGS.get(lang, "") + " " + LANG_NAMES[lang]) if lang in LANG_NAMES
                else t("pro.translate_off")), Px(a="tr", c=c))],
         [btn(on(channel.weekly_report) + t("pro.report"), Px(a="rep_t", c=c))],
+        [btn(on(ai_mod) + t("pro.aimod", n=checks_left), Px(a="aimod", c=c))],
         [btn(t("btn.back"), Pj(a="ch", c=c))],
     ]
     return "\n".join(lines), markup(rows)
@@ -143,6 +148,34 @@ async def px_menu(cb: CallbackQuery, callback_data: Px, session: AsyncSession, u
         await session.flush()
     await cb.answer()
     await _edit(cb, *await pro_menu(session, settings, channel))
+
+
+@router.callback_query(Px.filter(F.a == "aimod"))
+async def px_ai_moderation(cb: CallbackQuery, callback_data: Px, session: AsyncSession, user: User,
+                           settings: Settings) -> None:
+    """Toggle AI comment moderation, from the PRO menu or (v="cm") the channel's comments menu."""
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    if channel is None:
+        return
+    mod = moderation_settings(channel.moderation)
+    turning_on = not mod["ai"]
+    if turning_on:
+        if not channel.discussion_chat_id:
+            await cb.answer(t("cm.auto_need_group"), show_alert=True)
+            return
+        # Turning it off is always allowed; turning it on needs the paid plan or trial.
+        if await _channel(cb, callback_data, session, user, settings) is None:
+            return
+    channel.moderation = {**mod, "ai": turning_on, "enabled": mod["enabled"] or turning_on}
+    await session.flush()
+    if turning_on:
+        await cb.answer(t("aimod.on_done", batch=settings.ai_mod_batch), show_alert=True)
+    else:
+        await cb.answer()
+    if callback_data.v == "cm":
+        await _edit(cb, *cm_menu(channel))
+    else:
+        await _edit(cb, *await pro_menu(session, settings, channel))
 
 
 @router.callback_query(Px.filter(F.a == "rep_off"))

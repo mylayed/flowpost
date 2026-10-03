@@ -71,6 +71,7 @@ TEXTS: dict[str, str] = {
         "(My Projects → channel → “🚪 Join requests & welcome”)\n\n"
         "<b>⭐ PRO tools</b> (My projects → channel → «⭐ PRO tools»; paid plan or trial):\n"
         "🔗 ad links — a link per ad: how many came, how many left, and the cost per subscriber\n"
+        "🧠 AI comment moderation — AI removes insults, ads and scams the regular filter misses\n"
         "📰 RSS autoposting — new items from sites become posts, rewritten by AI in the channel's style\n"
         "🧠 AI content plan — 7 ready posts for the week, each opens in the editor\n"
         "🌐 auto-translation — in multiposting a post comes out in each channel's language\n"
@@ -351,6 +352,20 @@ TEXTS: dict[str, str] = {
     "cm.moderation_toggle": "Moderation",
     "cm.banned_words_count": "Custom banned words: {n}",
     "cm.banned_words_btn": "✏️ Banned words",
+    "cm.aimod_on": "🧠 AI moderation (PRO): on",
+    "cm.aimod_off": "🧠 AI moderation (PRO): off",
+    "cm.aimod_paused": "⏸ AI checks have run out — only the regular filter works. Buy more in Billing → «Top up limits».",
+    "cm.aimod_btn": "🧠 AI moderation ⭐",
+    "aimod.on_done": (
+        "🧠 AI moderation is on. Besides profanity and links, AI will remove insults, ads and scams.\n\n"
+        "Comments are checked in batches of up to {batch}: one batch uses 1 AI check of the channel's limits."
+    ),
+    "aimod.out": (
+        "⏸ AI comment moderation in «{title}» is paused: the AI checks have run out. "
+        "The regular profanity and link filter keeps working.\n\n"
+        "Buy more checks and AI moderation resumes on its own."
+    ),
+    "aimod.buy_btn": "🧠 Buy AI checks",
     "cm.auto_on": "📝 Auto comment under posts: on",
     "cm.auto_off": "📝 Auto comment under posts: off",
     "cm.auto_preview": "<b>Auto comment text:</b>",
@@ -735,7 +750,7 @@ TEXTS: dict[str, str] = {
     "pay.terms": (
         "📄 <b>FlowPost terms of use</b>\n\n"
         "• Every connected channel gets a free trial: {days} days and up to {posts} posts, "
-        "plus watermarks on {photo} photos and {video} videos and {ai} AI texts.\n"
+        "plus watermarks on {photo} photos and {video} videos, {ai} AI texts and {mod} AI comment checks.\n"
         "• After that the channel runs on the free plan ({free} posts a day) or on a paid subscription "
         "paid with Telegram Stars via the «Subscribe» button.\n"
         "• The bot only publishes to channels where you are an admin, and only content you created.\n"
@@ -803,7 +818,7 @@ TEXTS: dict[str, str] = {
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
         "Tools to grow the channel: ad links that count subscribers, autoposting from RSS, "
-        " an AI content plan, an idea bank, auto-translation and a weekly report."
+        " an AI content plan, an idea bank, auto-translation, a weekly report and AI comment moderation."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
@@ -815,6 +830,7 @@ TEXTS: dict[str, str] = {
     "pro.translate": "🌐 Auto-translation: {lang}",
     "pro.translate_off": "off",
     "pro.report": "📊 Weekly report",
+    "pro.aimod": "🧠 AI comment moderation · {n}",
 
     "lnk.title": "🔗 <b>Ad links · {title}</b>",
     "lnk.help": (

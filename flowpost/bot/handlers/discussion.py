@@ -19,10 +19,11 @@ from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
-from flowpost.services import auto_comment, giveaway
+from flowpost.services import ai_moderation, auto_comment, giveaway
 from flowpost.services.delivery import publication_message_ids
 from flowpost.services.moderation import moderation_settings, violation
 from flowpost.services.posts import options_of
+from flowpost.services.worker import Worker
 
 log = logging.getLogger(__name__)
 router = Router(name="discussion")
@@ -134,7 +135,9 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
 @router.message(
     F.chat.type.in_({"group", "supergroup"}), F.message_thread_id, ~F.is_automatic_forward,
 )
-async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSession) -> None:
+async def on_discussion_comment(
+    message: Message, bot: Bot, session: AsyncSession, worker: Worker | None = None,
+) -> None:
     """Moderate and count a reply in a linked discussion thread as a comment on the post that opened it,
     entering its author into that post's giveaway."""
     if message.from_user is None or message.from_user.is_bot:
@@ -169,6 +172,12 @@ async def on_discussion_comment(message: Message, bot: Bot, session: AsyncSessio
         if found is not None and found[0].id == channel.id:
             pub = found[1]
             pub.discussion_thread_id = message.message_thread_id
+    text = (message.text or message.caption or "").strip()
+    if worker is not None and mod["enabled"] and mod["ai"] and text:
+        worker.ai_moderation.add(channel.id, ai_moderation.Pending(
+            chat_id=message.chat.id, message_id=message.message_id, user_tg_id=message.from_user.id, text=text,
+            publication_id=pub.id if pub is not None else None,
+        ))
     if pub is None:
         return
     pub.comments_count = (pub.comments_count or 0) + 1

@@ -99,7 +99,7 @@ def _expire_trial(sessionmaker, channel_id):
 
 def test_trial_defaults(settings):
     assert (settings.trial_days, settings.trial_posts) == (30, 100)
-    assert settings.trial_quotas == {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
+    assert settings.trial_quotas == {"wm_photo": 15, "wm_video": 15, "ai_text": 15, "ai_mod": 30}
 
 
 async def test_connecting_a_channel_grants_the_trial_once(h: Harness):
@@ -107,7 +107,7 @@ async def test_connecting_a_channel_grants_the_trial_once(h: Harness):
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
     channel = await h.db(lambda s: s.scalar(select(Channel)))
     assert timedelta(days=29, hours=23) < channel.trial_ends_at - utcnow() <= timedelta(days=30)
-    assert await _quota(h.sm, channel.id) == {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
+    assert await _quota(h.sm, channel.id) == {"wm_photo": 15, "wm_video": 15, "ai_text": 15, "ai_mod": 30}
 
     # spend some, then reconnect: neither the trial nor the quotas start over
     async def spend(s):
@@ -118,7 +118,7 @@ async def test_connecting_a_channel_grants_the_trial_once(h: Harness):
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
     again = await h.db(lambda s: s.get(Channel, channel.id))
     assert again.trial_ends_at == ends_at
-    assert await _quota(h.sm, channel.id) == {"wm_photo": 10, "wm_video": 15, "ai_text": 15}
+    assert await _quota(h.sm, channel.id) == {"wm_photo": 10, "wm_video": 15, "ai_text": 15, "ai_mod": 30}
     assert await h.db(lambda s: s.scalar(select(func.count(Channel.id)))) == 1
 
 
@@ -158,7 +158,7 @@ async def test_second_account_cannot_restart_the_chats_trial(h: Harness):
     second = await h.db(lambda s: s.scalar(select(Channel).where(Channel.id != first.id)))
     assert second is not None and second.chat_id == CHANNEL_CHAT
     assert second.trial_ends_at == ends_at  # the chat's remaining day, not another 30
-    assert await _quota(h.sm, second.id) == {"wm_photo": 0, "wm_video": 0, "ai_text": 0}
+    assert await _quota(h.sm, second.id) == {"wm_photo": 0, "wm_video": 0, "ai_text": 0, "ai_mod": 0}
     assert await h.db(lambda s: s.scalar(select(func.count(ChatTrial.id)))) == 1
 
 

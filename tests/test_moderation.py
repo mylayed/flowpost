@@ -8,8 +8,8 @@ from flowpost.services.moderation import (
 
 
 def test_moderation_settings_defaults_to_enabled_with_no_custom_words():
-    assert moderation_settings(None) == {"enabled": True, "banned_words": []}
-    assert moderation_settings({"enabled": False}) == {"enabled": False, "banned_words": []}
+    assert moderation_settings(None) == {"enabled": True, "banned_words": [], "ai": False, "ai_out": False}
+    assert moderation_settings({"enabled": False}) == {"enabled": False, "banned_words": [], "ai": False, "ai_out": False}
 
 
 def test_contains_banned_word_matches_built_in_profanity():

@@ -63,14 +63,15 @@ class Settings(BaseSettings):
         "wm_photo": {10: 5, 100: 15, 500: 49, 1000: 75},
         "wm_video": {10: 10, 100: 75, 500: 325, 1000: 599},
         "ai_text": {10: 10, 100: 29, 500: 129, 1000: 229},
+        "ai_mod": {10: 3, 100: 19, 500: 79, 1000: 139},
     }
-    # Posting plans: posts per day -> Stars and included watermarks/AI texts per channel per 30 days
+    # Posting plans: posts per day -> Stars and included watermarks/AI texts/AI moderation checks per channel per 30 days
     posting_plans: dict[int, dict[str, int]] = {
-        1: {"stars": 75, "wm_photo": 30, "wm_video": 6, "ai_text": 30},
-        15: {"stars": 124, "wm_photo": 450, "wm_video": 75, "ai_text": 450},
-        50: {"stars": 199, "wm_photo": 1500, "wm_video": 250, "ai_text": 1500},
-        150: {"stars": 349, "wm_photo": 4500, "wm_video": 750, "ai_text": 4500},
-        500: {"stars": 499, "wm_photo": 15000, "wm_video": 2500, "ai_text": 15000},
+        1: {"stars": 75, "wm_photo": 30, "wm_video": 6, "ai_text": 30, "ai_mod": 60},
+        15: {"stars": 124, "wm_photo": 450, "wm_video": 75, "ai_text": 450, "ai_mod": 150},
+        50: {"stars": 199, "wm_photo": 1500, "wm_video": 250, "ai_text": 1500, "ai_mod": 300},
+        150: {"stars": 349, "wm_photo": 4500, "wm_video": 750, "ai_text": 4500, "ai_mod": 600},
+        500: {"stars": 499, "wm_photo": 15000, "wm_video": 2500, "ai_text": 15000, "ai_mod": 1500},
     }
     channel_discounts: dict[int, int] = {3: 2, 5: 5, 10: 10, 20: 15, 30: 20, 50: 25, 100: 30}  # from N channels -> %
     term_discounts: dict[int, int] = {30: 0, 90: 10, 180: 15, 365: 20}  # days -> %
@@ -79,7 +80,7 @@ class Settings(BaseSettings):
     trial_posts: int = 100
     # Account-wide subscriptions from before per-channel plans count as this plan on every channel of the account
     legacy_posts_per_day: int = 15
-    trial_quotas: dict[str, int] = {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
+    trial_quotas: dict[str, int] = {"wm_photo": 15, "wm_video": 15, "ai_text": 15, "ai_mod": 30}
     free_posts_per_day: int = 10  # 0 = no free plan
     calc_max_channels: int = 100
     terms_url: str = ""  # empty = the built-in terms page (the /terms text)
@@ -88,6 +89,9 @@ class Settings(BaseSettings):
     # --- PRO tools ---
     rss_interval_minutes: int = 15  # how often each RSS source is checked
     rss_items_per_check: int = 3  # new items taken from a source per check, so a busy feed can't flood a channel
+    # AI comment moderation: comments are checked in batches; one batch costs one «ai_mod» check of the channel
+    ai_mod_batch: int = 20  # a batch goes out once this many comments are waiting...
+    ai_mod_wait_seconds: int = 60  # ...or once the oldest of them has waited this long
 
     # --- Media / worker ---
     ffmpeg_bin: str = "ffmpeg"

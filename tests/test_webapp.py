@@ -86,7 +86,7 @@ async def test_webapp_api(sessionmaker):
         assert (catalog["posting"][1]["wm_photo"], catalog["posting"][1]["wm_video"]) == (450, 75)
         assert catalog["term_discounts"] == [[30, 0], [90, 10], [180, 15], [365, 20]]
         assert catalog["channel_discounts"][-1] == [100, 30] and catalog["trial"] == {
-                "days": 30, "posts": 100, "quotas": {"wm_photo": 15, "wm_video": 15, "ai_text": 15},
+                "days": 30, "posts": 100, "quotas": {"wm_photo": 15, "wm_video": 15, "ai_text": 15, "ai_mod": 30},
             }
         terms = await (await client.get("/api/terms", headers=auth)).json()
         assert "FlowPost" in terms["html"] and "30" in terms["html"] and "15 фото" in terms["html"]
@@ -129,7 +129,7 @@ async def test_webapp_api(sessionmaker):
         assert (detail["status"], detail["plan"], detail["days_left"]) == ("active", "trial", 14)
         assert (detail["posts_left"], detail["posts_limit"], detail["posts_window"]) == (98, 100, "trial")
         assert detail["title"] == "Арабаба"
-        assert detail["quotas"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0} and detail["extras"] is True
+        assert detail["quotas"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0, "ai_mod": 0} and detail["extras"] is True
         assert (await client.get(f"/api/channels/{foreign_id}", headers=auth)).status == 404
 
         # «Відкрити в Telegram» opens the private channel itself, not t.me/c/<id> (a web page): with no invite
@@ -217,10 +217,10 @@ async def test_buy_limit_packs_from_wallet(sessionmaker, seeded):
 
     try:
         me = await (await client.get("/api/me", headers=auth)).json()
-        assert list(me["limit_prices"]) == ["wm_photo", "wm_video", "ai_text"]
+        assert list(me["limit_prices"]) == ["wm_photo", "wm_video", "ai_text", "ai_mod"]
         assert me["limit_prices"]["ai_text"]["500"] == 129
         resp = await client.get(f"/api/limits/{seeded.channel_id}", headers=auth)
-        assert (await resp.json())["remaining"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0}
+        assert (await resp.json())["remaining"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0, "ai_mod": 0}
 
         for packs in ({}, {"wm_photo": 0}, {"wm_photo": 7}, {"nope": 10}, {"wm_photo": True}):
             assert (await buy(packs)).status == 400, packs
@@ -237,13 +237,13 @@ async def test_buy_limit_packs_from_wallet(sessionmaker, seeded):
         resp = await buy({"wm_photo": 10, "wm_video": 0, "ai_text": 500})
         data = await resp.json()
         assert resp.status == 200 and (data["balance"], data["cashback"]) == (16, 0)
-        assert data["remaining"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 500}
+        assert data["remaining"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 500, "ai_mod": 0}
         data = await (await buy({"wm_photo": 10})).json()
         assert data["balance"] == 11 and data["remaining"]["wm_photo"] == 20
 
         # the channel page shows the bought packs on top of what was there
         detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
-        assert detail["quotas"] == {"wm_photo": 20, "wm_video": 0, "ai_text": 500}
+        assert detail["quotas"] == {"wm_photo": 20, "wm_video": 0, "ai_text": 500, "ai_mod": 0}
 
         async with sessionmaker() as session:
             spends = (await session.scalars(
@@ -289,7 +289,7 @@ async def test_transfer_channel_subscription(sessionmaker, seeded):
         options = await (await client.get("/api/transfer", headers=auth)).json()
         assert [c["id"] for c in options["sources"]] == [source, ids["busy"]]
         assert [c["id"] for c in options["targets"]] == [ids["free"], ids["lapsed"]]
-        assert options["sources"][0]["quotas"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 100}
+        assert options["sources"][0]["quotas"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 100, "ai_mod": 0}
 
         assert (await move(source, source)).status == 400
         assert (await move(source, ids["foreign"])).status == 404
@@ -302,7 +302,7 @@ async def test_transfer_channel_subscription(sessionmaker, seeded):
         old = await (await client.get(f"/api/channels/{source}", headers=auth)).json()
         assert (old["plan"], old["posts_per_day"]) == ("trial", None)
         assert (await (await client.get(f"/api/limits/{ids['lapsed']}", headers=auth)).json())["remaining"] == {
-            "wm_photo": 15, "wm_video": 0, "ai_text": 100,
+            "wm_photo": 15, "wm_video": 0, "ai_text": 100, "ai_mod": 0,
         }
         async with sessionmaker() as session:
             assert await session.scalar(select(ChannelQuota).where(ChannelQuota.channel_id == source)) is None
@@ -360,7 +360,7 @@ async def test_subscribe_channels_from_wallet(sessionmaker, seeded):
         detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
         assert (detail["plan"], detail["posts_per_day"], detail["days_left"]) == ("paid", 15, 36)
         remaining = (await (await client.get(f"/api/limits/{seeded.channel_id}", headers=auth)).json())["remaining"]
-        assert remaining == {"wm_photo": 540, "wm_video": 90, "ai_text": 540}
+        assert remaining == {"wm_photo": 540, "wm_video": 90, "ai_text": 540, "ai_mod": 180}
 
         # 36 unused days of the 124★ plan are worth ~22.4 days of the 199★ plan, plus the 30 bought.
         data = await (await buy(posts_per_day=50, stars=199)).json()

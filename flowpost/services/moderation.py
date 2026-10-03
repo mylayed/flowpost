@@ -4,7 +4,8 @@ from __future__ import annotations
 import re
 import time
 
-DEFAULT_MODERATION: dict = {"enabled": True, "banned_words": []}
+# "ai": PRO AI moderation on top of the word/link filters; "ai_out": the owner was told its checks ran out
+DEFAULT_MODERATION: dict = {"enabled": True, "banned_words": [], "ai": False, "ai_out": False}
 
 FLOOD_WINDOW_SECONDS = 60
 MAX_BANNED_WORDS = 50

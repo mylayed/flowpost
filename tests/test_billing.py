@@ -78,7 +78,7 @@ async def test_grant_trial_quotas_only_on_creation(sessionmaker, seeded):
         await session.commit()
     async with sessionmaker() as session:
         left = await limits.remaining(session, seeded.channel_id)
-        assert left == {"wm_photo": 15, "wm_video": 15, "ai_text": 15}
+        assert left == {"wm_photo": 15, "wm_video": 15, "ai_text": 15, "ai_mod": 30}
 
     # Reconnecting the same channel (created=False) must not top it up again.
     async with sessionmaker() as session:
