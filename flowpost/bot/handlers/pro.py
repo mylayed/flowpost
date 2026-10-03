@@ -27,7 +27,7 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import giveaway, growth, rss
+from flowpost.services import giveaway, growth, pro_ai, rss
 from flowpost.services import ideas as ideas_service
 from flowpost.services.ai import LANG_NAMES, AIService
 from flowpost.services.billing import entitlements, limits
@@ -124,6 +124,7 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
     lang = channel.translate_lang
     ai_mod = moderation_settings(channel.moderation)["ai"]
     checks_left = (await limits.remaining(session, c))["ai_mod"]
+    answerer = pro_ai.tools_settings(channel.ai_tools)["answer"]
     rows = [
         [btn(t("pro.links") + (f" ({links})" if links else ""), Px(a="links", c=c))],
         [btn(t("pro.rss") + (f" ({feeds})" if feeds else ""), Px(a="rss", c=c))],
@@ -133,6 +134,9 @@ async def pro_menu(session: AsyncSession, settings: Settings, channel: Channel) 
                else t("pro.translate_off")), Px(a="tr", c=c))],
         [btn(on(channel.weekly_report) + t("pro.report"), Px(a="rep_t", c=c))],
         [btn(on(ai_mod) + t("pro.aimod", n=checks_left), Px(a="aimod", c=c))],
+        [btn(t("pro.voice"), Px(a="voice", c=c)), btn(t("pro.adgen"), Px(a="adgen", c=c))],
+        [btn(t("pro.niche"), Px(a="niche", c=c))],
+        [btn(on(answerer) + t("pro.answer"), Px(a="ans", c=c))],
         [btn(t("btn.back"), Pj(a="ch", c=c))],
     ]
     return "\n".join(lines), markup(rows)

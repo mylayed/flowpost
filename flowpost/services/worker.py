@@ -17,7 +17,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, WebAppInfo
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -25,13 +25,14 @@ from flowpost.bot.callbacks import Cp, Cs, Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, Commenter, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import ai_moderation, analytics, broadcast, gaps, growth, rss
+from flowpost.services import ai_moderation, analytics, broadcast, gaps, growth, pro_ai, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -84,6 +85,7 @@ class Worker:
         self._gaps_checked: dict[int, date] = {}  # channel id -> the owner's local day it was last checked
         self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
         self.ai_moderation = ai_moderation.Queue(settings.ai_mod_batch, settings.ai_mod_wait_seconds)
+        self.questions: list[pro_ai.Question] = []  # comments waiting for the AI answerer
 
     def wake(self) -> None:
         self._wake.set()
@@ -117,6 +119,7 @@ class Worker:
         await self.weekly_reports(now)
         await self.gap_reminders(now)
         await self.process_ai_moderation()
+        await self.process_questions()
 
     async def recover_stale(self) -> None:
         """Publications stuck in 'publishing' after a crash are marked failed instead of risking duplicates."""
@@ -539,6 +542,88 @@ class Worker:
                     delete(Commenter).where(Commenter.publication_id == pub.id, Commenter.user_tg_id == item.user_tg_id)
                 )
             await session.commit()
+
+    MAX_QUESTIONS = 500  # a runaway flood can't grow memory without bound; the extra comments go unanswered
+
+    def add_question(self, question: pro_ai.Question) -> None:
+        if len(self.questions) < self.MAX_QUESTIONS:
+            self.questions.append(question)
+            self.wake()
+
+    async def process_questions(self) -> None:
+        """Let the AI answerer reply to the questions in comments, or pass the ones it can't answer to the team."""
+        if self.ai is None or not self.ai.enabled:
+            self.questions.clear()
+            return
+        while self.questions:
+            question = self.questions.pop(0)
+            try:
+                await self._answer_question(question)
+            except Exception:  # noqa: BLE001 - one comment mustn't stop the others
+                log.exception("AI answerer failed for channel %s", question.channel_id)
+
+    async def _answer_question(self, q: pro_ai.Question) -> None:
+        now = utcnow()
+        notify_out: tuple[int, str, str] | None = None
+        async with self.sessionmaker() as session:
+            channel = await session.get(Channel, q.channel_id)
+            s = pro_ai.tools_settings(channel.ai_tools if channel else None)
+            if channel is None or not channel.is_active or not s["answer"] or not s["kb"].strip():
+                return
+            owner = await self._has_extras(session, channel, now)
+            if owner is None:
+                return
+            paused = not await limits.take(session, channel.id, "ai_text")
+            if paused != s["answer_out"]:
+                channel.ai_tools = {**s, "answer_out": paused}
+                if paused:
+                    notify_out = (owner.tg_id, owner.lang, channel.title)
+            pub = await session.get(Publication, q.publication_id) if q.publication_id else None
+            post = await session.get(Post, pub.post_id) if pub else None
+            post_text = "\n\n".join(p.text_html for p in post.parts if p.text_html) if post else ""
+            title, kb = channel.title, s["kb"]
+            recipients = [(owner.tg_id, owner.lang)] + [
+                (user.tg_id, user.lang) for admin, user in await channel_admins_repo.list_admins(session, channel.id)
+                if admin.can_posts or admin.can_settings
+            ]
+            await session.commit()
+        if paused:
+            # Out of AI texts: the owner hears about it once until they top up.
+            if notify_out is not None:
+                tg_id, lang, name = notify_out
+                kb_pay = markup([[pay_btn(self.settings, t("aians.buy_btn", locale=lang))]])
+                try:
+                    await self.bot.send_message(tg_id, t("aians.out", locale=lang, title=html.escape(name)), reply_markup=kb_pay)
+                except TelegramAPIError as e:
+                    log.info("AI answerer pause notice not delivered: %s", e)
+            return
+        try:
+            action, reply = await self.ai.answer_comment(  # type: ignore[union-attr]
+                q.text, knowledge=kb, post=post_text, channel_title=title,
+            )
+        except AIError as e:
+            log.info("AI answerer for channel %s failed: %s", q.channel_id, e.key)
+            async with self.sessionmaker() as session:
+                await limits.add(session, q.channel_id, "ai_text", 1)
+                await session.commit()
+            return
+        if action == "answer":
+            try:
+                await self.bot.send_message(
+                    q.chat_id, html.escape(reply), message_thread_id=q.thread_id,
+                    reply_parameters=ReplyParameters(message_id=q.message_id, allow_sending_without_reply=True),
+                )
+            except TelegramAPIError as e:
+                log.info("AI answerer reply failed in chat %s: %s", q.chat_id, e)
+        elif action == "escalate":
+            link = pro_ai.comment_link(q.chat_id, q.message_id, q.thread_id)
+            for tg_id, lang in dict(recipients).items():
+                rows = [[InlineKeyboardButton(text=t("aians.open_btn", locale=lang), url=link)]] if link else []
+                text = t("aians.escalated", locale=lang, title=html.escape(title), text=html.escape(q.text[:1000]))
+                try:
+                    await self.bot.send_message(tg_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
+                except TelegramAPIError as e:
+                    log.info("AI answerer escalation not delivered to %s: %s", tg_id, e)
 
     async def process_join_approvals(self, now: datetime) -> None:
         async with self.sessionmaker() as session:

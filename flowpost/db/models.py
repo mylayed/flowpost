@@ -74,6 +74,8 @@ class Channel(Base):
     moderation: Mapped[dict] = mapped_column(JSONType, default=dict)
     # A comment the bot leaves under each published post in the discussion group: {"enabled": bool, "html": str}
     auto_comment: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # PRO AI tools: {"answer": bool, "kb": str, "answer_out": bool, "competitors": [username]}
+    ai_tools: Mapped[dict] = mapped_column(JSONType, default=dict)
     # «Зберегти форматування та налаштування»: {"options": {...}, "buttons": [[{"text","url"}]]}
     post_defaults: Mapped[dict] = mapped_column(JSONType, default=dict)
     trial_ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

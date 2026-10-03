@@ -857,7 +857,8 @@ TEXTS: dict[str, str] = {
     "pro.title": "⭐ <b>PRO tools · {title}</b>",
     "pro.help": (
         "Tools to grow the channel: ad links that count subscribers, autoposting from RSS, "
-        " an AI content plan, an idea bank, auto-translation, a weekly report and AI comment moderation."
+        " an AI content plan, an idea bank, auto-translation, a weekly report, AI comment moderation, the channel's "
+        "voice, ad posts from a brief, niche research and an AI answerer in comments."
     ),
     "pro.locked": "🔒 Available on the channel's paid plan or during its trial.",
     "pro.paywall": "⭐ PRO tools come with the channel's paid plan and trial. Get a plan in billing to use them.",
@@ -870,6 +871,89 @@ TEXTS: dict[str, str] = {
     "pro.translate_off": "off",
     "pro.report": "📊 Weekly report",
     "pro.aimod": "🧠 AI comment moderation · {n}",
+    "pro.voice": "🎯 Channel voice",
+    "pro.adgen": "🤝 Ad post",
+    "pro.niche": "🔍 Niche research",
+    "pro.answer": "🤖 AI answerer in comments",
+
+    "voice.title": "🎯 <b>Channel voice · {title}</b>",
+    "voice.help": (
+        "The AI studies up to 40 of the channel's best posts of the last six months and describes its style: tone, "
+        "how readers are addressed, length, structure, favourite words and emoji. The profile becomes the channel's "
+        "style, so every AI feature writes the way this channel does.\n\nOne analysis costs 1 AI text of the channel."
+    ),
+    "voice.current": "<b>Current style:</b>\n{style}",
+    "voice.go": "🧠 Analyse the posts",
+    "voice.few_posts": "Not enough published posts with text to analyse: at least {n} are needed.",
+    "voice.working": "⏳ Studying {n} of the channel's posts…",
+    "voice.result": "🎯 <b>Channel voice</b> (from {n} posts):",
+    "voice.result_help": "<i>Save the profile to replace the channel's current style.</i>",
+    "voice.save": "✅ Save as the channel style",
+    "voice.saved": "✅ The channel voice is saved. Every AI feature now writes in this style.",
+    "voice.expired": "The profile has expired — run the analysis again.",
+
+    "adgen.prompt": (
+        "🤝 <b>Ad post · {title}</b>\n\n"
+        "Send the advertiser's brief in one message: what is advertised, the link, benefits, prices or a promo code, "
+        "wishes for the text. The AI writes a native post in your channel's style, labelled «Ad».\n\n"
+        "One post costs 1 AI text of the channel."
+    ),
+    "adgen.working": "⏳ Writing the ad post…",
+    "adgen.result": "🤝 <b>Ad post:</b>",
+    "adgen.use": "✍️ Open in the editor",
+    "adgen.opened": "🤝 The ad post is ready and the «Ad» label is on. Add media and buttons, then schedule it.",
+    "adgen.expired": "The brief has expired — send it again.",
+
+    "niche.title": "🔍 <b>Niche research · {title}</b>",
+    "niche.help": (
+        "List up to 5 public competitor channels. The AI reads their latest posts and shows what they write about, "
+        "which formats get views and what your channel is missing — and suggests 5 ready posts.\n\n"
+        "One analysis costs 1 AI text of the channel."
+    ),
+    "niche.list": "<b>Competitors:</b> {channels}",
+    "niche.empty": "No competitors listed yet.",
+    "niche.go": "🔍 Run the analysis",
+    "niche.set": "✏️ Change the competitors",
+    "niche.prompt": "Send up to {max} public channels: @username or t.me/… links, separated by spaces or new lines.",
+    "niche.saved": "✅ The competitors are saved.",
+    "niche.fetching": "⏳ Reading the posts of {n} channels…",
+    "niche.working": "⏳ The AI is analysing the niche…",
+    "niche.err_none": "Couldn't read any of the channels. Make sure they're public and have a web preview (t.me/s/name).",
+    "niche.result": "🔍 <b>Niche research · {title}</b>",
+    "niche.skipped": "<i>Couldn't read: {channels}</i>",
+    "niche.save_ideas": "💡 Save {n} posts to the idea bank",
+    "niche.ideas_saved": "💡 {n} posts were added to the idea bank — edit and schedule them from there.",
+    "niche.expired": "The result has expired — run the analysis again.",
+
+    "aians.title": "🤖 <b>AI answerer in comments · {title}</b>",
+    "aians.help": (
+        "The bot answers typical questions under posts («how much is it», «where are you», «when is the next "
+        "giveaway») from a knowledge base you fill in. Harder questions the base doesn't cover are forwarded to you "
+        "and the admins.\n\n"
+        "The AI only sees comments that look like questions. Each of them costs 1 AI text of the channel."
+    ),
+    "aians.on": "✅ On",
+    "aians.off": "⏸ Off",
+    "aians.paused": "⏸ Out of AI texts — the answerer is paused. Top up the limits in billing.",
+    "aians.no_group": "⚠️ Link a discussion group in the channel's comment settings first.",
+    "aians.kb_line": "<b>Knowledge base:</b>\n{kb}",
+    "aians.kb_empty": "<b>Knowledge base:</b> empty.",
+    "aians.toggle": "AI answerer",
+    "aians.kb_btn": "📚 Fill in the knowledge base",
+    "aians.need_kb": "Fill in the knowledge base first — without it the AI has nothing to answer with.",
+    "aians.on_done": "🤖 The AI answerer is on. It will answer questions in comments from your knowledge base.",
+    "aians.kb_prompt": (
+        "📚 Send the knowledge base in one message (up to {max} characters): prices, addresses, opening hours, "
+        "delivery, giveaway rules, answers to frequent questions. The AI answers only from this data."
+    ),
+    "aians.kb_saved": "✅ The knowledge base is saved.",
+    "aians.escalated": "❓ <b>A question in the comments of «{title}»</b>\n\nThe AI found no answer in the knowledge base — it needs your reply:\n\n<i>{text}</i>",
+    "aians.open_btn": "💬 Open the comment",
+    "aians.out": (
+        "⏸ The AI answerer in the comments of «{title}» is paused: the channel is out of AI texts.\n\n"
+        "Top up AI texts and the answerer resumes by itself."
+    ),
+    "aians.buy_btn": "🤖 Buy AI texts",
 
     "lnk.title": "🔗 <b>Ad links · {title}</b>",
     "lnk.help": (

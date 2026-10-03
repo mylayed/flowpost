@@ -19,7 +19,7 @@ from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
-from flowpost.services import ai_moderation, auto_comment, giveaway
+from flowpost.services import ai_moderation, auto_comment, giveaway, pro_ai
 from flowpost.services.delivery import publication_message_ids
 from flowpost.services.moderation import moderation_settings, violation
 from flowpost.services.posts import options_of
@@ -180,6 +180,12 @@ async def on_discussion_comment(
         ))
         if full:
             worker.wake()
+    if worker is not None and text and pro_ai.tools_settings(channel.ai_tools)["answer"] and pro_ai.looks_like_question(text):
+        worker.add_question(pro_ai.Question(
+            channel_id=channel.id, chat_id=message.chat.id, message_id=message.message_id,
+            thread_id=message.message_thread_id if message.is_topic_message else None, text=text,
+            publication_id=pub.id if pub is not None else None,
+        ))
     if pub is None:
         return
     pub.comments_count = (pub.comments_count or 0) + 1
