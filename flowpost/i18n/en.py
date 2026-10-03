@@ -349,6 +349,20 @@ TEXTS: dict[str, str] = {
     "cm.moderation_toggle": "Moderation",
     "cm.banned_words_count": "Custom banned words: {n}",
     "cm.banned_words_btn": "✏️ Banned words",
+    "cm.auto_on": "📝 Auto comment under posts: on",
+    "cm.auto_off": "📝 Auto comment under posts: off",
+    "cm.auto_preview": "<b>Auto comment text:</b>",
+    "cm.auto_btn": "Auto comment",
+    "cm.auto_text_btn": "✏️ Auto comment text",
+    "cm.auto_default": "💬 Share your thoughts in the comments!",
+    "cm.auto_need_group": "Link a discussion group first.",
+    "cm.auto_prompt": (
+        "Send the text the bot will leave as the first comment under every published post "
+        "(up to {max} characters). Formatting and links are kept.\n\n"
+        "Tip: to have the comment shown on behalf of the group rather than the bot, turn on "
+        "«Remain anonymous» in the bot's admin rights in the group."
+    ),
+    "cm.auto_saved": "✅ Auto comment saved and turned on.",
     "mod.words_prompt": (
         "Send words or phrases to remove from comments — one per line or comma-separated "
         "(up to {max}). They're added on top of the built-in profanity list.\n\n"

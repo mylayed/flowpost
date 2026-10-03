@@ -860,6 +860,61 @@ async def test_discussion_reply_counts_as_comment(h: Harness):
     assert pub.discussion_thread_id == 9001
 
 
+def _autoforward(message_id: int, **fields) -> dict:
+    return {
+        "message_id": message_id, "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "is_automatic_forward": True, "from": {"id": BOT_ID, "is_bot": True, "first_name": "Test Channel"},
+        "forward_origin": {"type": "channel", "chat": {"id": CHANNEL_CHAT, "type": "channel", "title": "Test Channel"},
+                           "message_id": 4242, "date": int(datetime.now().timestamp())},
+        "text": "Новина дня", **fields,
+    }
+
+
+async def test_auto_comment_is_off_by_default_and_replies_once_under_the_post(h: Harness):
+    channel_id, pub_id = await _seed_published(h, message_id=4242)
+    await h.feed(message=_autoforward(9001))
+    assert "SendMessage" not in h.session.names()
+
+    async def reset_thread(s):
+        (await s.get(Publication, pub_id)).discussion_thread_id = None
+        await s.commit()
+    await h.db(reset_thread)
+    await h.click(Cs(a="cm", c=channel_id))
+    assert "Автокоментар під постами: вимкнено" in h.session.texts()
+    await h.click(Cs(a="ac_text", c=channel_id))
+    await h.text("❗ Діліться новинами з @khm_admin")
+    assert "Автокоментар збережено" in h.session.texts()
+    channel = await h.db(lambda s: s.get(Channel, channel_id))
+    assert channel.auto_comment == {"enabled": True, "html": "❗ Діліться новинами з @khm_admin"}
+
+    h.session.clear()
+    await h.feed(message=_autoforward(9002))
+    sent = [m for n, m in h.session.calls if n == "SendMessage"]
+    assert len(sent) == 1
+    assert sent[0].chat_id == DISCUSSION_CHAT and sent[0].text == "❗ Діліться новинами з @khm_admin"
+    assert sent[0].reply_parameters.message_id == 9002
+    # a repeated forward of the same post doesn't comment twice
+    h.session.clear()
+    await h.feed(message=_autoforward(9003))
+    assert "SendMessage" not in h.session.names()
+
+
+async def test_auto_comment_skipped_when_comments_are_off_for_the_post(h: Harness):
+    channel_id, pub_id = await _seed_published(h, message_id=4242)
+
+    async def setup(s):
+        (await s.get(Channel, channel_id)).auto_comment = {"enabled": True, "html": "Привіт"}
+        pub = await s.get(Publication, pub_id)
+        post = await s.get(Post, pub.post_id)
+        post.options = {"comments": False}
+        await s.commit()
+    await h.db(setup)
+    await h.feed(message=_autoforward(9001, message_thread_id=9001, is_topic_message=True))
+    assert "SendMessage" not in h.session.names()
+    assert "CloseForumTopic" in h.session.names()
+
+
 async def test_moderation_deletes_spam_comment_and_skips_the_count(h: Harness):
     _, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
     await h.feed(message={

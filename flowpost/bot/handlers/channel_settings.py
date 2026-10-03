@@ -24,6 +24,7 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services.auto_comment import MAX_AUTO_COMMENT, auto_comment_settings
 from flowpost.services.delivery import engagement_score, publication_message_ids, reactions_total
 from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
 from flowpost.services.moderation import MAX_BANNED_WORDS, moderation_settings
@@ -196,6 +197,10 @@ def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
         "", t("cm.moderation_on") if mod["enabled"] else t("cm.moderation_off"),
         t("cm.banned_words_count", n=len(mod["banned_words"])),
     ]
+    auto = auto_comment_settings(channel.auto_comment)
+    lines += ["", t("cm.auto_on") if auto["enabled"] else t("cm.auto_off")]
+    if auto["enabled"]:
+        lines += [t("cm.auto_preview"), auto["html"]]
     lines += ["", t("cm.help")]
     if channel.discussion_chat_id:
         rows = [[btn(t("cm.relink"), Cs(a="cm_link", c=c)), btn(t("cm.unlink"), Cs(a="cm_unlink", c=c))]]
@@ -204,6 +209,10 @@ def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     rows.append([
         btn(on(mod["enabled"]) + t("cm.moderation_toggle"), Cs(a="mod_t", c=c)),
         btn(t("cm.banned_words_btn"), Cs(a="mod_words", c=c)),
+    ])
+    rows.append([
+        btn(on(auto["enabled"]) + t("cm.auto_btn"), Cs(a="ac_t", c=c)),
+        btn(t("cm.auto_text_btn"), Cs(a="ac_text", c=c)),
     ])
     rows.append([back_button(channel, 0)])
     return "\n".join(lines), markup(rows)
@@ -544,6 +553,33 @@ async def cs_moderation_words(cb: CallbackQuery, callback_data: Cs, session: Asy
     await _edit(cb, t("mod.words_prompt", current=html.escape(current), max=MAX_BANNED_WORDS), markup(rows))
 
 
+@router.callback_query(Cs.filter(F.a == "ac_t"))
+async def cs_auto_comment_toggle(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    s = auto_comment_settings(channel.auto_comment)
+    if not s["enabled"] and not channel.discussion_chat_id:
+        await cb.answer(t("cm.auto_need_group"), show_alert=True)
+        return
+    channel.auto_comment = {**s, "enabled": not s["enabled"], "html": s["html"] or t("cm.auto_default")}
+    await session.flush()
+    await cb.answer()
+    await _edit(cb, *cm_menu(channel))
+
+
+@router.callback_query(Cs.filter(F.a == "ac_text"))
+async def cs_auto_comment_text(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user)
+    if channel is None:
+        return
+    await cb.answer()
+    await state.set_state(ChannelInput.auto_comment)
+    await state.update_data(cs_channel=channel.id, cs_post=0)
+    rows = [[btn(t("btn.back"), Cs(a="cm", c=channel.id))]]
+    await _edit(cb, t("cm.auto_prompt", max=MAX_AUTO_COMMENT), markup(rows))
+
+
 # ---- text/file inputs ---------------------------------------------------------------------------
 
 @router.message(ChannelInput.wm_text, F.text)
@@ -664,10 +700,27 @@ async def in_banned_words(message: Message, bot: Bot, session: AsyncSession, sta
     await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("mod.words_saved", n=len(words)))
 
 
+@router.message(ChannelInput.auto_comment, F.text)
+async def in_auto_comment(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel = await _input_channel(message, session, state, user)
+    if channel is None:
+        return
+    text = sanitize_html(_template_from_message(message))
+    if not text or visible_len(text) > MAX_AUTO_COMMENT:
+        await message.answer(t("cm.auto_prompt", max=MAX_AUTO_COMMENT))
+        return
+    channel.auto_comment = {**auto_comment_settings(channel.auto_comment), "html": text, "enabled": True}
+    await session.flush()
+    await state.set_state(None)
+    view, kb = cm_menu(channel)
+    await message.answer(t("cm.auto_saved") + "\n\n" + view, reply_markup=kb, disable_web_page_preview=True)
+
+
 @router.message(ChannelInput.wm_image)
 @router.message(ChannelInput.wm_text)
 @router.message(ChannelInput.signature)
 @router.message(ChannelInput.ai_style)
 @router.message(ChannelInput.topic)
+@router.message(ChannelInput.auto_comment)
 async def in_wrong(message: Message) -> None:
     await message.answer(t("err.expected_input"))

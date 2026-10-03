@@ -19,7 +19,7 @@ from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.i18n import t
-from flowpost.services import giveaway
+from flowpost.services import auto_comment, giveaway
 from flowpost.services.delivery import publication_message_ids
 from flowpost.services.moderation import moderation_settings, violation
 from flowpost.services.posts import options_of
@@ -113,11 +113,17 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
     if found is None:
         return
     channel, pub = found
+    first_forward = pub.discussion_thread_id is None
     # In a forum group the post opens a topic; in an ordinary discussion group the forwarded copy itself is
     # the root of the thread, and comments carry its message_id as their message_thread_id.
     pub.discussion_thread_id = message.message_thread_id if message.is_topic_message else message.message_id
     post = await posts_repo.get_post(session, pub.owner_id, pub.post_id)
-    if post is None or options_of(post).get("comments", True) or not message.is_topic_message:
+    if post is None:
+        return
+    comments_on = options_of(post).get("comments", True)
+    if comments_on and first_forward:
+        await auto_comment.send(bot, channel, message)
+    if comments_on or not message.is_topic_message:
         return
     try:
         await bot.close_forum_topic(message.chat.id, message.message_thread_id)
