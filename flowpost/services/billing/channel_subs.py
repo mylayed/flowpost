@@ -24,6 +24,29 @@ async def buy(
     now = now or utcnow()
     if not await debit(session, user_id, stars, kind="spend", ref=f"subscribe:{posts_per_day}:{days}"):
         return False
+    await _extend(session, settings, channel_ids, posts_per_day, days, now, with_quotas=True)
+    analytics.track(
+        session, user_id, "subscribe", channels=channel_ids, posts_per_day=posts_per_day, days=days, stars=stars
+    )
+    return True
+
+
+async def grant(
+    session: AsyncSession, settings: Settings, channel_id: int, posts_per_day: int, days: int,
+    now: datetime | None = None,
+) -> ChannelSubscription:
+    """Extend a channel's plan by `days` for free (the bot owner's compensation); the plan's quotas aren't added,
+    the owner grants those separately."""
+    await _extend(session, settings, [channel_id], posts_per_day, days, now or utcnow(), with_quotas=False)
+    sub = await get(session, channel_id)
+    assert sub is not None
+    return sub
+
+
+async def _extend(
+    session: AsyncSession, settings: Settings, channel_ids: list[int], posts_per_day: int, days: int, now: datetime,
+    *, with_quotas: bool,
+) -> None:
     plan = settings.posting_plans[posts_per_day]
     for channel_id in channel_ids:
         sub = await session.scalar(
@@ -42,10 +65,11 @@ async def buy(
             start = now + left
         sub.posts_per_day = posts_per_day
         sub.paid_until = start + timedelta(days=days)
-        for kind in PLAN_QUOTAS:
-            amount = plan.get(kind, 0) * days // 30
-            if amount:
-                await limits.add(session, channel_id, kind, amount)
+        if with_quotas:
+            for kind in PLAN_QUOTAS:
+                amount = plan.get(kind, 0) * days // 30
+                if amount:
+                    await limits.add(session, channel_id, kind, amount)
     # Posts paused on these channels (plan ran out, or free-plan repeats/multiposts) go out again.
     await session.execute(
         update(Publication)
@@ -53,10 +77,6 @@ async def buy(
         .values(status="pending")
     )
     await session.flush()
-    analytics.track(
-        session, user_id, "subscribe", channels=channel_ids, posts_per_day=posts_per_day, days=days, stars=stars
-    )
-    return True
 
 
 async def get(session: AsyncSession, channel_id: int) -> ChannelSubscription | None:

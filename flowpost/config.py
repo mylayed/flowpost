@@ -136,6 +136,11 @@ class Settings(BaseSettings):
             return None
         return self.webhook_base_url.rstrip("/") + "/app/"
 
+    @property
+    def admin_app_url(self) -> str | None:
+        """The bot owner's Mini App: every channel with its plan and limits, and granting limits."""
+        return self.webapp_url.rstrip("/") + "/admin/" if self.webapp_url else None
+
     def calendar_url(self, channel_id: int | None = None) -> str | None:
         """The publishing calendar Mini App, opened on one channel when `channel_id` is given."""
         if not self.webapp_url:

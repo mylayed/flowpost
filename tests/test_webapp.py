@@ -508,3 +508,61 @@ async def test_calendar_ideas_generate_schedule_and_delete(sessionmaker, seeded)
         assert (await client.post("/api/ideas", json={"channel_id": seeded.channel_id}, headers=other)).status == 404
     finally:
         await client.close()
+
+
+class GrantBot(InvoiceBot):
+    def __init__(self):
+        super().__init__()
+        self.sent: list[tuple[int, str]] = []
+
+    async def send_message(self, chat_id, text, **kw):
+        self.sent.append((chat_id, text))
+
+
+async def test_admin_panel_lists_channels_and_grants_limits(sessionmaker, seeded):
+    settings = Settings(bot_token=TOKEN, webapp_enabled=True, liqpay_enabled=False, admin_ids="777", _env_file=None)
+    bot = GrantBot()
+    client = await _client(settings, sessionmaker, bot)
+    admin = {"Authorization": "tma " + init_data({"id": 777, "first_name": "Owner"})}
+    stranger = {"Authorization": "tma " + init_data({"id": seeded.tg_id, "first_name": "Олена"})}
+    try:
+        # only ADMIN_IDS get in, and the page itself is served
+        assert (await client.get("/api/admin/channels", headers=stranger)).status == 403
+        assert (await client.post("/api/admin/grant", headers=stranger, json={"channel_id": seeded.channel_id})).status == 403
+        assert (await client.get("/app/admin/")).status == 200
+
+        data = await (await client.get("/api/admin/channels", headers=admin)).json()
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert (item["id"], item["plan"], item["owner"]["tg_id"]) == (seeded.channel_id, "trial", seeded.tg_id)
+        assert item["quotas"] == {"wm_photo": 0, "wm_video": 0, "ai_text": 0, "ai_mod": 0}
+        # (SQLite lowercases ASCII only, so the Cyrillic title is searched in its own case here; Postgres ignores case)
+        for q in ("Наше", "NASHE_misto", str(seeded.tg_id), "1234567890"):
+            assert (await (await client.get("/api/admin/channels", headers=admin, params={"q": q})).json())["total"] == 1
+        assert (await (await client.get("/api/admin/channels", headers=admin, params={"q": "інший"})).json())["total"] == 0
+
+        bad = [{"quotas": {"stars": 5}}, {"quotas": {"ai_text": -1}}, {"days": 30}, {}]
+        for body in bad:
+            resp = await client.post("/api/admin/grant", headers=admin, json={"channel_id": seeded.channel_id, **body})
+            assert resp.status == 400
+        assert (await client.post("/api/admin/grant", headers=admin, json={"channel_id": 999999, "days": 1})).status == 404
+
+        resp = await client.post("/api/admin/grant", headers=admin, json={
+            "channel_id": seeded.channel_id, "quotas": {"ai_text": 50, "wm_photo": 10}, "days": 30, "posts_per_day": 15,
+            "note": "Компенсація за збій", "notify": True,
+        })
+        result = await resp.json()
+        assert resp.status == 200 and result["notified"]
+        assert result["item"]["quotas"] == {"wm_photo": 10, "wm_video": 0, "ai_text": 50, "ai_mod": 0}
+        assert (result["item"]["plan"], result["item"]["posts_per_day"]) == ("paid", 15)
+        assert result["item"]["days_left"] == 30
+        [(chat_id, text)] = bot.sent
+        assert chat_id == seeded.tg_id and "AI-тексти: +50" in text and "+30 дн." in text and "Компенсація" in text
+
+        # without notify nothing is sent; days stack on top of the plan
+        resp = await client.post("/api/admin/grant", headers=admin, json={
+            "channel_id": seeded.channel_id, "days": 5, "posts_per_day": 15,
+        })
+        assert (await resp.json())["item"]["days_left"] == 35 and len(bot.sent) == 1
+    finally:
+        await client.close()

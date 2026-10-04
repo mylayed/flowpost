@@ -23,6 +23,7 @@ from flowpost.services.billing.liqpay import (
 from flowpost.services.billing.subscriptions import extend_subscription, get_subscription, record_payment
 from flowpost.services.slots import fmt_date, tz_of
 from flowpost.webapp import AI_KEY, BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
+from flowpost.webapp.admin_api import setup_admin_api
 from flowpost.webapp.api import setup_webapp
 
 log = logging.getLogger(__name__)
@@ -119,4 +120,5 @@ def build_web_app(
     app.router.add_post("/pay/liqpay/callback", liqpay_callback)
     if settings.webapp_enabled:
         setup_webapp(app)
+        setup_admin_api(app)
     return app

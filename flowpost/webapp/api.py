@@ -534,6 +534,9 @@ def setup_webapp(app: web.Application) -> None:
     # The publishing calendar is its own Mini App, opened from a channel's card in the bot.
     app.router.add_get("/app/calendar", redirect("/app/calendar/"))
     app.router.add_get("/app/calendar/", page("calendar.html"))
+    # The bot owner's panel: all channels and their limits; its API is in admin_api and checks ADMIN_IDS.
+    app.router.add_get("/app/admin", redirect("/app/admin/"))
+    app.router.add_get("/app/admin/", page("admin.html"))
     app.router.add_static("/app/static/", STATIC)
     app.router.add_get("/api/bot-avatar", bot_avatar)
     app.router.add_get("/api/me", authed(me))

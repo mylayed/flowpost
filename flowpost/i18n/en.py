@@ -823,6 +823,13 @@ TEXTS: dict[str, str] = {
     "notify.limit": "⏸ The post in «{title}» didn't go out: {error}.\nTo publish more, subscribe or upgrade your plan.",
     "notify.trial_ending":"⏳ The trial of «{title}» ends in less than a day. Get a plan to keep posts going out on schedule.",
     "notify.sub_ending": "⏳ Your FlowPost subscription ends tomorrow — the last day. Renew it to keep posts going out on schedule.",
+    "notify.grant": "🎁 <b>«{title}» has been credited with:</b>\n{items}",
+    "notify.grant_note": "💬 {note}",
+    "grant.kind_wm_photo": "• watermarks (photo): +{n}",
+    "grant.kind_wm_video": "• watermarks (video): +{n}",
+    "grant.kind_ai_text": "• AI texts: +{n}",
+    "grant.kind_ai_mod": "• AI moderation checks: +{n}",
+    "grant.days": "• plan of {posts} posts/day: +{n} days",
 
     # ---- Errors & warnings -------------------------------------------------------------------
     "err.post_limit": "the plan's post limit is used up; new publication time",

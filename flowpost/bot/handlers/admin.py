@@ -1,4 +1,4 @@
-"""Admin commands for the bot owner: /stats, /chats, /expire, /trial, /broadcast."""
+"""Admin commands for the bot owner: /admin, /stats, /chats, /expire, /trial, /broadcast."""
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +11,7 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import BaseFilter, Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, WebAppInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -161,6 +161,19 @@ async def cmd_expire(message: Message, command: CommandObject, session: AsyncSes
         await channels_repo.reset_chat_trial(session, chat_id, days=0)
     await message.answer(
         f"⛔ Access of {args[0]} expired (trial and subscription), including {len(chats)} chat trial(s)."
+    )
+
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, settings: Settings) -> None:
+    """/admin — the owner's Mini App: every channel with its plan and limits, and granting limits to one."""
+    url = settings.admin_app_url
+    if url is None:
+        await message.answer("The Mini App needs a public HTTPS URL (WEBHOOK_BASE_URL or WEBAPP_URL).")
+        return
+    await message.answer(
+        "🛠 <b>Admin panel</b>: all channels, their plans and limits; grant quotas or plan days to a channel.",
+        reply_markup=markup([[InlineKeyboardButton(text="🛠 Open admin panel", web_app=WebAppInfo(url=url))]]),
     )
 
 
