@@ -12,6 +12,7 @@ from flowpost.db.models import Channel, Publication, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.services.billing import channel_subs
 from flowpost.services.billing.subscriptions import get_subscription
+from flowpost.services.billing.unlimited import is_unlimited, owner_unlimited
 from flowpost.services.slots import day_bounds_utc, tz_of
 
 
@@ -43,6 +44,8 @@ async def _premium(
 async def for_channel(
     session: AsyncSession, settings: Settings, channel: Channel, owner: User, now: datetime
 ) -> Entitlement:
+    if is_unlimited(owner, settings):
+        return Entitlement("paid", None, "day")
     premium = await _premium(session, channel, now, settings.trial_posts, settings.legacy_posts_per_day)
     if premium is not None:
         return premium
@@ -59,6 +62,8 @@ def has_extras(entitlement: Entitlement) -> bool:
 async def extras_allowed(session: AsyncSession, channels: list[Channel], now: datetime) -> bool:
     """Whether every one of `channels` is on a paid plan or in its trial (False for no channels)."""
     for channel in channels:
+        if await owner_unlimited(session, channel.owner_id):
+            continue
         if await _premium(session, channel, now, 0, 0) is None:
             return False
     return bool(channels)

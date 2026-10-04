@@ -760,3 +760,20 @@ async def test_editor_preview_skips_the_watermark_off_plan(h: Harness):
     await h.click(Ed(a="home", p=p))
     assert stub.calls == 1
     assert "безкоштовний тариф" in h.session.texts()
+
+
+async def test_bot_owner_has_no_limits(sessionmaker, seeded, settings, monkeypatch):
+    """A user from ADMIN_IDS is held to no plan: unlimited posts, quotas that are never spent, extras on."""
+    settings.admin_ids = str(seeded.tg_id)
+    monkeypatch.setattr("flowpost.services.billing.unlimited.get_settings", lambda: settings)
+    await _expire_trial(sessionmaker, seeded.channel_id)
+    await _published(sessionmaker, seeded.channel_id, 500)
+    async with sessionmaker() as session:
+        channel = await session.get(Channel, seeded.channel_id)
+        owner = await session.get(User, seeded.user_id)
+        ent = await entitlements.for_channel(session, settings, channel, owner, utcnow())
+        assert (ent.plan, ent.posts_limit) == ("paid", None)
+        assert await entitlements.posts_left(session, settings, channel, owner, ent, utcnow()) is None
+        assert await entitlements.extras_allowed(session, [channel], utcnow())
+        assert await limits.take(session, channel.id, "ai_text")  # nothing was ever granted
+        assert (await limits.remaining(session, channel.id))["wm_photo"] > 1000

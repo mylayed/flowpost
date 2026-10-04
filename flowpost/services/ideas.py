@@ -18,6 +18,7 @@ from flowpost.db.types import utcnow
 from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import entitlements, limits
+from flowpost.services.billing.unlimited import is_unlimited
 from flowpost.services.delivery import engagement_score
 from flowpost.services.posts import channel_defaults, initial_options, part_preview_text, post_is_empty
 
@@ -67,7 +68,8 @@ async def generate(
         raise IdeasError("ai.disabled")
     if not await can_generate(session, settings, channel):
         raise IdeasError("paywall.extras_short")
-    if await analytics.count_since(session, user.id, "ai_call", utcnow() - timedelta(days=1)) >= settings.ai_daily_limit_paid:
+    if not is_unlimited(user, settings) and await analytics.count_since(
+            session, user.id, "ai_call", utcnow() - timedelta(days=1)) >= settings.ai_daily_limit_paid:
         raise IdeasError("ai.quota_over")
     if not await limits.take(session, channel.id, "ai_text"):
         raise IdeasError("ai.quota_channel_over")

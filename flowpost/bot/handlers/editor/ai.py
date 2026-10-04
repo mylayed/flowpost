@@ -29,6 +29,7 @@ from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import entitlements, limits
 from flowpost.services.billing.subscriptions import Access
+from flowpost.services.billing.unlimited import UNLIMITED_QUOTA, is_unlimited
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import CAPTION_LIMIT, TEXT_LIMIT, render_signature
 from flowpost.services.publisher import Publisher
@@ -65,6 +66,8 @@ def ai_menu(
 
 
 async def _quota_left(session: AsyncSession, user: User, settings: Settings, access: Access | None) -> int:
+    if is_unlimited(user, settings):
+        return UNLIMITED_QUOTA
     limit = settings.ai_daily_limit_paid if access and access.kind == "paid" else settings.ai_daily_limit_trial
     used = await analytics.count_since(session, user.id, "ai_call", utcnow() - timedelta(days=1))
     return limit - used

@@ -16,6 +16,7 @@ from flowpost.db.models import Channel, Post, Publication, User
 from flowpost.db.types import utcnow
 from flowpost.services import analytics, rss
 from flowpost.services.billing import limits
+from flowpost.services.billing.unlimited import is_unlimited
 from flowpost.services.delivery import engagement_score
 from flowpost.services.html_sanitize import html_to_plain
 
@@ -49,7 +50,8 @@ def tools_settings(raw: dict | None) -> dict:
 async def spend(session: AsyncSession, settings: Settings, user: User, channel: Channel) -> None:
     """Charge the channel one AI text for a request `user` asked for; committed before the long request, so two
     quick taps can't both spend the last one. `refund` gives it back when the request fails."""
-    if await analytics.count_since(session, user.id, "ai_call", utcnow() - timedelta(days=1)) >= settings.ai_daily_limit_paid:
+    if not is_unlimited(user, settings) and await analytics.count_since(
+            session, user.id, "ai_call", utcnow() - timedelta(days=1)) >= settings.ai_daily_limit_paid:
         raise ProAIError("ai.quota_over")
     if not await limits.take(session, channel.id, "ai_text"):
         raise ProAIError("ai.quota_channel_over")

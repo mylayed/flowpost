@@ -4,8 +4,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import ChannelQuota
+from flowpost.db.models import Channel, ChannelQuota
 from flowpost.services import analytics
+from flowpost.services.billing.unlimited import UNLIMITED_QUOTA, owner_unlimited
 from flowpost.services.billing.wallet import debit
 
 LIMIT_KINDS = ("wm_photo", "wm_video", "ai_text", "ai_mod")
@@ -34,6 +35,9 @@ def pack_total(prices: dict[str, dict[int, int]], packs: dict) -> int | None:
 
 
 async def remaining(session: AsyncSession, channel_id: int) -> dict[str, int]:
+    channel = await session.get(Channel, channel_id)
+    if channel is not None and await owner_unlimited(session, channel.owner_id):
+        return {kind: UNLIMITED_QUOTA for kind in LIMIT_KINDS}
     left = {kind: 0 for kind in LIMIT_KINDS}
     for quota in await session.scalars(select(ChannelQuota).where(ChannelQuota.channel_id == channel_id)):
         if quota.kind in left:
@@ -53,6 +57,9 @@ async def add(session: AsyncSession, channel_id: int, kind: str, amount: int) ->
 
 async def take(session: AsyncSession, channel_id: int, kind: str, amount: int = 1) -> bool:
     """Spend `amount` of a channel's quota; False and no write if less than that remains."""
+    channel = await session.get(Channel, channel_id)
+    if channel is not None and await owner_unlimited(session, channel.owner_id):
+        return True
     quota = await session.scalar(
         select(ChannelQuota).where(ChannelQuota.channel_id == channel_id, ChannelQuota.kind == kind).with_for_update()
     )
