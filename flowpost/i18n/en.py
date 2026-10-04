@@ -1165,8 +1165,6 @@ TEXTS: dict[str, str] = {
     "gwb.app_subscribe": "📢 To enter, subscribe to the channel, then tap the button again.",
     "gwb.app_closed": "⏳ The giveaway is closed to new entries.",
     "gwb.app_gone": "😕 This giveaway is no longer running.",
-    "gwb.app_open_channel": "📢 Open the channel",
-    "gwb.app_retry": "🎲 I've subscribed — enter",
 
     "tr.title": "🌐 <b>Auto-translation · {title}</b>",
     "tr.help": (

@@ -576,38 +576,3 @@ async def test_admin_panel_lists_channels_and_grants_limits(sessionmaker, seeded
     finally:
         await client.close()
 
-
-async def test_giveaway_mini_app_enters_the_reader_without_making_them_a_user(sessionmaker, seeded, settings):
-    from flowpost.db.models import Giveaway
-    from flowpost.services import giveaway
-
-    settings = settings.model_copy(update={"giveaway_app": "giveaway"})
-    async with sessionmaker() as session:
-        channel = await session.get(Channel, seeded.channel_id)
-        gw = await giveaway.create(session, channel, "Беру участь!")
-        gw.post_id = seeded.post_id
-        gw.subscribers_only = False
-        assert giveaway.entry_button(gw, settings, "flowpost_bot") == {
-            "text": "Беру участь!", "url": f"https://t.me/flowpost_bot/giveaway?startapp=gw{gw.id}", "giveaway": gw.id,
-        }
-        await session.commit()
-        gw_id = gw.id
-
-    client = await _client(settings, sessionmaker, InvoiceBot())
-    reader = {"Authorization": "tma " + init_data({"id": 9001, "first_name": "Марія", "language_code": "uk"})}
-    try:
-        page = await client.get("/app/giveaway/")
-        assert page.status == 200 and "/api/giveaway/join" in await page.text()
-        assert (await client.post("/api/giveaway/join", json={"start": f"gw{gw_id}"})).status == 401
-
-        body = await (await client.post("/api/giveaway/join", json={"start": f"gw{gw_id}"}, headers=reader)).json()
-        assert body["status"] == "joined" and "берете участь" in body["text"] and body["channel"] == "Наше місто"
-        body = await (await client.post("/api/giveaway/join", json={"start": f"gw{gw_id}"}, headers=reader)).json()
-        assert body["status"] == "already" and body["count"] == 1
-        body = await (await client.post("/api/giveaway/join", json={"start": "gw999"}, headers=reader)).json()
-        assert body["status"] == "gone"
-    finally:
-        await client.close()
-    async with sessionmaker() as session:
-        assert (await session.get(Giveaway, gw_id)).entries == 1
-        assert await session.scalar(select(User).where(User.tg_id == 9001)) is None

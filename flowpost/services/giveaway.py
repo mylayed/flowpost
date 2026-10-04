@@ -15,7 +15,6 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.config import Settings
 from flowpost.db.models import Channel, Commenter, Giveaway, GiveawayEntry, Post, Publication, User
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
@@ -122,19 +121,9 @@ async def create(session: AsyncSession, channel: Channel, button_text: str) -> G
     return gw
 
 
-def entry_button(gw: Giveaway, settings: Settings, bot_username: str | None) -> dict:
-    """The button under the giveaway post. With a Mini App registered for giveaways it opens it (a channel can't
-    carry web_app buttons, only a t.me link to the app); otherwise a tap is answered with a pop-up."""
-    if settings.webapp_url and settings.giveaway_app and bot_username:
-        url = f"https://t.me/{bot_username}/{settings.giveaway_app}?startapp=gw{gw.id}"
-        return {"text": gw.button_text, "url": url, "giveaway": gw.id}
+def entry_button(gw: Giveaway) -> dict:
+    """The button under the giveaway post: a tap enters the person and is answered with a pop-up."""
     return {"text": gw.button_text, "callback": f"{GIVEAWAY_PREFIX}{gw.id}", "giveaway": gw.id}
-
-
-def parse_start(param: str | None) -> int | None:
-    """The giveaway id in a Mini App start parameter ("gw42")."""
-    raw = (param or "").removeprefix("gw")
-    return int(raw) if raw.isdigit() else None
 
 
 async def join(

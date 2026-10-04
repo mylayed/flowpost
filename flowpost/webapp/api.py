@@ -537,8 +537,6 @@ def setup_webapp(app: web.Application) -> None:
     # The bot owner's panel: all channels and their limits; its API is in admin_api and checks ADMIN_IDS.
     app.router.add_get("/app/admin", redirect("/app/admin/"))
     app.router.add_get("/app/admin/", page("admin.html"))
-    app.router.add_get("/app/giveaway", redirect("/app/giveaway/"))
-    app.router.add_get("/app/giveaway/", page("giveaway.html"))
     app.router.add_static("/app/static/", STATIC)
     app.router.add_get("/api/bot-avatar", bot_avatar)
     app.router.add_get("/api/me", authed(me))

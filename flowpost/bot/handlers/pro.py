@@ -945,11 +945,10 @@ async def _start_button_giveaway(
     """Step 2: the giveaway post as a draft with the button under it, in the editor — the owner writes the text,
     adds a photo, then publishes or schedules it like any post."""
     gw = await giveaway.create(session, channel, button_text)
-    me = await bot.me()
     post = await posts_repo.create_post(
         session, channel.owner_id, [channel.id], options=initial_options(channel, False),
         text=t("gwb.template", title=html.escape(channel.title), button=html.escape(gw.button_text)),
-        buttons=[[giveaway.entry_button(gw, settings, me.username)]],
+        buttons=[[giveaway.entry_button(gw)]],
     )
     gw.post_id = post.id
     await session.flush()

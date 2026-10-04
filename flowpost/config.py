@@ -58,9 +58,6 @@ class Settings(BaseSettings):
     stars_topup_max: int = 25000
     stars_usd_rate: float = 0.02
     cashback_percent: float = 5.0
-    # Short name of the giveaway Mini App registered in @BotFather (/newapp, URL <WEBAPP_URL>giveaway/). The
-    # «Беру участь» button of a giveaway opens it; while empty a tap is answered with a pop-up instead.
-    giveaway_app: str = ""
     renew_soon_days: int = 7  # channels expiring within this many days are listed under «Час продовжити»
     # Extra per-channel packs: kind -> {pack size: price in Stars}. Env: LIMIT_PRICES='{"wm_photo": {"10": 5}, ...}'
     limit_prices: dict[str, dict[int, int]] = {

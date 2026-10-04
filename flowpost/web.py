@@ -25,7 +25,6 @@ from flowpost.services.slots import fmt_date, tz_of
 from flowpost.webapp import AI_KEY, BOT_KEY, SESSIONMAKER_KEY, SETTINGS_KEY
 from flowpost.webapp.admin_api import setup_admin_api
 from flowpost.webapp.api import setup_webapp
-from flowpost.webapp.giveaway_api import setup_giveaway_api
 
 log = logging.getLogger(__name__)
 
@@ -122,5 +121,4 @@ def build_web_app(
     if settings.webapp_enabled:
         setup_webapp(app)
         setup_admin_api(app)
-        setup_giveaway_api(app)
     return app
