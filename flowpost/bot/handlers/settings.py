@@ -1,4 +1,4 @@
-"""«Налаштування»: language, time zone, subscription, support."""
+"""«Налаштування»: language, time zone, interface, subscription, support."""
 from __future__ import annotations
 
 import html
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Bl, St
 from flowpost.bot.keyboards.common import btn, chunked, markup, pay_btn
+from flowpost.bot.keyboards.editor import EDITOR_TOGGLES
 from flowpost.bot.keyboards.main_menu import main_menu_kb
 from flowpost.bot.states import SettingsInput
 from flowpost.config import Settings
@@ -107,8 +108,42 @@ async def st_interface(cb: CallbackQuery) -> None:
     await _edit(cb, t("set.interface_title") + "\n\n" + t("set.interface_text"), markup([
         [btn(t("set.interface_folders"), St(a="ui_folders"))],
         [btn(t("set.interface_channels"), St(a="ui_channels"))],
+        [btn(t("set.interface_editor"), St(a="ui_editor"))],
         [btn(t("btn.back"), St(a="back"))],
     ]))
+
+
+EDITOR_LABELS = {"wm": "ed.watermark", "ai": "ed.ai", "repeat": "ed.repeat", "multi": "ed.multipost", "idea": "ed.idea"}
+
+
+def editor_ui_view(user: User) -> tuple[str, InlineKeyboardMarkup]:
+    hidden = user.editor_hidden or []
+    rows = chunked([
+        btn(("◻️ " if key in hidden else "✅ ") + t(EDITOR_LABELS[key]), St(a="ui_ed", v=key))
+        for key in EDITOR_TOGGLES
+    ], 2)
+    rows.append([btn(t("btn.back"), St(a="ui"))])
+    return t("set.ed_title") + "\n\n" + t("set.ed_text"), markup(rows)
+
+
+@router.callback_query(St.filter(F.a == "ui_editor"))
+async def st_editor_ui(cb: CallbackQuery, user: User) -> None:
+    await cb.answer()
+    await _edit(cb, *editor_ui_view(user))
+
+
+@router.callback_query(St.filter(F.a == "ui_ed"))
+async def st_editor_toggle(cb: CallbackQuery, callback_data: St, session: AsyncSession, user: User) -> None:
+    if callback_data.v not in EDITOR_TOGGLES:
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return
+    hidden = [k for k in (user.editor_hidden or []) if k != callback_data.v]
+    if len(hidden) == len(user.editor_hidden or []):
+        hidden.append(callback_data.v)
+    user.editor_hidden = hidden
+    await session.flush()
+    await cb.answer()
+    await _edit(cb, *editor_ui_view(user))
 
 
 PER_PAGE_CHOICES = [4, 6, 8, 10, 20, 30, 40, 50]

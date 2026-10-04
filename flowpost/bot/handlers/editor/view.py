@@ -212,7 +212,7 @@ async def render_editor(
 
     if not preview:
         text = await panel_text(session, user, post, channels, part_idx, warnings, note)
-        await show_panel(bot, chat_id, state, text, editor_kb(post, part_idx, published=published))
+        await show_panel(bot, chat_id, state, text, editor_kb(post, part_idx, published=published, hidden=user.editor_hidden))
         return
 
     await safe_delete(bot, chat_id, list(data.get("preview_ids") or []) + [data.get("panel_id")])
@@ -239,7 +239,7 @@ async def render_editor(
         note = (note + "\n\n" if note else "") + t("ed.wm_rendering")
     text = await panel_text(session, user, post, channels, part_idx, list(dict.fromkeys(warnings)), note)
     panel = await bot.send_message(
-        chat_id, text, reply_markup=editor_kb(post, part_idx, published=published), link_preview_options=NO_PREVIEW
+        chat_id, text, reply_markup=editor_kb(post, part_idx, published=published, hidden=user.editor_hidden), link_preview_options=NO_PREVIEW
     )
     await state.update_data(preview_ids=preview_ids, panel_id=panel.message_id)
     if deferred:

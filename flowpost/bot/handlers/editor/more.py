@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Cs, Ed
 from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callback, render_editor, show_panel
-from flowpost.bot.keyboards.common import btn, markup, on
+from flowpost.bot.keyboards.common import btn, chunked, markup, on
+from flowpost.bot.keyboards.editor import hidden_buttons
 from flowpost.bot.states import Editor
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
@@ -38,10 +39,12 @@ def _delete_label(opts: dict) -> str:
     return t("more.delete_hours", hours=hours) if hours else t("more.delete_off")
 
 
-def more_menu(post: Post, primary: Channel | None) -> tuple[str, object]:
+def more_menu(post: Post, primary: Channel | None, hidden: list[str] = (), *, is_poll: bool = False) -> tuple[str, object]:
     opts = options_of(post)
     p = post.id
-    rows = [
+    # buttons the user hid from the editor (Налаштування → Інтерфейс → Редактор постів) stay reachable here
+    rows = chunked(hidden_buttons(post, hidden, is_poll=is_poll), 2)
+    rows += [
         [btn(on(opts["silent"]) + t("more.silent"), Ed(a="mo_t", p=p, v="silent"))],
         [btn(on(opts["protect"]) + t("more.protect"), Ed(a="mo_t", p=p, v="protect"))],
         [btn(on(opts["link_preview"]) + t("more.link_preview"), Ed(a="mo_t", p=p, v="link_preview"))],
@@ -60,7 +63,10 @@ def more_menu(post: Post, primary: Channel | None) -> tuple[str, object]:
 
 async def _show(bot: Bot, chat_id: int, session: AsyncSession, state: FSMContext, user: User, post: Post) -> None:
     channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
-    text, kb = more_menu(post, channels[0] if channels else None)
+    part_idx = max(0, min(int((await state.get_data()).get("part", 0)), len(post.parts) - 1))
+    text, kb = more_menu(
+        post, channels[0] if channels else None, user.editor_hidden, is_poll=bool(post.parts[part_idx].poll)
+    )
     await show_panel(bot, chat_id, state, text, kb)
 
 

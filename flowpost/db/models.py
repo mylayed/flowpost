@@ -25,6 +25,7 @@ class User(Base):
     cashback: Mapped[int] = mapped_column(Integer, default=0)  # Stars
     channels_per_page: Mapped[int] = mapped_column(Integer, default=20)
     channel_order: Mapped[list] = mapped_column(JSONType, default=list)  # channel ids pinned to the front
+    editor_hidden: Mapped[list] = mapped_column(JSONType, default=list)  # EDITOR_TOGGLES keys hidden from the editor
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

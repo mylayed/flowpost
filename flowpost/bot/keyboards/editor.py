@@ -14,7 +14,48 @@ from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm
 
 
-def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMarkup:
+# Editor buttons a user can hide in «Налаштування → Інтерфейс → Редактор постів»; the ones that only show up
+# for a particular post (delete the caption or the source signature, media view, carousel…) aren't on the list.
+EDITOR_TOGGLES = ["wm", "ai", "repeat", "multi", "idea"]
+
+
+def _toggle_button(post: Post, key: str):
+    p = post.id
+    if key == "wm":
+        return btn(on(options_of(post)["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p))
+    if key == "ai":
+        return btn(t("ed.ai"), Ed(a="ai", p=p))
+    if key == "repeat":
+        return btn(on(bool(post.repeat and post.repeat.active)) + t("ed.repeat"), Ed(a="rep", p=p))
+    if key == "multi":
+        return btn(t("ed.multipost") + (f" ({len(post.targets)})" if len(post.targets) > 1 else ""), Ed(a="multi", p=p))
+    return btn(t("ed.idea_keep") if ideas.is_idea(post) else t("ed.idea"), Ed(a="idea", p=p))
+
+
+def _shown(post: Post, key: str, hidden) -> bool:
+    """A hidden button still shows while its feature is on for this post, so it can always be switched off."""
+    if key not in hidden:
+        return True
+    if key == "repeat":
+        return bool(post.repeat and post.repeat.active)
+    if key == "multi":
+        return len(post.targets) > 1
+    if key == "idea":
+        return ideas.is_idea(post)
+    return False
+
+
+def hidden_buttons(post: Post, hidden, *, is_poll: bool = False) -> list:
+    """The hidden editor buttons, for «Більше налаштувань»."""
+    keys = [k for k in EDITOR_TOGGLES if not _shown(post, k, hidden)]
+    if is_poll:
+        keys = [k for k in keys if k not in ("wm", "ai")]
+    if not ideas.can_keep(post):
+        keys = [k for k in keys if k != "idea"]
+    return [_toggle_button(post, k) for k in keys]
+
+
+def editor_kb(post: Post, part_idx: int, *, published: bool, hidden=()) -> InlineKeyboardMarkup:
     p = post.id
     opts = options_of(post)
     part = post.parts[part_idx]
@@ -30,6 +71,9 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
     buttons_label = t("ed.buttons") + (f" ({sum(len(r) for r in part.buttons)})" if part.buttons else "")
     media_label = t("ed.media") + (f" ({len(part.media)})" if part.media else "")
 
+    def opt(key: str) -> list:
+        return [_toggle_button(post, key)] if _shown(post, key, hidden) else []
+
     if published:
         if part.text_html.strip():
             rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
@@ -38,18 +82,15 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
         if is_poll:
             rows.append([btn(buttons_label, Ed(a="btn", p=p))])
         else:
-            rows += [
-                [btn(buttons_label, Ed(a="btn", p=p)), btn(media_label, Ed(a="media", p=p))],
-                [btn(t("ed.ai"), Ed(a="ai", p=p))],
-            ]
+            rows.append([btn(buttons_label, Ed(a="btn", p=p)), btn(media_label, Ed(a="media", p=p))])
+            if opt("ai"):
+                rows.append(opt("ai"))
         rows += [
             [btn(t("ed.save_published"), Ed(a="save", p=p))],
             [btn(t("ed.exit"), Ed(a="exit", p=p))],
         ]
         return markup(rows)
 
-    repeat_on = bool(post.repeat and post.repeat.active)
-    multi_label = t("ed.multipost") + (f" ({len(post.targets)})" if len(post.targets) > 1 else "")
     if part.text_html.strip():
         rows.append([btn(t("ed.delete_text"), Ed(a="del_text", p=p))])
     if part.source_signature.strip():
@@ -58,11 +99,12 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
         rows.append([btn(t("ed.delete_poll"), Ed(a="del_poll", p=p))])
         rows.append([btn(buttons_label, Ed(a="btn", p=p)), btn(t("ed.more"), Ed(a="more", p=p))])
     else:
-        rows += [
-            [btn(on(opts["watermark"]) + t("ed.watermark"), Ed(a="wm", p=p)), btn(buttons_label, Ed(a="btn", p=p))],
-            [btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p))],
-            [btn(t("ed.ai"), Ed(a="ai", p=p)), btn(t("ed.more"), Ed(a="more", p=p))],
-        ]
+        # hiding a button closes the gap: the rest of the grid moves up two to a row
+        rows += chunked([
+            *opt("wm"), btn(buttons_label, Ed(a="btn", p=p)),
+            btn(media_label, Ed(a="media", p=p)), btn(on(opts["signature"]) + t("ed.signature"), Ed(a="sig", p=p)),
+            *opt("ai"), btn(t("ed.more"), Ed(a="more", p=p)),
+        ], 2)
         look = []
         if has_visual_media(part.media):
             look.append(btn(t("ed.media_view"), Ed(a="mview", p=p)))
@@ -70,15 +112,14 @@ def editor_kb(post: Post, part_idx: int, *, published: bool) -> InlineKeyboardMa
             look.append(btn(on(opts["carousel"]) + t("ed.carousel"), Ed(a="carousel", p=p)))
         if look:
             rows.append(look)
-    rows += [
-        [btn(t("ed.messages") + (f" ({n})" if n > 1 else ""), Ed(a="parts", p=p)),
-         btn(on(repeat_on) + t("ed.repeat"), Ed(a="rep", p=p))],
-        [btn(t("ed.schedule"), Ed(a="sch", p=p)), btn(multi_label, Ed(a="multi", p=p))],
-        [btn(t("ed.publish"), Ed(a="pub", p=p))],
-    ]
+    rows += chunked([
+        btn(t("ed.messages") + (f" ({n})" if n > 1 else ""), Ed(a="parts", p=p)), *opt("repeat"),
+        btn(t("ed.schedule"), Ed(a="sch", p=p)), *opt("multi"),
+    ], 2)
+    rows.append([btn(t("ed.publish"), Ed(a="pub", p=p))])
     cancel = btn(t("ed.cancel"), Ed(a="cancel", p=p))
     if ideas.can_keep(post):
-        rows.append([btn(t("ed.idea_keep") if ideas.is_idea(post) else t("ed.idea"), Ed(a="idea", p=p)), cancel])
+        rows.append([*opt("idea"), cancel])
     else:
         rows.append([cancel])
     return markup(rows)

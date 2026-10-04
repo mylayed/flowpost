@@ -705,6 +705,11 @@ TEXTS: dict[str, str] = {
     "set.interface_text": "Tune the bot's interface for more convenient posting.",
     "set.interface_folders": "🗂 Folders",
     "set.interface_channels": "📢 Channels",
+    "set.interface_editor": "🧩 Post editor",
+    "set.ed_title": "🧩 <b>Post editor settings</b>",
+    "set.ed_text": (
+        "Tick the buttons to show in the post editor. Hidden buttons are still in «⚙️ More settings», and auto-repeat, multiposting and the idea stay in place while they're on for the post. Buttons that only appear for a particular post (delete the caption, media view, carousel) aren't configurable."
+    ),
     "set.ch_title": "📢 <b>Channel list settings</b>",
     "set.ch_text": "Here you can set the order and the display of your channels.",
     "set.ch_order": "⇅ Channel order",

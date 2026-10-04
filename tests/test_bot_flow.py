@@ -1723,3 +1723,40 @@ def test_paid_media_takes_only_photos_and_videos():
     assert paid_stars({"paid": True, "paid_stars": 30}, [{"type": "photo"}, {"type": "document"}]) is None
     assert paid_stars({"paid": False, "paid_stars": 30}, [{"type": "photo"}]) is None
     assert paid_stars({"paid": True, "paid_stars": 99999}, [{"type": "photo"}]) == 25000
+
+
+async def test_editor_buttons_can_be_hidden_and_stay_in_more_settings(h: Harness):
+    await _seed_published(h, message_id=4242)
+
+    # Інтерфейс → Редактор постів: hide the watermark and multiposting
+    h.session.clear()
+    await h.click(St(a="ui_editor"))
+    assert "редактора постів" in h.session.texts()
+    await h.click(St(a="ui_ed", v="wm"))
+    await h.click(St(a="ui_ed", v="multi"))
+    assert "◻️ 💧 Водяний знак" in str(h.session.calls[-1][1].reply_markup)
+    await h.click(St(a="ui_ed", v="bogus"))
+    assert (await _user(h)).editor_hidden == ["wm", "multi"]
+
+    def actions(markup) -> list[str]:
+        return [Ed.unpack(b.callback_data).a for row in markup.inline_keyboard for b in row
+                if b.callback_data and b.callback_data.startswith(Ed.__prefix__)]
+
+    h.session.clear()
+    await h.photo()
+    panel = h.session.calls[-1][1].reply_markup
+    assert "wm" not in actions(panel) and "multi" not in actions(panel)
+    assert {"ai", "rep", "sch", "pub", "btn", "media", "sig"} <= set(actions(panel))
+    # the rest of the grid closes the gap instead of leaving holes where the hidden buttons were
+    assert [len(row) for row in panel.inline_keyboard[:3]] == [2, 2, 1]
+
+    # hidden buttons are still reachable from «Більше налаштувань»
+    post = await _post(h)
+    h.session.clear()
+    await h.click(Ed(a="more", p=post.id))
+    more = actions(h.session.calls[-1][1].reply_markup)
+    assert "wm" in more and "multi" in more and "ai" not in more
+
+    # showing it again brings it back into the editor
+    await h.click(St(a="ui_ed", v="wm"))
+    assert (await _user(h)).editor_hidden == ["multi"]
