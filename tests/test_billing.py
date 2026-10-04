@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from flowpost.bot.handlers.channels import _grant_trial_quotas
 from flowpost.config import Settings
-from flowpost.db.models import Payment, Subscription, User
+from flowpost.db.models import Channel, Payment, Subscription, User
 from flowpost.db.types import utcnow
 from flowpost.services.billing import limits
 from flowpost.services.billing.liqpay import (
@@ -38,8 +38,10 @@ def test_liqpay_client_parses_only_signed_callbacks():
 async def test_access_trial_then_paid(sessionmaker, seeded):
     async with sessionmaker() as session:
         user = await session.get(User, seeded.user_id)
-        assert (await get_access(session, user)).kind == "trial"
+        # the account's trial is its channels' trial, not one started at /start
         user.trial_ends_at = utcnow() - timedelta(minutes=1)
+        assert (await get_access(session, user)).kind == "trial"
+        (await session.get(Channel, seeded.channel_id)).trial_ends_at = utcnow() - timedelta(minutes=1)
         assert not (await get_access(session, user)).active
         sub = await extend_subscription(session, user.id, "liqpay", days=30)
         assert sub.status == "active"

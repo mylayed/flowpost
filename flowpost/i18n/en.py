@@ -38,7 +38,7 @@ TEXTS: dict[str, str] = {
         "🕒 scheduled publishing, auto-repeat and multiposting\n"
         "🤖 an AI assistant that turns a draft into a ready post\n"
         "💧 watermarks on photos and videos\n\n"
-        "🎁 The first <b>{days} days</b> are free.\n"
+        "🎁 Every channel gets <b>{days} days</b> free, counted from the moment you connect it.\n"
         "Action buttons are below the input field 👇"
     ),
     "start.no_channels": "To get started, connect your channel or group — it takes a minute.",
@@ -696,6 +696,7 @@ TEXTS: dict[str, str] = {
     "set.sub_trial": "🎁 Free trial until {date} {time} — {days} days left",
     "set.sub_paid": "💎 Subscription active until {date} ({provider}) — {days} days left",
     "set.sub_cancelled": "💎 Subscription valid until {date} ({provider}), auto-renewal off — {days} days left",
+    "set.sub_trial_pending": "🎁 Your {days}-day free trial starts when you connect a channel",
     "set.sub_none": "⛔ No active subscription",
     "set.change_lang": "🌐 Змінити мову / Change language",
     "set.change_tz": "🕒 Change time zone",
@@ -820,7 +821,7 @@ TEXTS: dict[str, str] = {
     "notify.paused": "⏸ Scheduled posts are paused: the trial or subscription has ended. Subscribe and they'll continue going out.",
     "notify.paused_extras": "⏸ The post in «{title}» is paused: {error}. Subscribe for the channel and it will go out.",
     "notify.limit": "⏸ The post in «{title}» didn't go out: {error}.\nTo publish more, subscribe or upgrade your plan.",
-    "notify.trial_ending":"⏳ Your FlowPost trial ends in less than a day. Subscribe to keep posts going out on schedule.",
+    "notify.trial_ending":"⏳ The trial of «{title}» ends in less than a day. Get a plan to keep posts going out on schedule.",
     "notify.sub_ending": "⏳ Your FlowPost subscription ends tomorrow — the last day. Renew it to keep posts going out on schedule.",
 
     # ---- Errors & warnings -------------------------------------------------------------------

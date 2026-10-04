@@ -190,14 +190,15 @@ async def _user(h: Harness) -> User:
 
 
 async def test_full_editor_flow(h: Harness):
-    # /start registers the tenant with a trial and shows the main reply keyboard
+    # /start registers the tenant and shows the main reply keyboard; the trial waits for the first channel
     await h.text("/start")
     user = await _user(h)
-    assert user is not None and user.trial_ends_at > utcnow()
+    assert user is not None and user.trial_ends_at <= utcnow()
 
-    # connect a channel through the native chat picker
+    # connect a channel through the native chat picker: that's when its trial starts
     await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
     channel = await h.db(lambda s: s.scalar(select(Channel)))
+    assert channel.trial_ends_at - utcnow() > timedelta(days=29, hours=23)
     assert channel.chat_id == CHANNEL_CHAT and channel.is_active and channel.trial_ends_at > utcnow()
     c = channel.id
 

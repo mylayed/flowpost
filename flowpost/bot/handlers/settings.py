@@ -29,7 +29,8 @@ router = Router(name="settings")
 TIMEZONES = ["Europe/Kyiv", "Europe/Warsaw", "Europe/Berlin", "Europe/London", "UTC", "America/New_York"]
 
 
-def access_line(access: Access, user: User) -> str:
+def access_line(access: Access, user: User, trial_days: int | None = None) -> str:
+    """`trial_days` is passed while the user has never connected a channel: their trial hasn't started yet."""
     if access.kind == "paid" and access.until:
         local = access.until.astimezone(tz_of(user.tz))
         days_left = max(0, (access.until - utcnow()).days)
@@ -42,6 +43,8 @@ def access_line(access: Access, user: User) -> str:
         local = access.until.astimezone(tz_of(user.tz))
         days_left = max(0, (access.until - utcnow()).days)
         return t("set.sub_trial", date=fmt_date(local.date(), user.lang), time=fmt_hm(local), days=days_left)
+    if trial_days is not None:
+        return t("set.sub_trial_pending", days=trial_days)
     return t("set.sub_none")
 
 
@@ -52,12 +55,13 @@ def _liqpay_renewing(access: Access) -> bool:
 
 async def settings_view(session: AsyncSession, user: User, settings: Settings) -> tuple[str, InlineKeyboardMarkup]:
     access = await get_access(session, user)
+    connected = await channels_repo.list_channels(session, user.id, active_only=False, exclude_discussion_groups=False)
     lines = [
         t("set.title"),
         "",
         t("set.lang", lang=LANG_TITLES.get(user.lang, user.lang)),
         t("set.tz", tz=html.escape(user.tz), time=fmt_hm(local_now(user.tz))),
-        access_line(access, user),
+        access_line(access, user, None if connected else settings.trial_days),
     ]
     kb = markup([
         [btn(t("set.change_lang"), St(a="lang"))],

@@ -80,6 +80,7 @@ class Channel(Base):
     # «Зберегти форматування та налаштування»: {"options": {...}, "buttons": [[{"text","url"}]]}
     post_defaults: Mapped[dict] = mapped_column(JSONType, default=dict)
     trial_ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    trial_reminded: Mapped[bool] = mapped_column(Boolean, default=False)
     # Join requests: {"approve": "off"|"now"|"<minutes>", "welcome": bool, "welcome_html": str, "link": str}
     join_settings: Mapped[dict] = mapped_column(JSONType, default=dict)
     # Multiposted posts are translated into this language (uk, en, ...) for this channel; None = as written.

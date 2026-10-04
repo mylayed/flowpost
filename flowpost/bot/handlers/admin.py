@@ -56,7 +56,7 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
     await message.answer(
         "<b>📊 FlowPost</b>\n\n"
         f"👤 Users: {s['users_total']} (+{s['users_new_7d']} / 7d, active 7d: {s['active_7d']})\n"
-        f"🧪 Active trials: {s['trials_active']}\n"
+        f"🧪 Channels on trial: {s['trials_active']}\n"
         f"💳 Active subscriptions: {s['subs_active']} ({providers})\n"
         f"📈 Conversion to paid: {s['conversion_pct']}%\n\n"
         f"📡 Active channels: {s['channels_active']}\n"

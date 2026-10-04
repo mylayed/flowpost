@@ -36,7 +36,6 @@ from flowpost.services import ai_moderation, analytics, broadcast, gaps, growth,
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
-from flowpost.services.billing.subscriptions import get_access
 from flowpost.services.delivery import (
     DeliveryError,
     DeliveryOutcome,
@@ -407,30 +406,35 @@ class Worker:
             await session.commit()
 
     async def trial_reminders(self, now: datetime) -> None:
+        """Trials are per channel (they start when it's connected), so each channel's owner is reminded on its own."""
         async with self.sessionmaker() as session:
-            users = (await session.scalars(
-                select(User)
+            rows = (await session.execute(
+                select(Channel, User)
+                .join(User, User.id == Channel.owner_id)
                 .where(
-                    User.trial_reminded.is_(False),
+                    Channel.trial_reminded.is_(False),
+                    Channel.is_active.is_(True),
+                    Channel.trial_ends_at > now,
+                    Channel.trial_ends_at <= now + timedelta(days=1),
                     User.is_blocked.is_(False),
-                    User.trial_ends_at > now,
-                    User.trial_ends_at <= now + timedelta(days=1),
                 )
                 .limit(BATCH)
             )).all()
             to_notify = []
-            for user in users:
-                user.trial_reminded = True
-                access = await get_access(session, user, now)
-                if access.kind == "trial":
-                    to_notify.append((user.tg_id, user.lang))
+            for channel, user in rows:
+                channel.trial_reminded = True
+                entitlement = await entitlements.for_channel(session, self.settings, channel, user, now)
+                if entitlement.plan == "trial":  # a paid plan bought during the trial needs no reminder
+                    to_notify.append((user.tg_id, user.lang, channel.title))
             await session.commit()
-        for tg_id, lang in to_notify:
+        for tg_id, lang, title in to_notify:
             markup = InlineKeyboardMarkup(inline_keyboard=[[
                 pay_btn(self.settings, t("btn.pay", locale=lang))
             ]])
             try:
-                await self.bot.send_message(tg_id, t("notify.trial_ending", locale=lang), reply_markup=markup)
+                await self.bot.send_message(
+                    tg_id, t("notify.trial_ending", locale=lang, title=html.escape(title)), reply_markup=markup
+                )
             except TelegramAPIError as e:
                 log.info("trial reminder not delivered: %s", e)
 

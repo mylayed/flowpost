@@ -13,11 +13,13 @@ import pytest
 from sqlalchemy import func, select, update
 
 from flowpost.bot.callbacks import Ed, Pj
+from flowpost.bot.handlers.settings import settings_view
 from flowpost.db.models import (
     Channel, ChannelSubscription, ChatTrial, Post, PostPart, PostTarget, Publication, RepeatRule, User,
 )
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
+from flowpost.i18n import t
 from flowpost.services import analytics
 from flowpost.services.ai import AIError
 from flowpost.services.billing import channel_subs, entitlements, limits
@@ -207,6 +209,45 @@ async def test_admin_can_hand_a_chat_a_new_trial(h: Harness, settings):
     assert "⛔" in h.session.texts()
     # back on the free plan, with today's 100 posts already over its daily allowance
     assert await _plan(h.sm, settings, channel.id) == ("free", 0)
+
+
+async def test_trial_starts_with_the_channel_not_with_start(h: Harness, settings):
+    """/start alone starts nothing: Settings says the trial is waiting for a channel, and the days are counted
+    from the moment the channel is connected, however long after /start that is."""
+    await h.text("/start")
+    async def registered_long_ago(s):
+        await s.execute(update(User).values(created_at=utcnow() - timedelta(days=40)))
+        await s.commit()
+    await h.db(registered_long_ago)
+
+    async def settings_text(s):
+        user = await s.scalar(select(User).where(User.tg_id == USER_ID))
+        return (await settings_view(s, user, settings))[0]
+    assert t("set.sub_trial_pending", locale="uk", days=30) in await h.db(settings_text)
+
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    channel = await h.db(lambda s: s.scalar(select(Channel)))
+    assert await _plan(h.sm, settings, channel.id) == ("trial", 100)
+    assert "🎁" in await h.db(settings_text) and "почнеться" not in await h.db(settings_text)
+
+
+async def test_trial_reminder_is_sent_per_channel(fake_bot, sessionmaker, seeded, settings):
+    worker = Worker(fake_bot, sessionmaker, Publisher(fake_bot, None), settings)
+    now = utcnow()
+    async with sessionmaker() as session:
+        paid = Channel(owner_id=seeded.user_id, chat_id=-100222, kind="channel", title="Платний", watermark={},
+                       trial_ends_at=now + timedelta(hours=12))
+        session.add(paid)
+        await session.flush()
+        session.add(ChannelSubscription(channel_id=paid.id, posts_per_day=15, paid_until=now + timedelta(days=30)))
+        await session.commit()
+    await _set(sessionmaker, Channel, seeded.channel_id, trial_ends_at=now + timedelta(hours=12))
+
+    await worker.trial_reminders(now)
+    await worker.trial_reminders(now)  # once per channel
+    sent = [c for c in fake_bot.calls if c[0] == "send_message"]
+    assert len(sent) == 1 and sent[0][1] == seeded.tg_id and "Наше місто" in sent[0][2]
+
 
 
 # ---- post counts ---------------------------------------------------------------------------------

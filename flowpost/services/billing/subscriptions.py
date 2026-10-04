@@ -4,10 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Payment, Publication, Subscription, User
+from flowpost.db.models import Channel, Payment, Publication, Subscription, User
 from flowpost.db.types import utcnow
 
 PERIOD_DAYS = 30
@@ -30,8 +30,13 @@ async def get_access(session: AsyncSession, user: User, now: datetime | None = N
     sub = await get_subscription(session, user.id)
     if sub and sub.status in ("active", "cancelled") and sub.current_period_end > now:
         return Access(True, "paid", sub.current_period_end, sub)
-    if user.trial_ends_at and user.trial_ends_at > now:
-        return Access(True, "trial", user.trial_ends_at, sub)
+    # Trials are per channel and start when the channel is connected; the account shows the latest one running.
+    trial_end = await session.scalar(
+        select(func.max(Channel.trial_ends_at))
+        .where(Channel.owner_id == user.id, Channel.is_active.is_(True), Channel.trial_ends_at > now)
+    )
+    if trial_end is not None:
+        return Access(True, "trial", trial_end, sub)
     return Access(False, "none", None, sub)
 
 

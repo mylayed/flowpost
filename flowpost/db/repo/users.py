@@ -39,7 +39,8 @@ async def get_or_create(session: AsyncSession, tg_user: TgUser, settings: Settin
         first_name=tg_user.first_name,
         lang=detect_lang(tg_user.language_code, settings.default_lang),
         tz=settings.default_tz,
-        trial_ends_at=now + timedelta(days=settings.trial_days),
+        # The trial belongs to each channel and starts when it's connected, not here.
+        trial_ends_at=now,
         created_at=now,
         last_seen_at=now,
     )

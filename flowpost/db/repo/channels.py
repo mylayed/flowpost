@@ -171,6 +171,7 @@ async def reset_chat_trial(session: AsyncSession, chat_id: int, days: int) -> Ch
     trial.posts_used = 0
     for channel in await channels_by_chat(session, chat_id):
         channel.trial_ends_at = trial.trial_ends_at
+        channel.trial_reminded = False
     await session.flush()
     return trial
 
