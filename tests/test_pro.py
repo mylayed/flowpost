@@ -939,6 +939,7 @@ async def test_button_giveaway_is_written_published_entered_and_drawn(h: Harness
     gw = await h.db(lambda s: s.scalar(select(Giveaway)))
     assert gw.post_id == post.id and gw.button_text == "Беру участь!" and gw.subscribers_only
     assert "Розіграш!" in post.parts[0].text_html
+    assert post.options["link_preview"] is False  # the signature's channel link must not unfurl into a card
     assert post.parts[0].buttons == [[{"text": "Беру участь!", "callback": f"gwj:{gw.id}", "giveaway": gw.id}]]
 
     # the owner's own text and link buttons replace the template, the join button stays
@@ -996,6 +997,7 @@ async def test_button_giveaway_is_written_published_entered_and_drawn(h: Harness
     await h.click(Px(a="gw_pub", c=c, id=gw.id))
     published = _sent(h, "SendMessage", CHANNEL_CHAT)
     assert len(published) == 1 and "Результати розіграшу" in published[0].text
+    # once    assert published[0].link_preview_options.is_disabled
     # once the winners are out, nobody else can enter
     assert not (await h.db(lambda s: s.get(Giveaway, gw.id))).is_open
     h.session.member_status[3] = "member"

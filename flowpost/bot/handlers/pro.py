@@ -946,7 +946,7 @@ async def _start_button_giveaway(
     adds a photo, then publishes or schedules it like any post."""
     gw = await giveaway.create(session, channel, button_text)
     post = await posts_repo.create_post(
-        session, channel.owner_id, [channel.id], options=initial_options(channel, False),
+        session, channel.owner_id, [channel.id], options={**initial_options(channel, False), "link_preview": False},
         text=t("gwb.template", title=html.escape(channel.title), button=html.escape(gw.button_text)),
         buttons=[[giveaway.entry_button(gw)]],
     )
@@ -1157,7 +1157,8 @@ async def _giveaway_post(cb: CallbackQuery, session: AsyncSession, state: FSMCon
     if gw is not None and gw.channel_id == channel.id:
         gw.is_open = False
     return await posts_repo.create_post(
-        session, channel.owner_id, [channel.id], options=initial_options(channel, False), text=text,
+        session, channel.owner_id, [channel.id], options={**initial_options(channel, False), "link_preview": False},
+        text=text,
     )
 
 
