@@ -564,5 +564,14 @@ async def test_admin_panel_lists_channels_and_grants_limits(sessionmaker, seeded
             "channel_id": seeded.channel_id, "days": 5, "posts_per_day": 15,
         })
         assert (await resp.json())["item"]["days_left"] == 35 and len(bot.sent) == 1
+
+        # both grants are in the channel's history, newest first, with who granted them and whether the owner was told
+        url = f"/api/admin/channels/{seeded.channel_id}/grants"
+        assert (await client.get(url, headers=stranger)).status == 403
+        history = (await (await client.get(url, headers=admin)).json())["items"]
+        assert [(g["days"], g["notified"]) for g in history] == [(5, False), (30, True)]
+        assert history[1]["quotas"] == {"ai_text": 50, "wm_photo": 10} and history[1]["note"] == "Компенсація за збій"
+        assert history[1]["by"]["tg_id"] == 777 and history[1]["posts_per_day"] == 15
+        assert (await (await client.get("/api/admin/channels/999999/grants", headers=admin)).json())["items"] == []
     finally:
         await client.close()

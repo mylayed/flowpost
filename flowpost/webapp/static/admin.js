@@ -224,6 +224,9 @@ function openChannel(item) {
   });
 
   const link = item.username ? `https://t.me/${item.username}` : null;
+  const history = h("section", { class: "adm-section" },
+    h("h2", {}, "Історія нарахувань"), h("div", { class: "adm-sub" }, "Завантаження…"));
+  loadHistory(item, history);
   view.replaceChildren(
     h("div", { class: "adm-head" }, h("h1", {}, item.title), planBadge(item)),
     h("section", { class: "adm-section" },
@@ -242,6 +245,7 @@ function openChannel(item) {
     h("section", { class: "adm-section" },
       h("h2", {}, "Ліміти"),
       Object.keys(KIND_LABELS).map((kind) => kv(KIND_LABELS[kind], fmtNum(item.quotas[kind] ?? 0)))),
+    history,
     h("section", { class: "adm-section" },
       h("h2", {}, "Нарахувати"),
       h("div", { class: "adm-grid" }, quotaFields),
@@ -255,6 +259,37 @@ function openChannel(item) {
       submit,
       h("button", { class: "adm-btn ghost", type: "button", onclick: backToList }, "До списку")),
   );
+}
+
+const fmtDateTime = (iso) => new Date(iso).toLocaleString("uk-UA", {
+  day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+});
+
+function grantEntry(grant) {
+  const parts = Object.entries(grant.quotas).map(([kind, n]) => `${KIND_LABELS[kind] || kind}: +${n}`);
+  if (grant.days) parts.push(`Тариф ${grant.posts_per_day} постів/день: +${grant.days} дн.`);
+  const by = grant.by.username ? `@${grant.by.username}` : grant.by.name || `id ${grant.by.tg_id}`;
+  const notice = grant.notified === true ? "власника повідомлено"
+    : grant.notified === false ? "без повідомлення" : null;
+  return h("div", { class: "adm-grant" },
+    h("div", { class: "adm-row" },
+      h("span", { class: "adm-grant-date" }, fmtDateTime(grant.at)),
+      h("span", { class: "adm-grant-by" }, by)),
+    parts.map((line) => h("div", {}, line)),
+    grant.note ? h("div", { class: "adm-grant-note" }, `💬 ${grant.note}`) : null,
+    notice ? h("div", { class: "adm-sub" }, notice) : null);
+}
+
+async function loadHistory(item, section) {
+  let body;
+  try {
+    const { items } = await api(`channels/${item.id}/grants`);
+    body = items.length ? items.map(grantEntry) : [h("div", { class: "adm-sub" }, "Нарахувань ще не було.")];
+  } catch (e) {
+    body = [h("div", { class: "adm-sub" }, errorText(e))];
+  }
+  // The card may have been left (or reopened after a grant) while the history was loading.
+  if (section.isConnected) section.replaceChildren(h("h2", {}, "Історія нарахувань"), ...body);
 }
 
 function backToList() {

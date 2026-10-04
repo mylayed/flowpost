@@ -10,7 +10,7 @@ from aiohttp import web
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Channel, User
+from flowpost.db.models import Channel, UsageEvent, User
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import analytics
@@ -25,6 +25,8 @@ PAGE = 30
 MAX_QUOTA_GRANT = 100_000
 MAX_DAYS_GRANT = 3650
 MAX_NOTE = 500
+GRANT_EVENT = "admin_grant"
+HISTORY = 50
 
 
 def admin_only(fn: ApiHandler):
@@ -129,14 +131,16 @@ async def admin_grant(request: web.Request, session: AsyncSession, user: User) -
     if days:
         await channel_subs.grant(session, settings, channel.id, posts_per_day, days)
     await session.flush()
-    analytics.track(session, user.id, "admin_grant", channel_id=channel.id, quotas=quotas, days=days,
-                    posts_per_day=posts_per_day, note=note)
+    # The grant's record is also the channel's grant history in the panel.
+    event = analytics.track(session, user.id, GRANT_EVENT, channel_id=channel.id, quotas=quotas, days=days,
+                            posts_per_day=posts_per_day, note=note, notified=False)
     owner = await session.get(User, channel.owner_id)
     await session.commit()
 
     notified = False
     if body.get("notify") and owner is not None and not owner.is_blocked:
         notified = await _notify_owner(request, owner, channel, quotas, days, posts_per_day, note)
+        event.meta = {**event.meta, "notified": notified}
     return web.json_response({"ok": True, "notified": notified, "item": await _item(session, request, channel, owner)})
 
 
@@ -159,7 +163,40 @@ async def _notify_owner(
     return True
 
 
+async def admin_grants(request: web.Request, session: AsyncSession, user: User) -> web.Response:
+    """The channel's grant history, newest first. Grants are made by ADMIN_IDS only, so the lookup goes through
+    their user ids and the (user_id, kind, created_at) index rather than scanning every usage event."""
+    settings = request.app[SETTINGS_KEY]
+    channel_id = int(request.match_info["channel_id"])
+    admins = {u.id: u for u in await session.scalars(select(User).where(User.tg_id.in_(settings.admin_id_set)))}
+    if not admins:
+        return web.json_response({"items": []})
+    events = await session.scalars(
+        select(UsageEvent)
+        .where(
+            UsageEvent.user_id.in_(admins), UsageEvent.kind == GRANT_EVENT,
+            UsageEvent.meta["channel_id"].as_integer() == channel_id,
+        )
+        .order_by(UsageEvent.created_at.desc(), UsageEvent.id.desc())
+        .limit(HISTORY)
+    )
+    items = []
+    for event in events:
+        meta, by = event.meta or {}, admins[event.user_id]
+        items.append({
+            "at": event.created_at.isoformat(),
+            "by": {"tg_id": by.tg_id, "name": by.first_name, "username": by.username},
+            "quotas": meta.get("quotas") or {},
+            "days": meta.get("days") or 0,
+            "posts_per_day": meta.get("posts_per_day"),
+            "note": meta.get("note") or "",
+            "notified": meta.get("notified"),
+        })
+    return web.json_response({"items": items})
+
+
 def setup_admin_api(app: web.Application) -> None:
+    app.router.add_get(r"/api/admin/channels/{channel_id:\d+}/grants", admin_only(admin_grants))
     app.router.add_get("/api/admin/meta", admin_only(admin_meta))
     app.router.add_get("/api/admin/channels", admin_only(admin_channels))
     app.router.add_post("/api/admin/grant", admin_only(admin_grant))
