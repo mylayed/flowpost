@@ -1,6 +1,6 @@
 """«⭐ PRO-інструменти» of a channel: tracked ad links, join requests, RSS sources, the AI content plan, the idea
 bank, translation for multiposting and the weekly report. They work while the channel is on a paid plan or trial.
-The giveaway among commenters lives here too, but it is free for every channel."""
+Giveaways (among commenters, or with a «Беру участь» button) live here too, but they are free for every channel."""
 from __future__ import annotations
 
 import html
@@ -21,10 +21,11 @@ from flowpost.bot.handlers.editor.view import open_editor
 from flowpost.bot.keyboards.common import btn, chunked, markup, on, paywall_kb
 from flowpost.bot.states import ProInput
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Commenter, Feed, InviteLink, Post, Publication, User
+from flowpost.db.models import Channel, Commenter, Feed, Giveaway, InviteLink, Post, Publication, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
+from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import giveaway, growth, pro_ai, rss
@@ -751,7 +752,12 @@ async def px_idea_open(cb: CallbackQuery, callback_data: Px, bot: Bot, session: 
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("idea.opened"))
 
 
-# ---- giveaway among commenters: free for every channel, opened from the channel card ------------------------------------------------------------
+# ---- giveaways: free for every channel, opened from the channel card ------------------------------------------------------------
+# Two kinds: among whoever commented on a post (needs the discussion group), and with a «Беру участь» button under
+# a post the owner writes here — whoever taps it enters.
+
+BUTTON_PRESETS = ("gwb.preset_0", "gwb.preset_1", "gwb.preset_2")
+
 
 async def _giveaway_pub(cb: CallbackQuery, session: AsyncSession, channel: Channel, pub_id: int) -> Publication | None:
     pub = await session.get(Publication, pub_id)
@@ -761,21 +767,55 @@ async def _giveaway_pub(cb: CallbackQuery, session: AsyncSession, channel: Chann
     return pub
 
 
+async def _button_giveaway(cb: CallbackQuery, session: AsyncSession, channel: Channel, gw_id: int) -> Giveaway | None:
+    gw = await session.get(Giveaway, gw_id)
+    if gw is None or gw.channel_id != channel.id or gw.post_id is None:
+        await cb.answer(t("gwb.gone"), show_alert=True)
+        return None
+    return gw
+
+
 async def _pub_title(session: AsyncSession, pub: Publication, limit: int) -> str:
-    post = await session.get(Post, pub.post_id)
+    return await _post_title(await session.get(Post, pub.post_id), limit)
+
+
+async def _post_title(post: Post | None, limit: int) -> str:
     text = snippet(part_preview_text(post.parts[0]), limit) if post and post.parts else ""
     return text or t("parts.no_text")
 
 
+async def _giveaway_publication(session: AsyncSession, gw: Giveaway) -> Publication | None:
+    """The giveaway post as it went out in the giveaway's channel."""
+    pubs = await pubs_repo.published_for_post(session, gw.post_id) if gw.post_id else []
+    return next((p for p in pubs if p.channel_id == gw.channel_id), None)
+
+
 async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     lines = [t("gw.title", title=html.escape(channel.title)), "", t("gw.help")]
-    back = [btn(t("btn.back"), Pj(a="ch", c=channel.id))]
+    c = channel.id
+    zone = tz_of(user.tz)
+    rows = [[btn(t("gwb.new"), Px(a="gb_new", c=c), style="success")]]
+    giveaways = (await session.scalars(
+        select(Giveaway)
+        .where(Giveaway.channel_id == c, Giveaway.post_id.is_not(None))
+        .order_by(Giveaway.id.desc())
+        .limit(GIVEAWAY_POSTS)
+    )).all()
+    if giveaways:
+        lines += ["", t("gwb.pick")]
+    for gw in giveaways:
+        post = await session.get(Post, gw.post_id)
+        icon = "🔒" if not gw.is_open else ("✅" if post is not None and post.status == "published" else "📝")
+        when = gw.created_at.astimezone(zone).strftime("%d.%m")
+        label = f"{icon} {when} · {await _post_title(post, 24)} · 👥 {gw.entries}"
+        rows.append([btn(label, Px(a="gb", c=c, id=gw.id))])
+    back = [btn(t("btn.back"), Pj(a="ch", c=c))]
     if not channel.discussion_chat_id:
         lines += ["", t("gw.no_group")]
-        return "\n".join(lines), markup([[btn(t("proj.comments_btn"), Cs(a="cm", c=channel.id))], back])
+        return "\n".join(lines), markup([*rows, [btn(t("proj.comments_btn"), Cs(a="cm", c=c))], back])
     pubs = (await session.scalars(
         select(Publication)
-        .where(Publication.channel_id == channel.id, Publication.status == "published",
+        .where(Publication.channel_id == c, Publication.status == "published",
                Publication.deleted.is_(False))
         .order_by(Publication.published_at.desc(), Publication.id.desc())
         .limit(GIVEAWAY_POSTS)
@@ -786,14 +826,19 @@ async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> 
         .group_by(Commenter.publication_id)
     )).all()) if pubs else {}
     lines += ["", t("gw.pick_post") if pubs else t("gw.no_posts")]
-    zone = tz_of(user.tz)
-    rows = []
     for pub in pubs:
         when = (pub.published_at or pub.run_at).astimezone(zone).strftime("%d.%m")
-        label = f"{when} · {await _pub_title(session, pub, 28)} · 👥 {counts.get(pub.id, 0)}"
-        rows.append([btn(label, Px(a="gw_post", c=channel.id, id=pub.id, v="s"))])
+        label = f"💬 {when} · {await _pub_title(session, pub, 24)} · 👥 {counts.get(pub.id, 0)}"
+        rows.append([btn(label, Px(a="gw_post", c=c, id=pub.id, v="s"))])
     rows.append(back)
     return "\n".join(lines), markup(rows)
+
+
+def _count_rows(c: int, run: str, ask: str, id_: int, mode: str) -> list[list]:
+    return [
+        [btn(t(f"gw.run_{n}"), Px(a=run, c=c, id=id_, v=f"{n}{mode}"), style="success") for n in giveaway.WINNER_CHOICES],
+        [btn(t("gw.run_custom"), Px(a=ask, c=c, id=id_, v=mode))],
+    ]
 
 
 async def giveaway_post_view(
@@ -810,13 +855,43 @@ async def giveaway_post_view(
     rows = []
     if total:
         lines += ["", t("gw.choose_count")]
-        rows.append([btn(t(f"gw.run_{n}"), Px(a="gw_run", c=c, id=pub.id, v=f"{n}{mode}"), style="success")
-                     for n in giveaway.WINNER_CHOICES])
-        rows.append([btn(t("gw.run_custom"), Px(a="gw_ask", c=c, id=pub.id, v=mode))])
+        rows += _count_rows(c, "gw_run", "gw_ask", pub.id, mode)
     else:
         lines += ["", t("gw.no_entrants")]
     rows += [
         [btn(on(subscribers_only) + t("gw.subs_btn"), Px(a="gw_post", c=c, id=pub.id, v="a" if subscribers_only else "s"))],
+        [btn(t("btn.back"), Px(a="gw", c=c))],
+    ]
+    return "\n".join(lines), markup(rows)
+
+
+async def button_giveaway_view(session: AsyncSession, channel: Channel, gw: Giveaway) -> tuple[str, InlineKeyboardMarkup]:
+    post = await session.get(Post, gw.post_id) if gw.post_id else None
+    published = post is not None and post.status == "published"
+    status = "gwb.st_published" if published else ("gwb.st_scheduled" if post and post.status == "scheduled" else "gwb.st_draft")
+    lines = [
+        t("gwb.title"), "",
+        f"<i>{html.escape(await _post_title(post, 120))}</i>", "",
+        t(status),
+        t("gwb.button", text=html.escape(gw.button_text)),
+        t("gwb.entrants", n=gw.entries),
+        t("gwb.open") if gw.is_open else t("gwb.closed"),
+        t("gwb.subs_on") if gw.subscribers_only else t("gwb.subs_off"),
+    ]
+    c, mode = channel.id, "s" if gw.subscribers_only else "a"
+    rows = []
+    if gw.entries:
+        lines += ["", t("gw.choose_count")]
+        rows += _count_rows(c, "gb_run", "gb_ask", gw.id, mode)
+    elif not published:
+        lines += ["", t("gwb.not_published")]
+    else:
+        lines += ["", t("gwb.no_entrants")]
+    if not published and post is not None:
+        rows.append([btn(t("gwb.open_post"), Px(a="gb_post", c=c, id=gw.id))])
+    rows += [
+        [btn(on(gw.subscribers_only) + t("gw.subs_btn"), Px(a="gb_subs", c=c, id=gw.id))],
+        [btn(t("gwb.close_btn") if gw.is_open else t("gwb.reopen_btn"), Px(a="gb_open", c=c, id=gw.id))],
         [btn(t("btn.back"), Px(a="gw", c=c))],
     ]
     return "\n".join(lines), markup(rows)
@@ -845,49 +920,178 @@ async def px_giveaway_post(cb: CallbackQuery, callback_data: Px, session: AsyncS
     await _edit(cb, *await giveaway_post_view(session, channel, pub, callback_data.v != "a"))
 
 
-@router.callback_query(Px.filter(F.a == "gw_ask"))
+# ---- a giveaway with a «Беру участь» button ----------------------------------------------------
+
+@router.callback_query(Px.filter(F.a == "gb_new"))
+async def px_button_giveaway_new(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext,
+                                 user: User, settings: Settings) -> None:
+    """Step 1: what the button says — a preset or typed in."""
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    if channel is None:
+        return
+    await state.set_state(ProInput.gw_button)
+    await state.update_data(px_channel=channel.id)
+    await cb.answer()
+    c = channel.id
+    rows = [[btn(t(key), Px(a="gb_mk", c=c, v=str(i)))] for i, key in enumerate(BUTTON_PRESETS)]
+    rows.append([btn(t("btn.back"), Px(a="gw", c=c))])
+    await _edit(cb, t("gwb.button_prompt", max=giveaway.MAX_BUTTON_TEXT), markup(rows))
+
+
+async def _start_button_giveaway(
+    bot: Bot, chat_id: int, session: AsyncSession, state: FSMContext, user: User, settings: Settings,
+    publisher: Publisher, channel: Channel, button_text: str,
+) -> None:
+    """Step 2: the giveaway post as a draft with the button under it, in the editor — the owner writes the text,
+    adds a photo, then publishes or schedules it like any post."""
+    gw = await giveaway.create(session, channel, button_text)
+    me = await bot.me()
+    post = await posts_repo.create_post(
+        session, channel.owner_id, [channel.id], options=initial_options(channel, False),
+        text=t("gwb.template", title=html.escape(channel.title), button=html.escape(gw.button_text)),
+        buttons=[[giveaway.entry_button(gw, settings, me.username)]],
+    )
+    gw.post_id = post.id
+    await session.flush()
+    await state.set_state(None)
+    await open_editor(bot, chat_id, session, state, user, post, publisher, note=t("gwb.opened"))
+
+
+@router.callback_query(Px.filter(F.a == "gb_mk"))
+async def px_button_giveaway_preset(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession,
+                                    state: FSMContext, user: User, settings: Settings, publisher: Publisher) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    if channel is None:
+        return
+    idx = int(callback_data.v) if callback_data.v.isdigit() and int(callback_data.v) < len(BUTTON_PRESETS) else 0
+    await cb.answer()
+    await _drop_buttons(cb)
+    await _start_button_giveaway(bot, cb.from_user.id, session, state, user, settings, publisher, channel,
+                                 t(BUTTON_PRESETS[idx]))
+
+
+@router.message(ProInput.gw_button, F.text)
+async def in_giveaway_button(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+                             settings: Settings, publisher: Publisher) -> None:
+    channel = await _input_channel(message, session, state, user)
+    if channel is None:
+        return
+    text = (message.text or "").strip()
+    if not text or text.startswith("/") or len(text) > giveaway.MAX_BUTTON_TEXT:
+        await message.answer(t("gwb.button_prompt", max=giveaway.MAX_BUTTON_TEXT))
+        return
+    await _start_button_giveaway(bot, message.chat.id, session, state, user, settings, publisher, channel, text)
+
+
+@router.callback_query(Px.filter(F.a.in_({"gb", "gb_subs", "gb_open"})))
+async def px_button_giveaway(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext,
+                             user: User, settings: Settings) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    gw = await _button_giveaway(cb, session, channel, callback_data.id) if channel else None
+    if gw is None:
+        return
+    if callback_data.a == "gb_subs":
+        gw.subscribers_only = not gw.subscribers_only
+    elif callback_data.a == "gb_open":
+        gw.is_open = not gw.is_open
+    await session.flush()
+    await state.set_state(None)
+    await cb.answer()
+    await _edit(cb, *await button_giveaway_view(session, channel, gw))
+
+
+@router.callback_query(Px.filter(F.a == "gb_post"))
+async def px_button_giveaway_post(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession,
+                                  state: FSMContext, user: User, settings: Settings, publisher: Publisher) -> None:
+    """The giveaway post, not published yet, back in the editor."""
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    gw = await _button_giveaway(cb, session, channel, callback_data.id) if channel else None
+    post = await session.get(Post, gw.post_id) if gw else None
+    if post is None:
+        return
+    if post.status == "published":
+        await cb.answer(t("gwb.already_published"), show_alert=True)
+        return
+    await cb.answer()
+    await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=t("gwb.opened"))
+
+
+# ---- drawing the winners (both kinds) ----------------------------------------------------------
+
+@router.callback_query(Px.filter(F.a.in_({"gw_ask", "gb_ask"})))
 async def px_giveaway_ask(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext, user: User,
                           settings: Settings) -> None:
     """«✍️ Своя кількість»: the number of winners is typed in."""
     channel = await _channel(cb, callback_data, session, user, settings, paid=False)
-    pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
-    if pub is None:
+    if channel is None:
         return
     mode = "a" if callback_data.v == "a" else "s"
+    if callback_data.a == "gb_ask":
+        gw = await _button_giveaway(cb, session, channel, callback_data.id)
+        if gw is None:
+            return
+        await state.update_data(gw_pub=None, gw_btn=gw.id)
+        back = Px(a="gb", c=channel.id, id=gw.id)
+    else:
+        pub = await _giveaway_pub(cb, session, channel, callback_data.id)
+        if pub is None:
+            return
+        await state.update_data(gw_pub=pub.id, gw_btn=None)
+        back = Px(a="gw_post", c=channel.id, id=pub.id, v=mode)
     await state.set_state(ProInput.gw_count)
-    await state.update_data(px_channel=channel.id, gw_pub=pub.id, gw_mode=mode)
+    await state.update_data(px_channel=channel.id, gw_mode=mode)
     await cb.answer()
-    await _edit(cb, t("gw.count_prompt", max=giveaway.MAX_WINNERS),
-                markup([[btn(t("btn.back"), Px(a="gw_post", c=channel.id, id=pub.id, v=mode))]]))
+    await _edit(cb, t("gw.count_prompt", max=giveaway.MAX_WINNERS), markup([[btn(t("btn.back"), back)]]))
 
 
 async def _draw_view(
-    bot: Bot, session: AsyncSession, state: FSMContext, user: User, channel: Channel, pub: Publication,
-    count: int, mode: str,
+    bot: Bot, session: AsyncSession, state: FSMContext, user: User, channel: Channel,
+    pool: list, post_pub: Publication | None, count: int, mode: str, back: Px, reroll: Px, close: int | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Draw `count` winners of `pub` and show the announcement with what can be done with it."""
-    pool = await giveaway.entrants(session, pub.id)
+    """Draw `count` winners among `pool` and show the announcement with what can be done with it. `close` is the
+    button giveaway that stops taking entries once the announcement is used."""
     owner = await session.get(User, channel.owner_id)
     winners = await giveaway.draw(bot, channel, pool, count, subscribers_only=mode == "s",
                                   exclude={owner.tg_id} if owner else set())
-    back = [btn(t("btn.back"), Px(a="gw_post", c=channel.id, id=pub.id, v=mode))]
     if not winners:
-        return t("gw.none_eligible"), markup([back])
-    ids = publication_message_ids(pub)
+        return t("gw.none_eligible"), markup([[btn(t("btn.back"), back)]])
+    ids = publication_message_ids(post_pub) if post_pub is not None else []
     result = giveaway.result_html(winners, len(pool), message_link(channel, ids[0]) if ids else None, utcnow(), user.tz)
-    await state.update_data(gw_channel=channel.id, gw_text=result)
+    await state.update_data(gw_channel=channel.id, gw_text=result, gw_close=close)
     lines = [t("gw.drawn_note")]
     if len(winners) < count:
         lines.append(t("gw.fewer", n=len(winners)))
     lines += ["", "➖➖➖➖➖➖➖➖", "", result]
-    c, p = channel.id, pub.id
+    c, p = channel.id, reroll.id
     rows = [
         [btn(t("gw.publish_now"), Px(a="gw_pub", c=c, id=p), style="success")],
         [btn(t("gw.schedule"), Px(a="gw_sched", c=c, id=p)), btn(t("gw.edit"), Px(a="gw_edit", c=c, id=p))],
-        [btn(t("gw.reroll"), Px(a="gw_run", c=c, id=p, v=f"{count}{mode}"))],
-        back,
+        [btn(t("gw.reroll"), reroll)],
+        [btn(t("btn.back"), back)],
     ]
     return "\n".join(lines), markup(rows)
+
+
+async def _comment_draw(bot: Bot, session: AsyncSession, state: FSMContext, user: User, channel: Channel,
+                        pub: Publication, count: int, mode: str) -> tuple[str, InlineKeyboardMarkup]:
+    return await _draw_view(
+        bot, session, state, user, channel, await giveaway.entrants(session, pub.id), pub, count, mode,
+        Px(a="gw_post", c=channel.id, id=pub.id, v=mode), Px(a="gw_run", c=channel.id, id=pub.id, v=f"{count}{mode}"),
+    )
+
+
+async def _button_draw(bot: Bot, session: AsyncSession, state: FSMContext, user: User, channel: Channel,
+                       gw: Giveaway, count: int, mode: str) -> tuple[str, InlineKeyboardMarkup]:
+    return await _draw_view(
+        bot, session, state, user, channel, await giveaway.button_entrants(session, gw.id),
+        await _giveaway_publication(session, gw), count, mode,
+        Px(a="gb", c=channel.id, id=gw.id), Px(a="gb_run", c=channel.id, id=gw.id, v=f"{count}{mode}"), close=gw.id,
+    )
+
+
+def _run_args(v: str) -> tuple[int, str]:
+    digits, mode = v[:-1], "a" if v.endswith("a") else "s"
+    return (min(max(int(digits), 1), giveaway.MAX_WINNERS) if digits.isdigit() else 1), mode
 
 
 @router.callback_query(Px.filter(F.a == "gw_run"))
@@ -897,10 +1101,21 @@ async def px_giveaway_run(cb: CallbackQuery, callback_data: Px, bot: Bot, sessio
     pub = await _giveaway_pub(cb, session, channel, callback_data.id) if channel else None
     if pub is None:
         return
-    digits, mode = callback_data.v[:-1], "a" if callback_data.v.endswith("a") else "s"
-    count = min(max(int(digits), 1), giveaway.MAX_WINNERS) if digits.isdigit() else 1
+    count, mode = _run_args(callback_data.v)
     await cb.answer(t("gw.drawing"))
-    await _edit(cb, *await _draw_view(bot, session, state, user, channel, pub, count, mode))
+    await _edit(cb, *await _comment_draw(bot, session, state, user, channel, pub, count, mode))
+
+
+@router.callback_query(Px.filter(F.a == "gb_run"))
+async def px_button_giveaway_run(cb: CallbackQuery, callback_data: Px, bot: Bot, session: AsyncSession,
+                                 state: FSMContext, user: User, settings: Settings) -> None:
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    gw = await _button_giveaway(cb, session, channel, callback_data.id) if channel else None
+    if gw is None:
+        return
+    count, mode = _run_args(callback_data.v)
+    await cb.answer(t("gw.drawing"))
+    await _edit(cb, *await _button_draw(bot, session, state, user, channel, gw, count, mode))
 
 
 @router.message(ProInput.gw_count, F.text)
@@ -913,23 +1128,35 @@ async def in_giveaway_count(message: Message, bot: Bot, session: AsyncSession, s
         await message.answer(t("gw.count_prompt", max=giveaway.MAX_WINNERS))
         return
     data = await state.get_data()
-    pub = await session.get(Publication, int(data.get("gw_pub") or 0))
+    mode = data.get("gw_mode") or "s"
     await state.set_state(None)
-    if pub is None or pub.channel_id != channel.id or pub.status != "published":
-        await message.answer(t("err.post_not_found"))
-        return
-    text, kb = await _draw_view(bot, session, state, user, channel, pub, int(raw), data.get("gw_mode") or "s")
+    if data.get("gw_btn"):
+        gw = await session.get(Giveaway, int(data["gw_btn"]))
+        if gw is None or gw.channel_id != channel.id or gw.post_id is None:
+            await message.answer(t("gwb.gone"))
+            return
+        text, kb = await _button_draw(bot, session, state, user, channel, gw, int(raw), mode)
+    else:
+        pub = await session.get(Publication, int(data.get("gw_pub") or 0))
+        if pub is None or pub.channel_id != channel.id or pub.status != "published":
+            await message.answer(t("err.post_not_found"))
+            return
+        text, kb = await _comment_draw(bot, session, state, user, channel, pub, int(raw), mode)
     await message.answer(text, reply_markup=kb, disable_web_page_preview=True)
 
 
 async def _giveaway_post(cb: CallbackQuery, session: AsyncSession, state: FSMContext, channel: Channel) -> Post | None:
-    """The drawn result as a new draft post for the channel — once: a second tap finds nothing left to use."""
+    """The drawn result as a new draft post for the channel — once: a second tap finds nothing left to use.
+    A button giveaway stops taking entries now that its winners are out."""
     data = await state.get_data()
     text = data.get("gw_text")
     if not text or data.get("gw_channel") != channel.id:
         await cb.answer(t("gw.expired"), show_alert=True)
         return None
-    await state.update_data(gw_text=None)
+    await state.update_data(gw_text=None, gw_close=None)
+    gw = await session.get(Giveaway, int(data["gw_close"])) if data.get("gw_close") else None
+    if gw is not None and gw.channel_id == channel.id:
+        gw.is_open = False
     return await posts_repo.create_post(
         session, channel.owner_id, [channel.id], options=initial_options(channel, False), text=text,
     )
@@ -995,5 +1222,6 @@ async def px_translate(cb: CallbackQuery, callback_data: Px, session: AsyncSessi
 @router.message(ProInput.welcome)
 @router.message(ProInput.feed_url)
 @router.message(ProInput.gw_count)
+@router.message(ProInput.gw_button)
 async def in_wrong(message: Message) -> None:
     await message.answer(t("err.expected_input"))

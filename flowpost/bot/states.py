@@ -50,6 +50,7 @@ class ProInput(StatesGroup):
     welcome = State()     # welcome message for people who ask to join
     feed_url = State()    # address of a new RSS source
     gw_count = State()    # how many winners a giveaway draws
+    gw_button = State()   # what the «Беру участь» button of a new giveaway says
     ad_brief = State()    # an advertiser's brief for «Рекламний пост»
     niche_channels = State()  # competitors' channels for «Дослідження ніші»
     answer_kb = State()   # knowledge base of the AI answerer

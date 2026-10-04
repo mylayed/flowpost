@@ -32,7 +32,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import ai_moderation, analytics, broadcast, gaps, growth, pro_ai, rss
+from flowpost.services import ai_moderation, analytics, broadcast, gaps, giveaway, growth, pro_ai, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -113,6 +113,7 @@ class Worker:
         await self.trial_reminders(now)
         await self.subscription_reminders(now)
         await self.process_join_approvals(now)
+        await self.giveaway_counters()
         await self.poll_feeds(now)
         await self.snapshot_members(now)
         await self.weekly_reports(now)
@@ -642,6 +643,11 @@ class Worker:
                     row.approve_at = None  # left for the channel's admins to handle by hand
                     continue
                 await growth.approve_request(self.bot, session, channel, row, now)
+            await session.commit()
+
+    async def giveaway_counters(self) -> None:
+        async with self.sessionmaker() as session:
+            await giveaway.refresh_counters(self.bot, session)
             await session.commit()
 
     async def poll_feeds(self, now: datetime) -> None:

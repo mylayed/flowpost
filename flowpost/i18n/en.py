@@ -203,6 +203,7 @@ TEXTS: dict[str, str] = {
     "fmt.minutes": "{n} min",
 
     # ---- Buttons -----------------------------------------------------------------------------
+    "btn_menu.giveaway_kept": "🎁 The giveaway join button stays under the post apart from these buttons.",
     "btn_menu.title": "🔘 <b>Buttons under the post</b>",
     "btn_menu.current": "Current:",
     "btn_menu.none": "no buttons",
@@ -1079,14 +1080,16 @@ TEXTS: dict[str, str] = {
     ),
 
     "gw.btn": "🎁 Giveaway",
-    "gw.title": "🎁 <b>Comment giveaway · {title}</b>",
+    "gw.title": "🎁 <b>Giveaways · {title}</b>",
     "gw.help": (
-        "The bot remembers everyone who comments on the channel's posts published through the bot and can "
-        "randomly pick as many winners among them as you need. Each person enters once, however many comments "
-        "they write. The result can be published to the channel right away or scheduled for a convenient time."
+        "Two ways to run a giveaway:\n"
+        "• <b>With a button</b> — write the giveaway post and the bot puts a join button under it. Whoever taps it "
+        "enters (once), and the button shows how many have entered.\n"
+        "• <b>In the comments</b> — everyone who commented on a post published through the bot enters.\n\n"
+        "The bot picks the winners at random; the result can be published right away, scheduled or edited."
     ),
     "gw.no_group": (
-        "⚠️ For giveaways to work, link the channel's discussion group in the comment settings — "
+        "💬 For comment giveaways, link the channel's discussion group in the comment settings — "
         "the bot must be an admin there."
     ),
     "gw.pick_post": "Pick the post the giveaway ran under (👥 — number of entrants):",
@@ -1118,6 +1121,52 @@ TEXTS: dict[str, str] = {
     "gw.res_intro_many": "Giveaway under {post}. Entrants: <b>{total}</b>. The winners:",
     "gw.res_congrats": "Congratulations to the winners! 🎉",
     "gw.res_footer": "<i>🎲 Picked at random · {date} at {time}</i>",
+
+    "gwb.new": "➕ New giveaway with a button",
+    "gwb.pick": "🔘 Giveaways with a button (📝 draft · ✅ published · 🔒 closed to entries):",
+    "gwb.gone": "This giveaway is no longer available — its post was deleted.",
+    "gwb.button_prompt": (
+        "🎁 <b>New giveaway with a button</b>\n\n"
+        "What should the join button under the post say? Pick one or send your own text (up to {max} characters)."
+    ),
+    "gwb.preset_0": "I'm in!",
+    "gwb.preset_1": "🎁 Join the giveaway",
+    "gwb.preset_2": "🎲 Take part",
+    "gwb.template": (
+        "🎁 <b>Giveaway!</b>\n\n"
+        "How to enter:\n"
+        "1️⃣ Subscribe to {title}\n"
+        "2️⃣ Tap «{button}» under this post\n\n"
+        "📅 Results: <i>add the date and time</i>\n\n"
+        "Winners are picked at random 🎲 Good luck!"
+    ),
+    "gwb.opened": (
+        "🎁 Giveaway draft. Send your own text (a photo or video too) — the join button stays under the post. "
+        "Then publish or schedule it. Pick the winners in «🎁 Giveaway» on the channel card."
+    ),
+    "gwb.title": "🎁 <b>Giveaway with a button</b>",
+    "gwb.st_draft": "📝 The post isn't published yet (draft)",
+    "gwb.st_scheduled": "🕒 The post is scheduled",
+    "gwb.st_published": "✅ The post is published",
+    "gwb.button": "🔘 Button: «{text}»",
+    "gwb.entrants": "👥 Entrants: <b>{n}</b>",
+    "gwb.open": "🔓 Open to entries",
+    "gwb.closed": "🔒 Closed to entries",
+    "gwb.subs_on": "✅ Channel subscribers only — others can't enter, and whoever leaves is out",
+    "gwb.subs_off": "☑️ Anyone can enter",
+    "gwb.not_published": "Publish or schedule the post — entrants appear as people tap the button.",
+    "gwb.no_entrants": "Nobody has tapped the button yet.",
+    "gwb.open_post": "📝 Open the post in the editor",
+    "gwb.already_published": "The post is already published — change it with «✏️ Edit post».",
+    "gwb.close_btn": "🔒 Close entries",
+    "gwb.reopen_btn": "🔓 Reopen entries",
+    "gwb.app_joined": "🎉 You're in the giveaway now!",
+    "gwb.app_already": "✅ You're already in the giveaway. Good luck!",
+    "gwb.app_subscribe": "📢 To enter, subscribe to the channel, then tap the button again.",
+    "gwb.app_closed": "⏳ The giveaway is closed to new entries.",
+    "gwb.app_gone": "😕 This giveaway is no longer running.",
+    "gwb.app_open_channel": "📢 Open the channel",
+    "gwb.app_retry": "🎲 I've subscribed — enter",
 
     "tr.title": "🌐 <b>Auto-translation · {title}</b>",
     "tr.help": (

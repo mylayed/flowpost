@@ -1,4 +1,5 @@
-"""Updates from connected channels: join requests, people joining or leaving, and «show hidden text» taps."""
+"""Updates from connected channels: join requests, people joining or leaving, «show hidden text» taps and taps on
+a giveaway's «Беру участь» button (when no giveaway Mini App is set up)."""
 from __future__ import annotations
 
 import logging
@@ -12,8 +13,8 @@ from flowpost.db.models import Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
-from flowpost.services import growth
-from flowpost.services.posts import HIDDEN_PREFIX, options_of
+from flowpost.services import giveaway, growth
+from flowpost.services.posts import GIVEAWAY_PREFIX, HIDDEN_PREFIX, options_of
 
 log = logging.getLogger(__name__)
 router = Router(name="chat_events")
@@ -81,3 +82,11 @@ async def on_hidden_text(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> 
             await cb.answer(t("hidden.subscribe", locale=lang), show_alert=True)
             return
     await cb.answer(text, show_alert=True)
+
+
+@router.callback_query(F.data.startswith(GIVEAWAY_PREFIX))
+async def on_giveaway_tap(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    lang = detect_lang(cb.from_user.language_code)
+    raw = (cb.data or "")[len(GIVEAWAY_PREFIX):]
+    status = (await giveaway.join(bot, session, int(raw), cb.from_user))[0] if raw.isdigit() else "gone"
+    await cb.answer(t(f"gwb.app_{status}", locale=lang), show_alert=True)

@@ -16,6 +16,7 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services.parsing import ParseError, buttons_to_text, parse_buttons
+from flowpost.services.posts import giveaway_rows, plain_buttons
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
@@ -30,15 +31,18 @@ async def ed_buttons_menu(
         return
     await cb.answer()
     part = post.parts[idx]
-    current = html.escape(buttons_to_text(part.buttons)) if part.buttons else t("btn_menu.none")
-    lines = [t("btn_menu.title"), "", t("btn_menu.current"), f"<code>{current}</code>" if part.buttons else current]
+    typed = plain_buttons(part.buttons)
+    current = html.escape(buttons_to_text(typed)) if typed else t("btn_menu.none")
+    lines = [t("btn_menu.title"), "", t("btn_menu.current"), f"<code>{current}</code>" if typed else current]
+    if giveaway_rows(part.buttons):
+        lines += ["", t("btn_menu.giveaway_kept")]
     if len(part.media) > 1:
         lines += ["", "ℹ️ " + t("warn.album_buttons")]
     lines += ["", t("btn_menu.help")]
     p = post.id
     kb = markup([
         [btn(t("btn_menu.set"), Ed(a="btn_set", p=p))],
-        [btn(t("btn_menu.clear"), Ed(a="btn_clear", p=p))] if part.buttons else [],
+        [btn(t("btn_menu.clear"), Ed(a="btn_clear", p=p))] if typed else [],
         [btn(t("btn.back"), Ed(a="home", p=p))],
     ])
     await show_panel(bot, cb.from_user.id, state, "\n".join(lines), kb)
@@ -65,7 +69,7 @@ async def ed_buttons_clear(
     if post is None:
         return
     await cb.answer(t("btn_menu.cleared"))
-    post.parts[idx].buttons = []
+    post.parts[idx].buttons = giveaway_rows(post.parts[idx].buttons)
     await session.flush()
     await render_editor(bot, cb.from_user.id, session, state, user, post, publisher)
 
@@ -84,7 +88,7 @@ async def ed_buttons_input(
     except ParseError as e:
         await message.answer(t(e.key, **e.params) + "\n\n" + t("btn_menu.example"))
         return
-    post.parts[idx].buttons = rows
+    post.parts[idx].buttons = rows + giveaway_rows(post.parts[idx].buttons)  # the giveaway's button stays
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=t("btn_menu.saved"))
 

@@ -42,6 +42,7 @@ MAX_PAID_STARS = 25000  # Telegram's limit for paid media
 # «Реклама» belongs to the /ad flow and a hidden text to its own post, so neither is carried over into other posts.
 DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text", "paid", "paid_stars"))
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
+GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 
 
@@ -66,13 +67,22 @@ def paid_stars(opts: dict, media: list[dict]) -> int | None:
     return min(max(int(opts.get("paid_stars") or 1), 1), MAX_PAID_STARS)
 
 
+def plain_buttons(rows: list[list[dict]] | None) -> list[list[dict]]:
+    """The link buttons the author typed in, without a giveaway's «Беру участь» button."""
+    return [row for row in ([b for b in r if "giveaway" not in b] for r in rows or []) if row]
+
+
+def giveaway_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
+    return [row for row in ([b for b in r if "giveaway" in b] for r in rows or []) if row]
+
+
 def post_defaults(post: Post) -> dict:
     """What «Зберегти форматування та налаштування» stores on a channel."""
     opts = options_of(post)
     buttons = post.parts[0].buttons if post.parts else []
     return {
         "options": {k: opts[k] for k in DEFAULTABLE_OPTIONS},
-        "buttons": [list(row) for row in (buttons or [])],
+        "buttons": plain_buttons(buttons),
     }
 
 

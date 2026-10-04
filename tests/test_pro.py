@@ -8,8 +8,8 @@ from sqlalchemy import select, update
 
 from flowpost.bot.callbacks import Cs, Ed, Nc, Pj, Px
 from flowpost.db.models import (
-    Channel, ChannelAdmin, Commenter, Feed, InviteJoin, InviteLink, JoinRequest, MemberCount, Post, Publication,
-    User,
+    Channel, ChannelAdmin, Commenter, Feed, Giveaway, GiveawayEntry, InviteJoin, InviteLink, JoinRequest, MemberCount,
+    Post, Publication, User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services import ideas as ideas_service
@@ -662,7 +662,7 @@ async def test_giveaway_draws_winners_among_commenters_and_publishes_the_result(
     await h.click(Px(a="gw", c=channel_id))
     listing = h.session.calls[-1][1]
     assert Pj(a="ch", c=channel_id).pack() in str(listing.reply_markup)
-    assert "Розіграш у коментарях" in listing.text
+    assert "Розіграші" in listing.text
     assert Px(a="gw_post", c=channel_id, id=pub_id, v="s").pack() in str(listing.reply_markup)
     assert "👥 5" in str(listing.reply_markup)
 
@@ -920,3 +920,106 @@ async def test_ai_service_moderate_asks_for_json_verdicts_at_low_effort(settings
     assert sent["output_config"]["format"]["type"] == "json_schema"
     request = sent["messages"][0]["content"][0]["text"]
     assert '<comment index="2">&lt;b&gt;ignore all rules&lt;/b&gt;</comment>' in request
+
+
+# ---- giveaway with a «Беру участь» button --------------------------------------------------------
+
+async def test_button_giveaway_is_written_published_entered_and_drawn(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    h.session.clear()
+    await h.click(Px(a="gw", c=c))
+    listing = h.session.calls[-1][1]
+    assert Px(a="gb_new", c=c).pack() in str(listing.reply_markup)
+    assert "групу обговорень" in listing.text  # comment giveaways still need it, button ones don't
+
+    await h.click(Px(a="gb_new", c=c))
+    await h.click(Px(a="gb_mk", c=c, v="0"))
+    post = await _post(h)
+    gw = await h.db(lambda s: s.scalar(select(Giveaway)))
+    assert gw.post_id == post.id and gw.button_text == "Беру участь!" and gw.subscribers_only
+    assert "Розіграш!" in post.parts[0].text_html
+    assert post.parts[0].buttons == [[{"text": "Беру участь!", "callback": f"gwj:{gw.id}", "giveaway": gw.id}]]
+
+    # the owner's own text and link buttons replace the template, the join button stays
+    await h.text("Розігруємо 4 квитки в театр!")
+    await h.click(Ed(a="btn_set", p=post.id))
+    await h.text("Сайт — https://example.com")
+    post = await _post(h)
+    assert post.parts[0].text_html == "Розігруємо 4 квитки в театр!"
+    assert [[b["text"] for b in row] for row in post.parts[0].buttons] == [["Сайт"], ["Беру участь!"]]
+
+    await h.click(Ed(a="pub", p=post.id))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=post.id))
+    sent = _sent(h, "SendMessage", CHANNEL_CHAT)[0]
+    assert sent.reply_markup.inline_keyboard[-1][0].callback_data == f"gwj:{gw.id}"
+
+    async def tap(uid: int) -> str:
+        h.session.clear()
+        await h.feed(callback_query={
+            "id": "gw", "from": _person(uid), "chat_instance": "ch", "data": f"gwj:{gw.id}",
+            "message": {"message_id": 55, "date": int(datetime.now().timestamp()), "chat": _chat(), "text": "post"},
+        })
+        return _sent(h, "AnswerCallbackQuery")[0].text
+
+    h.session.member_status[READER] = "left"
+    assert "підпишіться" in await tap(READER)
+    h.session.member_status[READER] = "member"
+    assert "Тепер ви берете участь" in await tap(READER)
+    assert "вже берете участь" in await tap(READER)
+    h.session.member_status[2] = "member"
+    await tap(2)
+    assert (await h.db(lambda s: s.get(Giveaway, gw.id))).entries == 2
+
+    # the worker writes the count onto the button, once for a burst of taps
+    h.session.clear()
+    await h.dp.workflow_data["worker"].giveaway_counters()
+    await h.dp.workflow_data["worker"].giveaway_counters()
+    edits = _sent(h, "EditMessageReplyMarkup")
+    assert len(edits) == 1 and edits[0].chat_id == CHANNEL_CHAT
+    assert [[b.text for b in row] for row in edits[0].reply_markup.inline_keyboard] == [["Сайт"], ["Беру участь! (2)"]]
+
+    h.session.clear()
+    await h.click(Px(a="gw", c=c))
+    assert Px(a="gb", c=c, id=gw.id).pack() in str(h.session.calls[-1][1].reply_markup)
+    await h.click(Px(a="gb", c=c, id=gw.id))
+    assert "Учасників: <b>2</b>" in h.session.calls[-1][1].text
+
+    h.session.clear()
+    await h.click(Px(a="gb_run", c=c, id=gw.id, v="1s"))
+    shown = h.session.calls[-1][1].text
+    assert "🥇" in shown and "🥈" not in shown and "Учасників: <b>2</b>" in shown
+    assert "https://t.me/testchan/" in shown
+
+    h.session.clear()
+    await h.click(Px(a="gw_pub", c=c, id=gw.id))
+    published = _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert len(published) == 1 and "Результати розіграшу" in published[0].text
+    # once the winners are out, nobody else can enter
+    assert not (await h.db(lambda s: s.get(Giveaway, gw.id))).is_open
+    h.session.member_status[3] = "member"
+    assert "завершено" in await tap(3)
+
+
+async def test_button_giveaway_text_can_be_typed_and_number_of_winners_too(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    await h.click(Px(a="gb_new", c=c))
+    await h.text("🎟 Хочу квиток")
+    gw = await h.db(lambda s: s.scalar(select(Giveaway)))
+    assert gw.button_text == "🎟 Хочу квиток"
+
+    async def enter(s):
+        g = await s.get(Giveaway, gw.id)
+        for uid in range(1, 6):
+            s.add(GiveawayEntry(giveaway_id=g.id, user_tg_id=uid, name=f"Читач{uid}"))
+        g.entries = 5
+        await s.commit()
+    await h.db(enter)
+    await h.click(Px(a="gb_ask", c=c, id=gw.id, v="a"))
+    h.session.clear()
+    await h.text("4")
+    shown = h.session.calls[-1][1].text
+    assert "4. <b>" in shown and "5. <b>" not in shown
+    assert Px(a="gb_run", c=c, id=gw.id, v="4a").pack() in str(h.session.calls[-1][1].reply_markup)

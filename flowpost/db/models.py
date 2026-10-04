@@ -168,6 +168,36 @@ class Commenter(Base):
     first_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class Giveaway(Base):
+    """A giveaway with its own «Беру участь» button under a post: whoever taps it enters, once."""
+
+    __tablename__ = "giveaways"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("posts.id", ondelete="SET NULL"), index=True)
+    button_text: Mapped[str] = mapped_column(String(64))
+    subscribers_only: Mapped[bool] = mapped_column(Boolean, default=True)  # only channel members may enter
+    is_open: Mapped[bool] = mapped_column(Boolean, default=True)
+    entries: Mapped[int] = mapped_column(Integer, default=0)
+    shown: Mapped[int] = mapped_column(Integer, default=0)  # the count last written onto the button in the channel
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class GiveawayEntry(Base):
+    """Someone who tapped a giveaway's button."""
+
+    __tablename__ = "giveaway_entries"
+    __table_args__ = (UniqueConstraint("giveaway_id", "user_tg_id", name="uq_giveaway_entries_giveaway_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id", ondelete="CASCADE"), index=True)
+    user_tg_id: Mapped[int] = mapped_column(BigInteger)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    username: Mapped[str | None] = mapped_column(String(64))
+    first_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Feed(Base):
     """An RSS/Atom source whose new items become posts in a channel (drafts to review, or published right away)."""
 
