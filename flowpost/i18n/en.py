@@ -204,12 +204,25 @@ TEXTS: dict[str, str] = {
 
     # ---- Buttons -----------------------------------------------------------------------------
     "btn_menu.giveaway_kept": "🎁 The giveaway join button stays under the post apart from these buttons.",
-    "btn_menu.title": "🔘 <b>Buttons under the post</b>",
-    "btn_menu.current": "Current:",
-    "btn_menu.none": "no buttons",
-    "btn_menu.help": "Link buttons will appear under the post.",
-    "btn_menu.set": "✏️ Set buttons",
-    "btn_menu.clear": "🗑 Remove buttons",
+    "btn_menu.title": "🔘 <b>Buttons</b>",
+    "btn_menu.pick": "› Pick a section",
+    "btn_menu.or_send": "› Or send new buttons — the format is detected automatically:",
+    "btn_menu.formats": (
+        "<blockquote>🔗 <b>Button — https://link.com</b>\n\n"
+        "<i>Separate several buttons in one row with</i> <code>|</code>\n\n"
+        "💡 <i>See each section for format details.</i></blockquote>"
+    ),
+    "btn_menu.current": "Under the post now:",
+    "btn_menu.url": "➕ URL buttons",
+    "btn_menu.quiz": "➕ Quiz answer",
+    "btn_menu.reactions": "Reactions",
+    "btn_menu.comment": "Leave a comment",
+    "btn_menu.edit": "✏️ Edit",
+    "btn_menu.delete": "🗑 Delete",
+    "btn_menu.favorites": "🤍 Favorites",
+    "btn_menu.soon": "This section is coming soon 🛠",
+    "btn_menu.nothing": "There are no buttons under the post yet.",
+    "btn_menu.edit_prompt": "Copy the current buttons, fix them and send them back — they replace the existing ones:",
     "btn_menu.cleared": "Buttons removed",
     "btn_menu.prompt": (
         "Send buttons as <code>Button text — link</code>\n\n"

@@ -220,6 +220,14 @@ async def test_full_editor_flow(h: Harness):
     assert "Приклад" in h.session.texts()
     await h.text("Читати далі — https://t.me/testchan")
     assert (await _post(h)).parts[0].buttons == [[{"text": "Читати далі", "url": "https://t.me/testchan"}]]
+    # «URL Кнопки» adds rows; buttons sent straight to the menu replace them all
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_set", p=p))
+    await h.text("Сайт — https://example.com")
+    assert [[b["text"] for b in r] for r in (await _post(h)).parts[0].buttons] == [["Читати далі"], ["Сайт"]]
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Читати далі — https://t.me/testchan")
+    assert (await _post(h)).parts[0].buttons == [[{"text": "Читати далі", "url": "https://t.me/testchan"}]]
 
     # Медіа: add a second photo → album, reorder
     await h.click(Ed(a="media", p=p))
