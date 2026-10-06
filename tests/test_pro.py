@@ -334,6 +334,53 @@ async def test_quiz_buttons(h: Harness):
     assert [[b["text"] for b in r] for r in rows] == [["A"], ["B"]] and rows[0][0]["locked"] == "Підпишіться"
 
 
+async def test_reaction_buttons(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Як вам новина?")
+    p = (await _post(h)).id
+
+    # picked from the grid: 👍, 👎, then 👎 again takes it off
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_react", p=p))
+    await h.click(Ed(a="rc_color", p=p, v="success"))
+    for i in ("0", "1", "1", "3"):
+        await h.click(Ed(a="rc_t", p=p, v=i))
+    [row] = (await _post(h)).parts[0].buttons
+    assert [b["text"] for b in row] == ["👍", "🔥"] and row[0]["style"] == "success"
+
+    # sent as text straight to the «Кнопки» menu, next to a link button
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Сайт — https://example.com")
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Так / Ні")
+    rows = (await _post(h)).parts[0].buttons
+    assert [[b["text"] for b in r] for r in rows] == [["Сайт"], ["Так", "Ні"]]
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    kb = _sent(h, "SendMessage", CHANNEL_CHAT)[0].reply_markup
+    yes, no = kb.inline_keyboard[1]
+
+    async def tap(uid: int, data: str) -> list[str]:
+        h.session.clear()
+        await h.feed(callback_query={
+            "id": "rc", "from": _person(uid), "chat_instance": "ch", "data": data,
+            "message": {
+                "message_id": 55, "date": int(datetime.now().timestamp()), "chat": _chat(), "text": "post",
+                "reply_markup": kb.model_dump(exclude_none=True),
+            },
+        })
+        [edit] = _sent(h, "EditMessageReplyMarkup")
+        return [b.text for b in edit.reply_markup.inline_keyboard[1]]
+
+    assert await tap(READER, yes.callback_data) == ["Так 1", "Ні"]
+    assert await tap(READER + 1, yes.callback_data) == ["Так 2", "Ні"]
+    assert await tap(READER, no.callback_data) == ["Так 1", "Ні 1"]  # switched
+    assert await tap(READER, no.callback_data) == ["Так 1", "Ні"]  # taken back
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

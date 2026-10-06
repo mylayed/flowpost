@@ -210,6 +210,7 @@ TEXTS: dict[str, str] = {
     "btn_menu.formats": (
         "<blockquote>🔗 <b>Button — https://link.com</b>\n\n"
         "<i>Separate several buttons in one row with</i> <code>|</code>\n\n"
+        "<i>Or reactions:</i>\n<b>👍 / 👎</b>\n\n"
         "💡 <i>See each section for format details.</i></blockquote>"
     ),
     "btn_menu.current": "Under the post now:",
@@ -1301,6 +1302,23 @@ TEXTS: dict[str, str] = {
     "qz.yours": "Your answer: «{text}»",
     "qz.stats": "📊 {pct}% answered the same ({n} of {total})",
     "qz.stats_short": "📊 {pct}%",
+    # ---- Buttons → Reactions -------------------------------------------------------------------
+    "rc.title": (
+        "☺️ <b>Reaction buttons</b>\n\n"
+        "› Pick a colour and reactions from the grid below\n"
+        "› Or send them in this format:\n\n"
+        "<blockquote>👍 / 👎\nYes / No</blockquote>"
+    ),
+    "rc.current": "Under the post now:",
+    "rc.color": "Colour: {color}",
+    "rc.clear": "🗑 Remove reactions",
+    "rc.cleared": "Reactions removed",
+    "rc.done": "✅ Done",
+    "rc.saved": "✅ Reactions added",
+    "rc.example": "Send reactions separated by «/», each line is a row:\n<code>👍 / 👎</code>\n<code>Yes / No</code>",
+    "rc.preview": "In the channel, taps here are counted on the button",
+    "rc.put": "You picked {text}",
+    "rc.taken_back": "Reaction taken back",
     "more.hidden": "🔒 Hidden text for subscribers",
     "more.hidden_prompt": (
         "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "

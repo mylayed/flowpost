@@ -45,6 +45,7 @@ HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<p
 GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>
 HIDDEN_BTN_PREFIX = "hc:"  # callback data of a «Приховане продовження» button: hc:<post id>:<button id>
 QUIZ_PREFIX = "qz:"  # callback data of a quiz answer button: qz:<post id>:<button id>
+REACT_PREFIX = "rc:"  # callback data of a reaction button: rc:<post id>:<button id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 BUTTON_STYLES = ("primary", "success", "danger")  # Bot API 9.4 button colours: blue, green, red
 
@@ -86,9 +87,14 @@ def quiz_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
 
 
 def bot_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
-    """The author's bot buttons — hidden continuations and quiz answers — in their order: the ones a typed list of
-    link buttons doesn't replace."""
-    return [row for row in ([b for b in r if "hidden" in b or "quiz" in b] for r in rows or []) if row]
+    """The author's bot buttons — hidden continuations, quiz answers, reactions — in their order: the ones a typed
+    list of link buttons doesn't replace."""
+    return [row for row in ([b for b in r if "hidden" in b or "quiz" in b or "react" in b] for r in rows or []) if row]
+
+
+def react_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
+    """Reaction buttons: {"text", "hid", "react", "style"?}; a tap counts one reaction per person."""
+    return [row for row in ([b for b in r if "react" in b] for r in rows or []) if row]
 
 
 def find_hidden(post: Post, hid: str) -> dict | None:
@@ -291,14 +297,16 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
 
 def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
     """A part's buttons plus, under the last part, the «show hidden text» button when the post has one
-    (`hidden=False` on the free plan leaves that one out). Hidden continuations and quiz answers become bot buttons
+    (`hidden=False` on the free plan leaves that one out). Hidden continuations, quiz answers and reactions become bot buttons
     on every plan."""
     buttons = [
         [
             {"text": b["text"], "callback": f"{HIDDEN_BTN_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
             if "hidden" in b else
             {"text": b["text"], "callback": f"{QUIZ_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
-            if "quiz" in b else b
+            if "quiz" in b else
+            {"text": b["text"], "callback": f"{REACT_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
+            if "react" in b else b
             for b in row
         ]
         for row in post.parts[idx].buttons or []

@@ -8,6 +8,8 @@ from datetime import time
 MAX_BUTTON_TEXT = 64
 MAX_BUTTON_ROWS = 10
 MAX_BUTTONS_PER_ROW = 4
+MAX_REACTIONS_PER_ROW = 8  # Telegram fits 8 buttons in a row
+MAX_REACTION_TEXT = 32
 
 
 class ParseError(ValueError):
@@ -63,6 +65,29 @@ def parse_buttons(raw: str) -> list[list[dict]]:
     if len(rows) > MAX_BUTTON_ROWS:
         raise ParseError("err.buttons_rows", max=MAX_BUTTON_ROWS)
     return rows
+
+
+def parse_reactions(raw: str) -> list[list[str]]:
+    """Reaction buttons as «👍 / 👎» or «Так / Ні»: each line is a row, «/» splits the buttons in it."""
+    rows: list[list[str]] = []
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        raise ParseError("err.buttons_empty")
+    for line_no, line in enumerate(lines, start=1):
+        row = [c.strip() for c in line.split("/") if c.strip()]
+        if not row or any(len(c) > MAX_REACTION_TEXT for c in row):
+            raise ParseError("err.buttons_text", line=line_no, max=MAX_REACTION_TEXT)
+        if len(row) > MAX_REACTIONS_PER_ROW:
+            raise ParseError("err.buttons_row", line=line_no, max=MAX_REACTIONS_PER_ROW)
+        rows.append(row)
+    if len(rows) > MAX_BUTTON_ROWS:
+        raise ParseError("err.buttons_rows", max=MAX_BUTTON_ROWS)
+    return rows
+
+
+def looks_like_reactions(raw: str) -> bool:
+    """Text sent to the «Кнопки» menu is reactions rather than link buttons when it has no links in it."""
+    return "/" in raw and not re.search(r"https?://|t\.me/|tg://|\s[—–-]\s|@\w", raw, re.IGNORECASE)
 
 
 def buttons_to_text(rows: list[list[dict]]) -> str:

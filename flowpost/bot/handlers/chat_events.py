@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, ChatJoinRequest, ChatMemberUpdated
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.types import CallbackQuery, ChatJoinRequest, ChatMemberUpdated, InlineKeyboardMarkup
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
 from flowpost.services import giveaway, growth
 from flowpost.services.posts import (
-    GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, MAX_HIDDEN, QUIZ_PREFIX, find_hidden, options_of, quiz_answers,
+    GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, MAX_HIDDEN, QUIZ_PREFIX, REACT_PREFIX, find_hidden, options_of, quiz_answers,
     quiz_locked_text,
 )
 
@@ -171,6 +171,68 @@ async def on_quiz_answer(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> 
     room = MAX_HIDDEN - len(head) - len(stats) - 2
     comment = mine["comment"] if len(mine["comment"]) <= room else mine["comment"][:room - 1] + "…"
     await cb.answer(f"{head}{comment}\n\n{stats}", show_alert=True)
+
+
+@router.callback_query(F.data.startswith(REACT_PREFIX))
+async def on_reaction(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    """A reaction button: one reaction per person in the set — a tap puts it, the same tap again takes it back,
+    another one switches to it; the counters on the buttons are rewritten right away."""
+    lang = detect_lang(cb.from_user.language_code)
+    post_id, _, hid = (cb.data or "")[len(REACT_PREFIX):].partition(":")
+    post = await session.get(Post, int(post_id)) if post_id.isdigit() else None
+    button = find_hidden(post, hid) if post is not None and hid else None
+    if button is None or "react" not in button:
+        await cb.answer(t("hidden.gone", locale=lang), show_alert=True)
+        return
+    chat = cb.message.chat if cb.message is not None else None
+    if chat is None or chat.type == "private":  # the owner's preview: nothing is counted
+        await cb.answer(t("rc.preview", locale=lang))
+        return
+    group, user_id = button["react"], cb.from_user.id
+    where = (QuizVote.post_id == post.id, QuizVote.quiz == group, QuizVote.user_tg_id == user_id)
+    vote = await session.scalar(select(QuizVote).where(*where))
+    if vote is not None and vote.answer == hid:
+        await session.delete(vote)
+        note = t("rc.taken_back", locale=lang)
+    else:
+        if vote is None:
+            try:
+                async with session.begin_nested():
+                    session.add(QuizVote(post_id=post.id, quiz=group, answer=hid, user_tg_id=user_id))
+            except IntegrityError:  # a double tap: the other one counted it
+                await cb.answer()
+                return
+        else:
+            vote.answer = hid
+        note = t("rc.put", text=button["text"], locale=lang)
+    await session.flush()
+    counts = dict((await session.execute(
+        select(QuizVote.answer, func.count()).where(QuizVote.post_id == post.id, QuizVote.quiz == group)
+        .group_by(QuizVote.answer)
+    )).all())
+    await cb.answer(note)
+    markup = cb.message.reply_markup if cb.message is not None else None
+    if markup is None:
+        return
+    prefix = f"{REACT_PREFIX}{post.id}:"
+    rows = []
+    for row in markup.inline_keyboard:
+        new_row = []
+        for b in row:
+            data = b.callback_data or ""
+            source = find_hidden(post, data[len(prefix):]) if data.startswith(prefix) else None
+            if source is not None:
+                n = counts.get(source["hid"], 0)
+                b = b.model_copy(update={"text": f"{source['text']} {n}" if n else source["text"]})
+            new_row.append(b)
+        rows.append(new_row)
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat.id, message_id=cb.message.message_id, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+    except TelegramBadRequest as e:
+        if "not modified" not in str(e):
+            log.info("reaction counters in %s not updated: %s", chat.id, e)
 
 
 @router.callback_query(F.data.startswith(GIVEAWAY_PREFIX))

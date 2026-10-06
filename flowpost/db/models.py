@@ -199,7 +199,8 @@ class GiveawayEntry(Base):
 
 
 class QuizVote(Base):
-    """Someone's answer to a quiz under a post: the first answer button they tapped. Only that one counts."""
+    """Someone's answer to a quiz under a post — the first answer button they tapped, only that one counts — or
+    their reaction from a post's reaction buttons (`quiz` is then the reaction set; tapping again takes it back)."""
 
     __tablename__ = "quiz_votes"
     __table_args__ = (UniqueConstraint("post_id", "quiz", "user_tg_id", name="uq_quiz_votes_post_quiz_user"),)

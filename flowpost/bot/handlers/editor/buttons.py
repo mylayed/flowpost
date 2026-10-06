@@ -9,19 +9,20 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ed
+from flowpost.bot.handlers.editor.react_buttons import save_typed as save_reactions
 from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callback, render_editor, show_panel
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
-from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, parse_buttons
+from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, looks_like_reactions, parse_buttons
 from flowpost.services.posts import bot_rows, giveaway_rows, plain_buttons
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
 
 # Sections of the menu that are not built yet: a tap says so instead of doing nothing.
-SOON = {"btn_react", "btn_comment", "btn_fav"}
+SOON = {"btn_comment", "btn_fav"}
 
 
 @router.callback_query(Ed.filter(F.a == "btn"))
@@ -39,7 +40,11 @@ async def ed_buttons_menu(
         lines += ["", t("btn_menu.current")]
     if typed:
         lines.append(f"<code>{html.escape(buttons_to_text(typed))}</code>")
-    lines += [("🙈 " if "hidden" in b else "❓ ") + html.escape(b["text"]) for row in hidden for b in row]
+    for row in hidden:
+        if "react" in row[0]:
+            lines.append(html.escape(" / ".join(b["text"] for b in row)))
+        else:
+            lines += [("🙈 " if "hidden" in b else "❓ ") + html.escape(b["text"]) for b in row]
     if giveaway_rows(part.buttons):
         lines += ["", t("btn_menu.giveaway_kept")]
     if len(part.media) > 1:
@@ -63,7 +68,7 @@ async def ed_buttons_menu(
     kb = markup(rows)
     # buttons sent straight to the menu replace the current ones
     await state.set_state(Editor.buttons)
-    await state.update_data(btn_mode="replace")
+    await state.update_data(btn_mode="replace", btn_editing=False)
     await show_panel(bot, cb.from_user.id, state, "\n".join(lines), kb)
 
 
@@ -81,7 +86,7 @@ async def ed_buttons_set(
         return
     await cb.answer()
     await state.set_state(Editor.buttons)
-    await state.update_data(btn_mode="replace" if editing else "add")
+    await state.update_data(btn_mode="replace" if editing else "add", btn_editing=editing)
     text = t("btn_menu.prompt")
     if editing:
         text = t("btn_menu.edit_prompt") + f"\n\n<code>{html.escape(buttons_to_text(typed))}</code>"
@@ -119,13 +124,17 @@ async def ed_buttons_input(
         await state.clear()
         await message.answer(t("err.post_not_found"))
         return
+    data = await state.get_data()
+    if data.get("btn_mode") == "replace" and not data.get("btn_editing") and looks_like_reactions(message.text or ""):
+        await save_reactions(message, bot, session, state, user, publisher, post, idx)
+        return
     try:
         rows = parse_buttons(message.text or "")
     except ParseError as e:
         await message.answer(t(e.key, **e.params) + "\n\n" + t("btn_menu.example"))
         return
     part = post.parts[idx]
-    if (await state.get_data()).get("btn_mode") == "add":
+    if data.get("btn_mode") == "add":
         rows = plain_buttons(part.buttons) + rows
     if len(rows) + len(bot_rows(part.buttons)) > MAX_BUTTON_ROWS:
         await message.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS))
