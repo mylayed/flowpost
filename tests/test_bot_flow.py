@@ -49,6 +49,7 @@ class MockSession(BaseSession):
         self._ids = itertools.count(1000)
         self.errors: dict[str, list[Exception]] = {}  # method name -> errors to raise on its next calls
         self.member_status: dict[int, str] = {}  # user id -> their status in any chat (default: creator)
+        self.boosters: set[int] = set()  # user ids that boost every chat
 
     def _message(self, chat_id, **extra) -> Message:
         return Message(
@@ -87,6 +88,8 @@ class MockSession(BaseSession):
             if method.user_id == BOT_ID:
                 return SimpleNamespace(status="administrator", can_post_messages=True)
             return SimpleNamespace(status=self.member_status.get(method.user_id, "creator"))
+        if name == "GetUserChatBoosts":
+            return SimpleNamespace(boosts=[object()] if method.user_id in self.boosters else [])
         if name == "CreateChatInviteLink":
             return SimpleNamespace(invite_link=f"https://t.me/+link{next(self._ids)}", name=method.name)
         if name == "GetChatMemberCount":

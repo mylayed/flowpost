@@ -14,7 +14,7 @@ from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
 from flowpost.services import giveaway, growth
-from flowpost.services.posts import GIVEAWAY_PREFIX, HIDDEN_PREFIX, options_of
+from flowpost.services.posts import GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, find_hidden, options_of
 
 log = logging.getLogger(__name__)
 router = Router(name="chat_events")
@@ -82,6 +82,41 @@ async def on_hidden_text(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> 
             await cb.answer(t("hidden.subscribe", locale=lang), show_alert=True)
             return
     await cb.answer(text, show_alert=True)
+
+
+async def _boosts(bot: Bot, chat_id: int, user_id: int) -> bool:
+    try:
+        return bool((await bot.get_user_chat_boosts(chat_id, user_id)).boosts)
+    except TelegramAPIError as e:
+        log.info("boost check in %s failed: %s", chat_id, e)
+        return False
+
+
+@router.callback_query(F.data.startswith(HIDDEN_BTN_PREFIX))
+async def on_hidden_button(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    """A «Приховане продовження» button: its text for subscribers (or boosters), the outsiders' text for the rest."""
+    lang = detect_lang(cb.from_user.language_code)
+    post_id, _, hid = (cb.data or "")[len(HIDDEN_BTN_PREFIX):].partition(":")
+    post = await session.get(Post, int(post_id)) if post_id.isdigit() else None
+    button = find_hidden(post, hid) if post is not None and hid else None
+    if button is None:
+        await cb.answer(t("hidden.gone", locale=lang), show_alert=True)
+        return
+    chat = cb.message.chat if cb.message is not None else None
+    if chat is not None and chat.type != "private":  # in the bot's chat it's the owner's preview
+        if button.get("audience") == "boost":
+            allowed = await _boosts(bot, chat.id, cb.from_user.id)
+        else:
+            try:
+                allowed = _is_in(await bot.get_chat_member(chat.id, cb.from_user.id))
+            except TelegramAPIError as e:
+                log.info("membership check in %s failed: %s", chat.id, e)
+                allowed = False
+        if not allowed:
+            default = "hidden.need_boost" if button.get("audience") == "boost" else "hidden.subscribe"
+            await cb.answer(button.get("locked") or t(default, locale=lang), show_alert=True)
+            return
+    await cb.answer(button["hidden"], show_alert=True)
 
 
 @router.callback_query(F.data.startswith(GIVEAWAY_PREFIX))

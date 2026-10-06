@@ -1205,6 +1205,50 @@ TEXTS: dict[str, str] = {
     "hidden.btn": "🔒 Show hidden text",
     "hidden.subscribe": "🔒 Only subscribers can see this text. Subscribe to the channel and tap again.",
     "hidden.gone": "The hidden text is no longer available.",
+    "hidden.need_boost": "🚀 Only people who boost the channel can see this. Boost the channel and tap again.",
+    # ---- Buttons → Hidden continuation ---------------------------------------------------------
+    "hc.title": "🙈 <b>Add a hidden continuation</b>",
+    "hc.intro": "A hidden continuation is a button that hides part of the post from people who aren't subscribed to the channel.",
+    "hc.step1": "<b>Step 1.</b> Send the button's name. {who} will see the hidden text after tapping it.",
+    "hc.who_subs": "Subscribers",
+    "hc.who_boost": "People who boost the channel",
+    "hc.name_line": "🔘 Button: «{name}»",
+    "hc.step2": "<b>Step 2.</b> Send the hidden text — up to {max} characters. A pop-up shows it after the tap.",
+    "hc.step3_subs": (
+        "<b>Step 3.</b> Send the text for people who aren't subscribed (up to {max} characters), "
+        "or tap «Skip» — then the bot just asks them to subscribe."
+    ),
+    "hc.step3_boost": (
+        "<b>Step 3.</b> Send the text for people who don't boost the channel (up to {max} characters), "
+        "or tap «Skip» — then the bot just asks them to boost the channel."
+    ),
+    "hc.ai_title": "🪄 <b>Hidden continuation</b>",
+    "hc.ai_help": (
+        "AI writes hidden continuation buttons for you — one or several at once. Just send a request: "
+        "ask it to continue the story or list what the buttons should say in any form.\n\n"
+        "For a more precise result you can give:\n\n"
+        "› Button names\n"
+        "› The hidden text for each\n"
+        "› The text for non-subscribers"
+    ),
+    "hc.ai_result": "🪄 <b>Here's what came out</b>\n\n🔓 — the hidden text, 🔒 — what everyone else sees.",
+    "hc.ai_apply": "✅ Add under the post",
+    "hc.ai_paid": "The AI generator comes with a paid plan or trial. Turn it off to add the button by hand.",
+    "hc.color": "Button colour: {color}",
+    "hc.color_title": "🎨 <b>Button colour</b>\n\nPick a colour for the button.",
+    "hc.color_none": "no colour",
+    "hc.color_primary": "blue",
+    "hc.color_success": "green",
+    "hc.color_danger": "red",
+    "hc.ai": "AI generator",
+    "hc.audience": "Show text to: {who}",
+    "hc.aud_subs": "subscribers",
+    "hc.aud_boost": "boosters",
+    "hc.skip": "⏭ Skip",
+    "hc.cancel": "← Cancel and back",
+    "hc.saved": "✅ Hidden continuation added",
+    "hc.bad_name": "The button's name must be 1 to {max} characters long.",
+    "hc.too_long": "Too long: {n} characters, and the pop-up fits up to {max}. Please shorten it.",
     "more.hidden": "🔒 Hidden text for subscribers",
     "more.hidden_prompt": (
         "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "

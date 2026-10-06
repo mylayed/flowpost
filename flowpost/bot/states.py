@@ -17,6 +17,7 @@ class Editor(StatesGroup):
     confirm = State()        # yes/no confirmation screen: text input is ignored, only buttons act
     hidden_text = State()    # «Прихований текст» for subscribers only
     paid_price = State()     # «Вигляд медіа → Ціна поста»: Stars for paid media
+    hidden_btn = State()     # «Кнопки → Приховане продовження»: name, hidden text, text for outsiders, or an AI request
 
 
 class ChannelInput(StatesGroup):

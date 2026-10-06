@@ -204,6 +204,73 @@ async def test_hidden_text_is_shown_only_to_subscribers(h: Harness):
     assert await tap(READER) == "Кодове слово: СОНЦЕ"
 
 
+async def test_hidden_continuation_buttons(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Чим закінчилась історія — під кнопками")
+    p = (await _post(h)).id
+
+    # by hand: a blue button, its hidden text, and what outsiders see
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_hidden", p=p))
+    await h.click(Ed(a="hc_color", p=p))
+    await h.click(Ed(a="hc_color", p=p, v="primary"))
+    await h.text("🔮 Фінал")
+    await h.text("Він повернувся додому.")
+    await h.text("Підпишіться, щоб дізнатися фінал!")
+    [[button]] = (await _post(h)).parts[0].buttons
+    assert button["text"] == "🔮 Фінал" and button["hidden"] == "Він повернувся додому."
+    assert button["locked"] == "Підпишіться, щоб дізнатися фінал!" and button["style"] == "primary"
+
+    # for boosters, with the AI writing two of them at once
+    ai = h.dp.workflow_data["ai"]
+    ai.client = object()
+    asked = {}
+
+    async def fake_hidden(request, **kwargs):
+        asked.update(kwargs, request=request)
+        return [{"name": "Крок 1", "hidden": "Секрет 1", "locked": ""}, {"name": "Крок 2", "hidden": "Секрет 2", "locked": ""}]
+    ai.hidden_buttons = fake_hidden
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_hidden", p=p))
+    await h.click(Ed(a="hc_ai", p=p))
+    await h.click(Ed(a="hc_aud", p=p))
+    await h.text("дві кнопки з секретами")
+    assert asked["request"] == "дві кнопки з секретами" and asked["audience"] == "boost"
+    await h.click(Ed(a="hc_apply", p=p))
+    rows = (await _post(h)).parts[0].buttons
+    assert [r[0]["text"] for r in rows] == ["🔮 Фінал", "Крок 1", "Крок 2"]
+    assert rows[1][0]["audience"] == "boost" and "style" not in rows[1][0]
+
+    # link buttons sent as text replace only the link buttons
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Сайт — https://example.com")
+    assert [r[0]["text"] for r in (await _post(h)).parts[0].buttons] == ["Сайт", "🔮 Фінал", "Крок 1", "Крок 2"]
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    kb = _sent(h, "SendMessage", CHANNEL_CHAT)[0].reply_markup.inline_keyboard
+    assert kb[0][0].url == "https://example.com" and kb[1][0].style == "primary"
+    final, boosted = kb[1][0].callback_data, kb[2][0].callback_data
+
+    async def tap(uid: int, data: str) -> str:
+        h.session.clear()
+        await h.feed(callback_query={
+            "id": "hc", "from": _person(uid), "chat_instance": "ch", "data": data,
+            "message": {"message_id": 55, "date": int(datetime.now().timestamp()), "chat": _chat(), "text": "post"},
+        })
+        return _sent(h, "AnswerCallbackQuery")[0].text
+
+    h.session.member_status[READER] = "left"
+    assert await tap(READER, final) == "Підпишіться, щоб дізнатися фінал!"
+    h.session.member_status[READER] = "member"
+    assert await tap(READER, final) == "Він повернувся додому."
+    assert "бустить" in await tap(READER, boosted)
+    h.session.boosters.add(READER)
+    assert await tap(READER, boosted) == "Секрет 1"
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

@@ -43,7 +43,9 @@ MAX_PAID_STARS = 25000  # Telegram's limit for paid media
 DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text", "paid", "paid_stars"))
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
 GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>
+HIDDEN_BTN_PREFIX = "hc:"  # callback data of a «Приховане продовження» button: hc:<post id>:<button id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
+BUTTON_STYLES = ("primary", "success", "danger")  # Bot API 9.4 button colours: blue, green, red
 
 
 def options_of(post: Post) -> dict:
@@ -68,8 +70,17 @@ def paid_stars(opts: dict, media: list[dict]) -> int | None:
 
 
 def plain_buttons(rows: list[list[dict]] | None) -> list[list[dict]]:
-    """The link buttons the author typed in, without a giveaway's «Беру участь» button."""
-    return [row for row in ([b for b in r if "giveaway" not in b] for r in rows or []) if row]
+    """The link buttons the author typed in, without hidden continuations or a giveaway's «Беру участь» button."""
+    return [row for row in ([b for b in r if "url" in b] for r in rows or []) if row]
+
+
+def hidden_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
+    """«Приховане продовження» buttons: {"text", "hid", "hidden", "locked", "audience", "style"?}."""
+    return [row for row in ([b for b in r if "hidden" in b] for r in rows or []) if row]
+
+
+def find_hidden(post: Post, hid: str) -> dict | None:
+    return next((b for part in post.parts for row in part.buttons or [] for b in row if b.get("hid") == hid), None)
 
 
 def giveaway_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
@@ -248,8 +259,8 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
         return None
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text=b["text"], callback_data=b["callback"]) if "callback" in b
-            else InlineKeyboardButton(text=b["text"], url=b["url"])
+            InlineKeyboardButton(text=b["text"], callback_data=b["callback"], style=b.get("style")) if "callback" in b
+            else InlineKeyboardButton(text=b["text"], url=b["url"], style=b.get("style"))
             for b in row
         ]
         for row in buttons
@@ -257,8 +268,17 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
 
 
 def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
-    """A part's buttons plus, under the last part, the «show hidden text» button when the post has one."""
-    buttons = [list(row) for row in (post.parts[idx].buttons or [])]
+    """A part's buttons plus, under the last part, the «show hidden text» button when the post has one.
+    Hidden continuations become bot buttons; with `hidden=False` (the free plan) they are left out."""
+    buttons = []
+    for row in post.parts[idx].buttons or []:
+        row = [
+            {"text": b["text"], "callback": f"{HIDDEN_BTN_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
+            if "hidden" in b else b
+            for b in row if hidden or "hidden" not in b
+        ]
+        if row:
+            buttons.append(row)
     if hidden and idx == len(post.parts) - 1 and options_of(post).get("hidden_text"):
         buttons.append([{"text": t("hidden.btn", locale=lang), "callback": f"{HIDDEN_PREFIX}{post.id}"}])
     return buttons
