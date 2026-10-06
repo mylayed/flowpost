@@ -18,7 +18,7 @@ from flowpost.db.models import Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, looks_like_reactions, parse_buttons
-from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons
+from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons, react_rows
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
@@ -125,16 +125,83 @@ async def ed_buttons_set(
     await show_panel(bot, cb.from_user.id, state, text, markup([[btn(t("btn.back"), Ed(a="btn", p=post.id))]]))
 
 
-@router.callback_query(Ed.filter(F.a == "btn_clear"))
+def removable(buttons: list[list[dict]] | None) -> list[tuple[str, str]]:
+    """What «Видалити» lists, as (key, label): each link button and hidden continuation on its own, a quiz and the
+    reactions as a whole set, «Залишити коментар». The giveaway's button belongs to the giveaway and isn't listed."""
+    items: list[tuple[str, str]] = []
+    for r, row in enumerate(plain_buttons(buttons)):
+        items += [(f"u{r}_{c}", "🔗 " + b["text"]) for c, b in enumerate(row)]
+    quizzes: dict[str, list[str]] = {}
+    for row in bot_rows(buttons):
+        for b in row:
+            if "hidden" in b:
+                items.append((f"h{b['hid']}", "🙈 " + b["text"]))
+            elif "quiz" in b:
+                if b["quiz"] not in quizzes:
+                    quizzes[b["quiz"]] = []
+                    items.append((f"q{b['quiz']}", ""))
+                quizzes[b["quiz"]].append(b["text"])
+            elif "comment" in b:
+                items.append(("c", b["text"]))
+        if row and "react" in row[0] and not any(k == "r" for k, _ in items):
+            items.append(("r", " / ".join(b["text"] for row_ in react_rows(buttons) for b in row_)))
+    return [(k, "❓ " + " | ".join(quizzes[k[1:]]) if k.startswith("q") else label) for k, label in items]
+
+
+def remove_button(buttons: list[list[dict]], key: str) -> list[list[dict]]:
+    if key.startswith("u"):
+        r, _, c = key[1:].partition("_")
+        links = [list(row) for row in plain_buttons(buttons)]
+        if r.isdigit() and c.isdigit() and int(r) < len(links) and int(c) < len(links[int(r)]):
+            links[int(r)].pop(int(c))
+        return [row for row in links if row] + bot_rows(buttons) + giveaway_rows(buttons)
+
+    def gone(b: dict) -> bool:
+        return (
+            (key.startswith("h") and b.get("hid") == key[1:]) or (key.startswith("q") and b.get("quiz") == key[1:])
+            or (key == "r" and "react" in b) or (key == "c" and "comment" in b)
+        )
+    return [row for row in ([b for b in r if not gone(b)] for r in buttons) if row]
+
+
+async def _show_remove(bot: Bot, chat_id: int, state: FSMContext, post: Post, idx: int) -> None:
+    p = post.id
+    rows = [[btn(label[:60], Ed(a="btn_rm", p=p, v=key))] for key, label in removable(post.parts[idx].buttons)]
+    rows += [[btn(t("btn_menu.delete_all"), Ed(a="btn_clear_all", p=p))], [btn(t("btn.back"), Ed(a="btn", p=p))]]
+    await show_panel(bot, chat_id, state, t("btn_menu.pick_delete"), markup(rows))
+
+
+@router.callback_query(Ed.filter(F.a.in_({"btn_clear", "btn_rm"})))
+async def ed_buttons_remove(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+) -> None:
+    """«Видалити»: the buttons under the post one by one; a tap removes that one."""
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    part = post.parts[idx]
+    if callback_data.a == "btn_rm":
+        part.buttons = remove_button(part.buttons or [], callback_data.v)
+        await session.flush()
+        await cb.answer(t("btn_menu.removed"))
+    elif not removable(part.buttons):
+        await cb.answer(t("btn_menu.nothing"), show_alert=True)
+        return
+    else:
+        await cb.answer()
+    if removable(part.buttons):
+        await _show_remove(bot, cb.from_user.id, state, post, idx)
+    else:
+        await _show_menu(bot, cb.from_user.id, state, post, idx)
+
+
+@router.callback_query(Ed.filter(F.a == "btn_clear_all"))
 async def ed_buttons_clear(
     cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
     publisher: Publisher,
 ) -> None:
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
-        return
-    if not (plain_buttons(post.parts[idx].buttons) or bot_rows(post.parts[idx].buttons)):
-        await cb.answer(t("btn_menu.nothing"), show_alert=True)
         return
     await cb.answer(t("btn_menu.cleared"))
     post.parts[idx].buttons = giveaway_rows(post.parts[idx].buttons)

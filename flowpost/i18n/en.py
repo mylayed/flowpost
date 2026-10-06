@@ -225,6 +225,9 @@ TEXTS: dict[str, str] = {
     "btn_menu.favorites": "🤍 Favorites",
     "btn_menu.nothing": "There are no buttons under the post yet.",
     "btn_menu.edit_prompt": "Copy the current buttons, fix them and send them back — they replace the existing ones:",
+    "btn_menu.pick_delete": "Pick a button to remove it from under the post.",
+    "btn_menu.removed": "Button removed",
+    "btn_menu.delete_all": "🗑 Delete all",
     "btn_menu.cleared": "Buttons removed",
     "btn_menu.prompt": (
         "Send buttons as <code>Button text — link</code>\n\n"

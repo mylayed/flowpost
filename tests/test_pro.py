@@ -449,6 +449,29 @@ async def test_favorite_buttons(h: Harness):
     assert [[b["text"] for b in row] for row in user.favorite_buttons] == [["👍", "👎"], ["💬 Залишити коментар"]]
 
 
+async def test_buttons_are_deleted_one_by_one(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Пост")
+    p = (await _post(h)).id
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Сайт — https://example.com | Чат — https://t.me/chat")
+    await h.click(Ed(a="btn", p=p))
+    await h.text("👍 / 👎")
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_comment", p=p))
+
+    h.session.clear()
+    await h.click(Ed(a="btn_clear", p=p))
+    shown = [b.text for row in h.session.calls[-1][1].reply_markup.inline_keyboard for b in row]
+    assert shown[:4] == ["🔗 Сайт", "🔗 Чат", "👍 / 👎", "💬 Залишити коментар"]
+    await h.click(Ed(a="btn_rm", p=p, v="u0_0"))
+    await h.click(Ed(a="btn_rm", p=p, v="r"))
+    assert [[b["text"] for b in r] for r in (await _post(h)).parts[0].buttons] == [["Чат"], ["💬 Залишити коментар"]]
+    await h.click(Ed(a="btn_clear_all", p=p))
+    assert (await _post(h)).parts[0].buttons == []
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

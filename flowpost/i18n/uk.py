@@ -225,6 +225,9 @@ TEXTS: dict[str, str] = {
     "btn_menu.favorites": "🤍 Обране",
     "btn_menu.nothing": "Під постом ще немає кнопок.",
     "btn_menu.edit_prompt": "Скопіюйте поточні кнопки, виправте та надішліть — вони замінять наявні:",
+    "btn_menu.pick_delete": "Виберіть кнопку, щоб видалити її з-під поста.",
+    "btn_menu.removed": "Кнопку видалено",
+    "btn_menu.delete_all": "🗑 Видалити все",
     "btn_menu.cleared": "Кнопки прибрано",
     "btn_menu.prompt": (
         "Надішліть кнопки у форматі <code>Текст кнопки — посилання</code>\n\n"
