@@ -98,7 +98,7 @@ async def fv_use(
     if not 0 <= i < len(favorites):
         await cb.answer(t("err.not_found"), show_alert=True)
         return
-    row = [{**b, "hid": secrets.token_hex(3)} if "hidden" in b else dict(b) for b in favorites[i]]
+    row = [{**b, "hid": secrets.token_hex(3)} if "hidden" in b or "hint" in b else dict(b) for b in favorites[i]]
     part = post.parts[idx]
     links, extra, giveaway = plain_buttons(part.buttons), bot_rows(part.buttons), giveaway_rows(part.buttons)
     if "react" in row[0]:  # one set of reactions per post: this one takes the place of the old
@@ -107,7 +107,7 @@ async def fv_use(
         await cb.answer(t("fv.already"))
         return
     else:
-        rows = links + [row] + extra if "url" in row[0] else links + extra + [row]
+        rows = links + [row] + extra if row[0].keys() & {"url", "hint"} else links + extra + [row]
         ok = len(rows) <= MAX_BUTTON_ROWS
         if ok:
             part.buttons = rows + giveaway

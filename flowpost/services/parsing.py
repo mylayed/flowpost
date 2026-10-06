@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import time
 
@@ -10,6 +11,7 @@ MAX_BUTTON_ROWS = 10
 MAX_BUTTONS_PER_ROW = 4
 MAX_REACTIONS_PER_ROW = 8  # Telegram fits 8 buttons in a row
 MAX_REACTION_TEXT = 32
+MAX_HINT = 200  # a hint shows in a callback alert, which holds 200 characters
 
 
 class ParseError(ValueError):
@@ -21,7 +23,7 @@ class ParseError(ValueError):
         self.params = params
 
 
-_SEPARATOR = re.compile(r"\s*[—–]\s*|\s+-\s+")
+SEPARATOR = re.compile(r"\s*[—–]\s*|\s+-\s+")
 _URL_OK = re.compile(r"^(https?://[^\s/$.?#][^\s]*|tg://\S+)$", re.IGNORECASE)
 
 
@@ -34,8 +36,9 @@ def normalize_url(url: str) -> str | None:
     return url if _URL_OK.match(url) else None
 
 
-def parse_buttons(raw: str) -> list[list[dict]]:
-    """Parse 'Text — URL' lines. Each line is a row, '|' splits buttons inside a row."""
+def parse_buttons(raw: str, *, hints: bool = False) -> list[list[dict]]:
+    """Parse 'Text — URL' lines. Each line is a row, '|' splits buttons inside a row. With `hints`, a button whose
+    right side isn't a link is a hint button: 'Читати далі — текст' shows the text in a pop-up to whoever taps it."""
     rows: list[list[dict]] = []
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     if not lines:
@@ -45,7 +48,7 @@ def parse_buttons(raw: str) -> list[list[dict]]:
         for chunk in (c.strip() for c in line.split("|")):
             if not chunk:
                 continue
-            separators = list(_SEPARATOR.finditer(chunk))
+            separators = list(SEPARATOR.finditer(chunk))
             if not separators:
                 raise ParseError("err.buttons_format", line=line_no)
             last = separators[-1]  # the button text itself may contain dashes
@@ -54,9 +57,14 @@ def parse_buttons(raw: str) -> list[list[dict]]:
             url = normalize_url(raw_url) if raw_url and " " not in raw_url else None
             if not text or len(text) > MAX_BUTTON_TEXT:
                 raise ParseError("err.buttons_text", line=line_no, max=MAX_BUTTON_TEXT)
-            if not url:
+            if url:
+                row.append({"text": text, "url": url})
+            elif hints and raw_url and len(raw_url) <= MAX_HINT and not re.match(r"^(https?://|t\.me/|@)", raw_url, re.I):
+                row.append({"text": text, "hint": raw_url, "hid": secrets.token_hex(3)})
+            elif hints and len(raw_url) > MAX_HINT:
+                raise ParseError("err.hint_long", line=line_no, max=MAX_HINT)
+            else:
                 raise ParseError("err.buttons_url", line=line_no)
-            row.append({"text": text, "url": url})
         if not row:
             continue
         if len(row) > MAX_BUTTONS_PER_ROW:
@@ -91,7 +99,7 @@ def looks_like_reactions(raw: str) -> bool:
 
 
 def buttons_to_text(rows: list[list[dict]]) -> str:
-    return "\n".join(" | ".join(f"{b['text']} — {b['url']}" for b in row) for row in rows)
+    return "\n".join(" | ".join(f"{b['text']} — {b.get('url') or b.get('hint')}" for b in row) for row in rows)
 
 
 _TIME_RE = re.compile(r"^\s*(\d{1,2})\s*[:.\s,\-]\s*(\d{2})\s*$")

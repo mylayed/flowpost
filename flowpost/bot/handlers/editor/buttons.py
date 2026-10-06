@@ -3,6 +3,7 @@ kinds (hidden continuation, quiz, reactions)."""
 from __future__ import annotations
 
 import html
+import secrets
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -17,7 +18,10 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
-from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, looks_like_reactions, parse_buttons
+from flowpost.services.parsing import (
+    MAX_BUTTON_ROWS, MAX_BUTTON_TEXT, MAX_HINT, SEPARATOR, ParseError, buttons_to_text, looks_like_reactions,
+    normalize_url, parse_buttons,
+)
 from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons, react_rows
 from flowpost.services.publisher import Publisher
 
@@ -130,7 +134,7 @@ def removable(buttons: list[list[dict]] | None) -> list[tuple[str, str]]:
     reactions as a whole set, «Залишити коментар». The giveaway's button belongs to the giveaway and isn't listed."""
     items: list[tuple[str, str]] = []
     for r, row in enumerate(plain_buttons(buttons)):
-        items += [(f"u{r}_{c}", "🔗 " + b["text"]) for c, b in enumerate(row)]
+        items += [(f"u{r}_{c}", ("💡 " if "hint" in b else "🔗 ") + b["text"]) for c, b in enumerate(row)]
     quizzes: dict[str, list[str]] = {}
     for row in bot_rows(buttons):
         for b in row:
@@ -222,13 +226,36 @@ async def ed_buttons_input(
     if data.get("btn_mode") == "replace" and not data.get("btn_editing") and looks_like_reactions(message.text or ""):
         await save_reactions(message, bot, session, state, user, publisher, post, idx)
         return
+    raw = (message.text or "").strip()
+    if is_hint_name(raw):  # just a name: the hint's text comes next
+        await state.set_state(Editor.hint)
+        await state.update_data(hint_name=raw)
+        p = post.id
+        await message.answer(t("btn_menu.hint_prompt", name=html.escape(raw), max=MAX_HINT),
+                             reply_markup=markup([[btn(t("btn.back"), Ed(a="btn", p=p))]]))
+        return
     try:
-        rows = parse_buttons(message.text or "")
+        rows = parse_buttons(raw, hints=True)
     except ParseError as e:
         await message.answer(t(e.key, **e.params) + "\n\n" + t("btn_menu.example"))
         return
+    await _save_typed(message, bot, session, state, user, publisher, post, idx, rows, add=data.get("btn_mode") == "add")
+
+
+def is_hint_name(raw: str) -> bool:
+    """One line with no link or «Текст — …» in it: the name of a hint button («👉 Читати далі»)."""
+    return (
+        0 < len(raw) <= MAX_BUTTON_TEXT and "\n" not in raw and "|" not in raw and not SEPARATOR.search(raw)
+        and normalize_url(raw) is None and not raw.startswith("@")
+    )
+
+
+async def _save_typed(
+    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+    post: Post, idx: int, rows: list[list[dict]], *, add: bool,
+) -> None:
     part = post.parts[idx]
-    if data.get("btn_mode") == "add":
+    if add:
         rows = plain_buttons(part.buttons) + rows
     if len(rows) + len(bot_rows(part.buttons)) > MAX_BUTTON_ROWS:
         await message.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS))
@@ -241,3 +268,26 @@ async def ed_buttons_input(
 @router.message(Editor.buttons)
 async def ed_buttons_wrong(message: Message) -> None:
     await message.answer(t("btn_menu.example"))
+
+
+@router.message(Editor.hint, F.text)
+async def ed_hint_text(
+    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher
+) -> None:
+    """The text of a hint button whose name came on its own; the button joins the others under the post."""
+    post, idx = await load_editor_post(session, user, state)
+    if post is None:
+        await state.clear()
+        await message.answer(t("err.post_not_found"))
+        return
+    text, name = (message.text or "").strip(), (await state.get_data()).get("hint_name") or ""
+    if not name or not text or len(text) > MAX_HINT:
+        await message.answer(t("hc.too_long", max=MAX_HINT, n=len(text)))
+        return
+    row = [{"text": name, "hint": text, "hid": secrets.token_hex(3)}]
+    await _save_typed(message, bot, session, state, user, publisher, post, idx, [row], add=True)
+
+
+@router.message(Editor.hint)
+async def ed_hint_wrong(message: Message) -> None:
+    await message.answer(t("err.expected_input"))

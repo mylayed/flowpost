@@ -219,7 +219,7 @@ async def test_full_editor_flow(h: Harness):
     await h.click(Ed(a="btn", p=p))
     await h.click(Ed(a="btn_set", p=p))
     h.session.clear()
-    await h.text("просто текст")
+    await h.text("просто\nтекст")
     assert "Приклад" in h.session.texts()
     await h.text("Читати далі — https://t.me/testchan")
     assert (await _post(h)).parts[0].buttons == [[{"text": "Читати далі", "url": "https://t.me/testchan"}]]

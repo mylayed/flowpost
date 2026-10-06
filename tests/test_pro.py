@@ -472,6 +472,40 @@ async def test_buttons_are_deleted_one_by_one(h: Harness):
     assert (await _post(h)).parts[0].buttons == []
 
 
+async def test_hint_buttons(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Історія, частина 1")
+    p = (await _post(h)).id
+
+    # «Назва — текст» next to a link, then a name on its own with the text after it
+    await h.click(Ed(a="btn", p=p))
+    await h.text("👉 Читати далі — Продовження завтра | Сайт — https://example.com")
+    await h.click(Ed(a="btn_set", p=p))
+    h.session.clear()
+    await h.text("💡 Підказка")
+    assert "Кнопка-підказка «💡 Підказка»" in h.session.texts()
+    await h.text("Відповідь — 42")
+    rows = (await _post(h)).parts[0].buttons
+    assert [[b["text"] for b in r] for r in rows] == [["👉 Читати далі", "Сайт"], ["💡 Підказка"]]
+    assert rows[0][0]["hint"] == "Продовження завтра" and rows[1][0]["hint"] == "Відповідь — 42"
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    kb = _sent(h, "SendMessage", CHANNEL_CHAT)[0].reply_markup.inline_keyboard
+    assert kb[0][1].url == "https://example.com"
+
+    # everyone sees a hint, subscribed or not
+    h.session.member_status[READER] = "left"
+    h.session.clear()
+    await h.feed(callback_query={
+        "id": "hn", "from": _person(READER), "chat_instance": "ch", "data": kb[0][0].callback_data,
+        "message": {"message_id": 55, "date": int(datetime.now().timestamp()), "chat": _chat(), "text": "post"},
+    })
+    assert _sent(h, "AnswerCallbackQuery")[0].text == "Продовження завтра"
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

@@ -73,8 +73,9 @@ def paid_stars(opts: dict, media: list[dict]) -> int | None:
 
 
 def plain_buttons(rows: list[list[dict]] | None) -> list[list[dict]]:
-    """The link buttons the author typed in, without bot buttons (hidden continuations, quiz answers, giveaways)."""
-    return [row for row in ([b for b in r if "url" in b] for r in rows or []) if row]
+    """The buttons the author types in as text — links and hints («Читати далі — текст») — without the other bot
+    buttons (hidden continuations, quiz answers, reactions, giveaways)."""
+    return [row for row in ([b for b in r if "url" in b or "hint" in b] for r in rows or []) if row]
 
 
 def hidden_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
@@ -321,7 +322,7 @@ def part_buttons(
     buttons = [
         [
             {"text": b["text"], "callback": f"{HIDDEN_BTN_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
-            if "hidden" in b else
+            if "hidden" in b or "hint" in b else
             {"text": b["text"], "callback": f"{QUIZ_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
             if "quiz" in b else
             {"text": b["text"], "callback": f"{REACT_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}

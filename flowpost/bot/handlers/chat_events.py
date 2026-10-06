@@ -99,13 +99,17 @@ async def _boosts(bot: Bot, chat_id: int, user_id: int) -> bool:
 
 @router.callback_query(F.data.startswith(HIDDEN_BTN_PREFIX))
 async def on_hidden_button(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
-    """A «Приховане продовження» button: its text for subscribers (or boosters), the outsiders' text for the rest."""
+    """A «Приховане продовження» button: its text for subscribers (or boosters), the outsiders' text for the rest.
+    A hint button («Читати далі — текст») shows its text to everyone."""
     lang = detect_lang(cb.from_user.language_code)
     post_id, _, hid = (cb.data or "")[len(HIDDEN_BTN_PREFIX):].partition(":")
     post = await session.get(Post, int(post_id)) if post_id.isdigit() else None
     button = find_hidden(post, hid) if post is not None and hid else None
     if button is None:
         await cb.answer(t("hidden.gone", locale=lang), show_alert=True)
+        return
+    if "hint" in button:
+        await cb.answer(button["hint"], show_alert=True)
         return
     chat = cb.message.chat if cb.message is not None else None
     if chat is not None and chat.type != "private" and not await _may_see(bot, chat.id, cb.from_user.id, button):

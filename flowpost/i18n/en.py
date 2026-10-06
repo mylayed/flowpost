@@ -211,6 +211,7 @@ TEXTS: dict[str, str] = {
         "<blockquote>🔗 <b>Button — https://link.com</b>\n\n"
         "<i>Separate several buttons in one row with</i> <code>|</code>\n\n"
         "<i>Or reactions:</i>\n<b>👍 / 👎</b>\n\n"
+        "<i>Or a hint button:</i>\n<b>👉 Read more — the hint's text</b>\n\n"
         "💡 <i>See each section for format details.</i></blockquote>"
     ),
     "btn_menu.current": "Under the post now:",
@@ -233,9 +234,19 @@ TEXTS: dict[str, str] = {
         "Send buttons as <code>Button text — link</code>\n\n"
         "Each line is a row. To put several buttons in one row, separate them with <code>|</code>.\n\n"
         "Example:\n<code>Read more — https://t.me/nashe_misto</code>\n"
-        "<code>Website — https://example.com | Chat — https://t.me/chat</code>"
+        "<code>Website — https://example.com | Chat — https://t.me/chat</code>\n\n"
+        "💡 A hint button has text instead of a link, shown in a pop-up after the tap:\n"
+        "<code>👉 Read more — Continued tomorrow at 10:00</code>"
     ),
-    "btn_menu.example": "Correct format example:\n<code>Read more — https://t.me/your_channel</code>",
+    "btn_menu.example": (
+        "Correct format example:\n<code>Read more — https://t.me/your_channel</code>\n"
+        "or a hint button:\n<code>👉 Read more — the hint's text</code>"
+    ),
+    "btn_menu.hint_prompt": (
+        "💡 Hint button «{name}»\n\n"
+        "Send the hint's text — up to {max} characters. Everyone who taps the button will see it."
+    ),
+    "err.hint_long": "Line {line}: the hint's text is longer than {max} characters.",
     "btn_menu.saved": "✅ Buttons saved",
     "err.buttons_empty": "I don't see any buttons.",
     "err.buttons_format": "Line {line}: couldn't recognize the «Text — link» format.",

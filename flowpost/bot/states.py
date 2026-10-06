@@ -20,6 +20,7 @@ class Editor(StatesGroup):
     hidden_btn = State()     # «Кнопки → Приховане продовження»: name, hidden text, text for outsiders, or an AI request
     quiz = State()           # «Кнопки → Вікторина»: an answer, its comment, text for outsiders, or an AI request
     reactions = State()      # «Кнопки → Реакції»: reactions typed as «👍 / 👎»
+    hint = State()           # «Кнопки»: the text of a hint button whose name was sent on its own
 
 
 class ChannelInput(StatesGroup):
