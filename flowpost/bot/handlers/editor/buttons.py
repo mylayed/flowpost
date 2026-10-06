@@ -23,8 +23,6 @@ from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
 
-# Sections of the menu that are not built yet: a tap says so instead of doing nothing.
-SOON = {"btn_fav"}
 EXTRA_ICONS = {"hidden": "🙈 ", "quiz": "❓ ", "comment": "💬 "}
 
 
@@ -125,11 +123,6 @@ async def ed_buttons_set(
     if editing:
         text = t("btn_menu.edit_prompt") + f"\n\n<code>{html.escape(buttons_to_text(typed))}</code>"
     await show_panel(bot, cb.from_user.id, state, text, markup([[btn(t("btn.back"), Ed(a="btn", p=post.id))]]))
-
-
-@router.callback_query(Ed.filter(F.a.in_(SOON)))
-async def ed_buttons_soon(cb: CallbackQuery) -> None:
-    await cb.answer(t("btn_menu.soon"), show_alert=True)
 
 
 @router.callback_query(Ed.filter(F.a == "btn_clear"))

@@ -26,6 +26,8 @@ class User(Base):
     channels_per_page: Mapped[int] = mapped_column(Integer, default=20)
     channel_order: Mapped[list] = mapped_column(JSONType, default=list)  # channel ids pinned to the front
     editor_hidden: Mapped[list] = mapped_column(JSONType, default=list)  # EDITOR_TOGGLES keys hidden from the editor
+    # «Кнопки → Обране»: rows of buttons saved from posts (no ids), to put under another post in one tap
+    favorite_buttons: Mapped[list] = mapped_column(JSONType, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

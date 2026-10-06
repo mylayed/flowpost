@@ -223,7 +223,6 @@ TEXTS: dict[str, str] = {
     "btn_menu.edit": "✏️ Edit",
     "btn_menu.delete": "🗑 Delete",
     "btn_menu.favorites": "🤍 Favorites",
-    "btn_menu.soon": "This section is coming soon 🛠",
     "btn_menu.nothing": "There are no buttons under the post yet.",
     "btn_menu.edit_prompt": "Copy the current buttons, fix them and send them back — they replace the existing ones:",
     "btn_menu.cleared": "Buttons removed",
@@ -1327,6 +1326,19 @@ TEXTS: dict[str, str] = {
         "in Telegram itself: channel settings → Discussion."
     ),
     "cm.preview": "💬 In the channel this button opens the comments under the post",
+    # ---- Buttons → Favorites -------------------------------------------------------------------
+    "fv.title": "🤍 <b>Favorite buttons</b>",
+    "fv.help": "Save the buttons of this post to use them in one tap.",
+    "fv.use_help": "Tap a saved button and it appears under this post.",
+    "fv.save": "Save the buttons of this post",
+    "fv.delete": "🗑 Delete from favorites",
+    "fv.saved": "✅ Buttons saved.",
+    "fv.nothing": "There are no buttons under the post that can be saved. Quiz answers and the giveaway button aren't saved.",
+    "fv.full": "Favorites hold up to {max} buttons. Delete some and try again.",
+    "fv.added": "✅ Added: {text}",
+    "fv.already": "That button is already under the post",
+    "fv.pick_delete": "Pick a button to delete it from Favorites.",
+    "fv.removed": "Deleted from favorites",
     "more.hidden": "🔒 Hidden text for subscribers",
     "more.hidden_prompt": (
         "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "

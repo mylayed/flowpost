@@ -409,6 +409,46 @@ async def test_leave_a_comment_button(h: Harness):
     assert (await _post(h)).parts[0].buttons == []
 
 
+async def test_favorite_buttons(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Перший пост")
+    p = (await _post(h)).id
+    await h.click(Ed(a="btn", p=p))
+    await h.text("Сайт — https://example.com")
+    await h.click(Ed(a="btn", p=p))
+    await h.text("👍 / 👎")
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_comment", p=p))
+
+    await h.click(Ed(a="btn_fav", p=p))
+    h.session.clear()
+    await h.click(Ed(a="fv_save", p=p))
+    assert "Кнопки збережено" in str(h.session.calls)
+    await h.click(Ed(a="fv_save", p=p))  # saving again adds no copies
+    user = await h.db(lambda s: s.scalar(select(User).where(User.tg_id == USER_ID)))
+    assert [[b["text"] for b in row] for row in user.favorite_buttons] == [["Сайт"], ["👍", "👎"], ["💬 Залишити коментар"]]
+    assert all("hid" not in b for row in user.favorite_buttons for b in row)
+
+    # a new post gets them one tap at a time
+    await h.text("/start")
+    await h.text("Другий пост")
+    p2 = (await _post(h)).id
+    assert p2 != p
+    await h.click(Ed(a="btn_fav", p=p2))
+    for i in ("2", "1", "0", "2"):
+        await h.click(Ed(a="fv_use", p=p2, v=i))
+    rows = (await _post(h)).parts[0].buttons
+    assert [[b["text"] for b in r] for r in rows] == [["Сайт"], ["💬 Залишити коментар"], ["👍", "👎"]]
+    assert rows[2][0]["react"] and rows[2][0]["hid"]
+
+    # deleted one by one
+    await h.click(Ed(a="fv_del", p=p2))
+    await h.click(Ed(a="fv_rm", p=p2, v="0"))
+    user = await h.db(lambda s: s.scalar(select(User).where(User.tg_id == USER_ID)))
+    assert [[b["text"] for b in row] for row in user.favorite_buttons] == [["👍", "👎"], ["💬 Залишити коментар"]]
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:
