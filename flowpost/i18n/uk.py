@@ -213,8 +213,11 @@ TEXTS: dict[str, str] = {
         "💡 <i>Дивіться кожен розділ для деталей формату.</i></blockquote>"
     ),
     "btn_menu.current": "Зараз під постом:",
-    "btn_menu.url": "➕ URL Кнопки",
-    "btn_menu.quiz": "➕ Відповідь на вікторину",
+    "btn_menu.url": "URL Кнопки",
+    "btn_menu.url_add": "➕ URL Кнопки",
+    "btn_menu.hidden": "Приховане продовження",
+    "btn_menu.quiz": "Вікторина",
+    "btn_menu.quiz_add": "➕ Відповідь на вікторину",
     "btn_menu.reactions": "Реакції",
     "btn_menu.comment": "Залишити коментар",
     "btn_menu.edit": "✏️ Редагувати",

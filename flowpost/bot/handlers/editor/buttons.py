@@ -21,7 +21,7 @@ from flowpost.services.publisher import Publisher
 router = Router(name="editor_buttons")
 
 # Sections of the menu that are not built yet: a tap says so instead of doing nothing.
-SOON = {"btn_quiz", "btn_react", "btn_comment", "btn_fav"}
+SOON = {"btn_hidden", "btn_quiz", "btn_react", "btn_comment", "btn_fav"}
 
 
 @router.callback_query(Ed.filter(F.a == "btn"))
@@ -42,13 +42,22 @@ async def ed_buttons_menu(
     if len(part.media) > 1:
         lines += ["", "ℹ️ " + t("warn.album_buttons")]
     p = post.id
-    kb = markup([
-        [btn(t("btn_menu.url"), Ed(a="btn_set", p=p))],
-        [btn(t("btn_menu.quiz"), Ed(a="btn_quiz", p=p))],
-        [btn(t("btn_menu.reactions"), Ed(a="btn_react", p=p)), btn(t("btn_menu.comment"), Ed(a="btn_comment", p=p))],
-        [btn(t("btn_menu.edit"), Ed(a="btn_edit", p=p)), btn(t("btn_menu.delete"), Ed(a="btn_clear", p=p))],
-        [btn(t("btn.back"), Ed(a="home", p=p)), btn(t("btn_menu.favorites"), Ed(a="btn_fav", p=p))],
-    ])
+    react_row = [btn(t("btn_menu.reactions"), Ed(a="btn_react", p=p)), btn(t("btn_menu.comment"), Ed(a="btn_comment", p=p))]
+    if typed:  # there are buttons already: add more, or edit/delete what is there
+        rows = [
+            [btn(t("btn_menu.url_add"), Ed(a="btn_set", p=p))],
+            [btn(t("btn_menu.quiz_add"), Ed(a="btn_quiz", p=p))],
+            react_row,
+            [btn(t("btn_menu.edit"), Ed(a="btn_edit", p=p)), btn(t("btn_menu.delete"), Ed(a="btn_clear", p=p))],
+        ]
+    else:
+        rows = [
+            [btn(t("btn_menu.url"), Ed(a="btn_set", p=p))],
+            [btn(t("btn_menu.hidden"), Ed(a="btn_hidden", p=p)), btn(t("btn_menu.quiz"), Ed(a="btn_quiz", p=p))],
+            react_row,
+        ]
+    rows.append([btn(t("btn.back"), Ed(a="home", p=p)), btn(t("btn_menu.favorites"), Ed(a="btn_fav", p=p))])
+    kb = markup(rows)
     # buttons sent straight to the menu replace the current ones
     await state.set_state(Editor.buttons)
     await state.update_data(btn_mode="replace")

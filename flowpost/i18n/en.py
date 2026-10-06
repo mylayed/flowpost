@@ -213,8 +213,11 @@ TEXTS: dict[str, str] = {
         "💡 <i>See each section for format details.</i></blockquote>"
     ),
     "btn_menu.current": "Under the post now:",
-    "btn_menu.url": "➕ URL buttons",
-    "btn_menu.quiz": "➕ Quiz answer",
+    "btn_menu.url": "URL buttons",
+    "btn_menu.url_add": "➕ URL buttons",
+    "btn_menu.hidden": "Hidden continuation",
+    "btn_menu.quiz": "Quiz",
+    "btn_menu.quiz_add": "➕ Quiz answer",
     "btn_menu.reactions": "Reactions",
     "btn_menu.comment": "Leave a comment",
     "btn_menu.edit": "✏️ Edit",
