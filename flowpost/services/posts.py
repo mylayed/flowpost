@@ -268,17 +268,16 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
 
 
 def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
-    """A part's buttons plus, under the last part, the «show hidden text» button when the post has one.
-    Hidden continuations become bot buttons; with `hidden=False` (the free plan) they are left out."""
-    buttons = []
-    for row in post.parts[idx].buttons or []:
-        row = [
+    """A part's buttons plus, under the last part, the «show hidden text» button when the post has one
+    (`hidden=False` on the free plan leaves that one out). Hidden continuations become bot buttons on every plan."""
+    buttons = [
+        [
             {"text": b["text"], "callback": f"{HIDDEN_BTN_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
             if "hidden" in b else b
-            for b in row if hidden or "hidden" not in b
+            for b in row
         ]
-        if row:
-            buttons.append(row)
+        for row in post.parts[idx].buttons or []
+    ]
     if hidden and idx == len(post.parts) - 1 and options_of(post).get("hidden_text"):
         buttons.append([{"text": t("hidden.btn", locale=lang), "callback": f"{HIDDEN_PREFIX}{post.id}"}])
     return buttons
