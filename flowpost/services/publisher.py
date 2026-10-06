@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
     InputMediaAudio,
@@ -29,7 +30,9 @@ from flowpost.services.posts import (
     SPOILERABLE,
     WATERMARKABLE,
     build_markup,
+    comment_url,
     final_text,
+    has_comment_button,
     options_of,
     paid_stars,
     part_buttons,
@@ -371,6 +374,20 @@ class Publisher:
         if self.watermarker is not None:
             await asyncio.gather(*(self.watermarker.apply(self.bot, item, raw) for item, raw in jobs), return_exceptions=True)
 
+    async def _link_comments(self, post: Post, idx: int, lang: str, channel: Channel, sent: SentPart, *, hidden: bool) -> None:
+        """«Залишити коментар» needs the post's own message id, so it gets its link once the post is out."""
+        host = sent.rich_msg or sent.markup_msg
+        url = comment_url(channel.chat_id, channel.username, host) if host else None
+        if url is None:
+            return
+        try:
+            await self.bot.edit_message_reply_markup(
+                chat_id=channel.chat_id, message_id=host,
+                reply_markup=build_markup(part_buttons(post, idx, lang, hidden=hidden, comments=url)),
+            )
+        except TelegramBadRequest as e:
+            log.info("comments link under %s not set: %s", channel.chat_id, e)
+
     @staticmethod
     def remember_uploads(media: list[OutMedia], sent: SentPart) -> bool:
         changed = False
@@ -430,6 +447,8 @@ class Publisher:
             sellable = preview or channel is None or channel.kind == "channel"
             send_opts.paid_stars = paid_stars(opts, part.media) if sellable else None
             sent = await send_part(self.bot, target, text, media, buttons, send_opts)
+            if not preview and channel is not None and has_comment_button(part.buttons):
+                await self._link_comments(post, idx, lang, channel, sent, hidden=wm_allowed)
             if self.remember_uploads(media, sent):
                 flag_modified(part, "media")
             result.parts.append(sent)

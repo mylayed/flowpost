@@ -218,7 +218,6 @@ TEXTS: dict[str, str] = {
     "btn_menu.url_add": "➕ URL buttons",
     "btn_menu.hidden": "Hidden continuation",
     "btn_menu.quiz": "Quiz",
-    "btn_menu.quiz_add": "➕ Quiz answer",
     "btn_menu.reactions": "Reactions",
     "btn_menu.comment": "Leave a comment",
     "btn_menu.edit": "✏️ Edit",
@@ -1319,6 +1318,15 @@ TEXTS: dict[str, str] = {
     "rc.preview": "In the channel, taps here are counted on the button",
     "rc.put": "You picked {text}",
     "rc.taken_back": "Reaction taken back",
+    # ---- Buttons → Leave a comment -------------------------------------------------------------
+    "cm.btn": "💬 Leave a comment",
+    "cm.on": "A «Leave a comment» button will be under the post",
+    "cm.off": "The «Leave a comment» button is removed",
+    "cm.no_discussion": (
+        "The button is added. But for the post to have comments, the channel needs a discussion group "
+        "in Telegram itself: channel settings → Discussion."
+    ),
+    "cm.preview": "💬 In the channel this button opens the comments under the post",
     "more.hidden": "🔒 Hidden text for subscribers",
     "more.hidden_prompt": (
         "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "

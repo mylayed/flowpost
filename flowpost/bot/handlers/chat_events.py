@@ -17,7 +17,7 @@ from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
 from flowpost.services import giveaway, growth
 from flowpost.services.posts import (
-    GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, MAX_HIDDEN, QUIZ_PREFIX, REACT_PREFIX, find_hidden, options_of, quiz_answers,
+    COMMENT_PREFIX, GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, MAX_HIDDEN, QUIZ_PREFIX, REACT_PREFIX, find_hidden, options_of, quiz_answers,
     quiz_locked_text,
 )
 
@@ -233,6 +233,12 @@ async def on_reaction(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> Non
     except TelegramBadRequest as e:
         if "not modified" not in str(e):
             log.info("reaction counters in %s not updated: %s", chat.id, e)
+
+
+@router.callback_query(F.data.startswith(COMMENT_PREFIX))
+async def on_comment_placeholder(cb: CallbackQuery) -> None:
+    """«Залишити коментар» in the owner's preview: in the channel it is a link to the post's comments."""
+    await cb.answer(t("cm.preview", locale=detect_lang(cb.from_user.language_code)), show_alert=True)
 
 
 @router.callback_query(F.data.startswith(GIVEAWAY_PREFIX))

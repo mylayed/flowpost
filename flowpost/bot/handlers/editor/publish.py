@@ -41,6 +41,7 @@ from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.posts import (
     SPOILERABLE,
     build_markup,
+    comment_url,
     final_text,
     options_of,
     part_buttons,
@@ -292,7 +293,10 @@ async def ed_save_published(
                     warnings.append("save.poll_not_editable")
                     continue
                 text = final_text(part.text_html, opts, channel, is_last=i == len(post.parts) - 1, lang=user.lang)
-                buttons = part_buttons(post, i, user.lang)
+                rec = records[i]
+                host = rec.get("rich_msg") or rec.get("markup_msg") or rec.get("text_msg") or rec.get("caption_msg")
+                url = comment_url(channel.chat_id, channel.username, host) if host else None
+                buttons = part_buttons(post, i, user.lang, comments=url)
                 await _edit_published_part(
                     bot, channel, records[i], part, text, warnings, buttons, spoiler=bool(opts["spoiler"]),
                 )

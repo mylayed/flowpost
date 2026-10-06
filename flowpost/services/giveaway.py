@@ -20,7 +20,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services.billing import entitlements
-from flowpost.services.posts import GIVEAWAY_PREFIX, build_markup, part_buttons
+from flowpost.services.posts import GIVEAWAY_PREFIX, build_markup, comment_url, part_buttons
 from flowpost.services.slots import fmt_hm, tz_of
 
 log = logging.getLogger(__name__)
@@ -181,7 +181,8 @@ async def refresh_counter(bot: Bot, session: AsyncSession, gw: Giveaway) -> None
                 continue
             hidden = await entitlements.extras_allowed(session, [channel], utcnow())
             for idx, rec in enumerate((pub.message_ids or {}).get("parts", [])[:len(post.parts)]):
-                rows = part_buttons(post, idx, lang, hidden=hidden)
+                url = comment_url(channel.chat_id, channel.username, rec["markup_msg"]) if rec.get("markup_msg") else None
+                rows = part_buttons(post, idx, lang, hidden=hidden, comments=url)
                 if not rec.get("markup_msg") or not any(b.get("giveaway") == gw.id for row in rows for b in row):
                     continue
                 try:

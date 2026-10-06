@@ -381,6 +381,34 @@ async def test_reaction_buttons(h: Harness):
     assert await tap(READER, no.callback_data) == ["Так 1", "Ні"]  # taken back
 
 
+async def test_leave_a_comment_button(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Що думаєте?")
+    p = (await _post(h)).id
+
+    await h.click(Ed(a="btn", p=p))
+    h.session.clear()
+    await h.click(Ed(a="btn_comment", p=p))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)  # no discussion group yet
+    assert (await _post(h)).parts[0].buttons == [[{"text": "💬 Залишити коментар", "comment": True}]]
+    assert "✔ Залишити коментар" in str(h.session.calls[-1][1].reply_markup)
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    sent = _sent(h, "SendMessage", CHANNEL_CHAT)[0]
+    assert sent.reply_markup.inline_keyboard[0][0].callback_data == f"cm:{p}"  # its message id isn't known yet
+    [edit] = _sent(h, "EditMessageReplyMarkup")
+    url = edit.reply_markup.inline_keyboard[0][0].url
+    assert url.endswith("?comment=1") and ("t.me/testchan/" in url or "t.me/c/9876543210/" in url)
+
+    # switched off again
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_comment", p=p))
+    assert (await _post(h)).parts[0].buttons == []
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

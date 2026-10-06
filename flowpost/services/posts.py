@@ -46,6 +46,7 @@ GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участ�
 HIDDEN_BTN_PREFIX = "hc:"  # callback data of a «Приховане продовження» button: hc:<post id>:<button id>
 QUIZ_PREFIX = "qz:"  # callback data of a quiz answer button: qz:<post id>:<button id>
 REACT_PREFIX = "rc:"  # callback data of a reaction button: rc:<post id>:<button id>
+COMMENT_PREFIX = "cm:"  # «Залишити коментар» before the post is out and its link known: cm:<post id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 BUTTON_STYLES = ("primary", "success", "danger")  # Bot API 9.4 button colours: blue, green, red
 
@@ -89,7 +90,22 @@ def quiz_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
 def bot_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
     """The author's bot buttons — hidden continuations, quiz answers, reactions — in their order: the ones a typed
     list of link buttons doesn't replace."""
-    return [row for row in ([b for b in r if "hidden" in b or "quiz" in b or "react" in b] for r in rows or []) if row]
+    return [row for row in ([b for b in r if BOT_KEYS & b.keys()] for r in rows or []) if row]
+
+
+BOT_KEYS = {"hidden", "quiz", "react", "comment"}
+
+
+def has_comment_button(rows: list[list[dict]] | None) -> bool:
+    return any("comment" in b for row in rows or [] for b in row)
+
+
+def comment_url(chat_id: int, username: str | None, message_id: int) -> str | None:
+    """The link that opens the comments under a channel post: public by username, t.me/c for members otherwise."""
+    if username:
+        return f"https://t.me/{username}/{message_id}?comment=1"
+    raw = str(chat_id)
+    return f"https://t.me/c/{raw[4:]}/{message_id}?comment=1" if raw.startswith("-100") else None
 
 
 def react_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
@@ -295,9 +311,12 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
     ])
 
 
-def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
+def part_buttons(
+    post: Post, idx: int, lang: str, *, hidden: bool = True, comments: str | None = None,
+) -> list[list[dict]]:
     """A part's buttons plus, under the last part, the «show hidden text» button when the post has one
-    (`hidden=False` on the free plan leaves that one out). Hidden continuations, quiz answers and reactions become bot buttons
+    (`hidden=False` on the free plan leaves that one out). «Залишити коментар» links to `comments` (the post's
+    comments) once it's out. Hidden continuations, quiz answers and reactions become bot buttons
     on every plan."""
     buttons = [
         [
@@ -306,7 +325,9 @@ def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> lis
             {"text": b["text"], "callback": f"{QUIZ_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
             if "quiz" in b else
             {"text": b["text"], "callback": f"{REACT_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
-            if "react" in b else b
+            if "react" in b else
+            ({"text": b["text"], "url": comments} if comments else {"text": b["text"], "callback": f"{COMMENT_PREFIX}{post.id}"})
+            if "comment" in b else b
             for b in row
         ]
         for row in post.parts[idx].buttons or []

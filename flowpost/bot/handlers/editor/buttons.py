@@ -1,4 +1,5 @@
-"""Editor → «Кнопки»: what sits under the post — link buttons now, more kinds to come."""
+"""Editor → «Кнопки»: what sits under the post — link buttons, «Залишити коментар», and the menu of the other
+kinds (hidden continuation, quiz, reactions)."""
 from __future__ import annotations
 
 import html
@@ -13,16 +14,56 @@ from flowpost.bot.handlers.editor.react_buttons import save_typed as save_reacti
 from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callback, render_editor, show_panel
 from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.states import Editor
-from flowpost.db.models import User
+from flowpost.db.models import Post, User
+from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, looks_like_reactions, parse_buttons
-from flowpost.services.posts import bot_rows, giveaway_rows, plain_buttons
+from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
 
 # Sections of the menu that are not built yet: a tap says so instead of doing nothing.
-SOON = {"btn_comment", "btn_fav"}
+SOON = {"btn_fav"}
+EXTRA_ICONS = {"hidden": "🙈 ", "quiz": "❓ ", "comment": "💬 "}
+
+
+def buttons_menu(post: Post, idx: int) -> tuple[str, object]:
+    part = post.parts[idx]
+    typed, extra = plain_buttons(part.buttons), bot_rows(part.buttons)
+    lines = [t("btn_menu.title"), "", t("btn_menu.pick"), t("btn_menu.or_send"), "", t("btn_menu.formats")]
+    if typed or extra:
+        lines += ["", t("btn_menu.current")]
+    if typed:
+        lines.append(f"<code>{html.escape(buttons_to_text(typed))}</code>")
+    for row in extra:
+        if "react" in row[0]:
+            lines.append(html.escape(" / ".join(b["text"] for b in row)))
+        else:
+            lines += [EXTRA_ICONS[next(k for k in EXTRA_ICONS if k in b)] + html.escape(b["text"]) for b in row]
+    if giveaway_rows(part.buttons):
+        lines += ["", t("btn_menu.giveaway_kept")]
+    if len(part.media) > 1:
+        lines += ["", "ℹ️ " + t("warn.album_buttons")]
+    p = post.id
+    comment = ("✔ " if has_comment_button(part.buttons) else "") + t("btn_menu.comment")
+    rows = [
+        [btn(t("btn_menu.url_add") if typed or extra else t("btn_menu.url"), Ed(a="btn_set", p=p))],
+        [btn(t("btn_menu.hidden"), Ed(a="btn_hidden", p=p)), btn(t("btn_menu.quiz"), Ed(a="btn_quiz", p=p))],
+        [btn(t("btn_menu.reactions"), Ed(a="btn_react", p=p)), btn(comment, Ed(a="btn_comment", p=p))],
+    ]
+    if typed or extra:  # there are buttons already: edit or delete them too
+        rows.append([btn(t("btn_menu.edit"), Ed(a="btn_edit", p=p)), btn(t("btn_menu.delete"), Ed(a="btn_clear", p=p))])
+    rows.append([btn(t("btn.back"), Ed(a="home", p=p)), btn(t("btn_menu.favorites"), Ed(a="btn_fav", p=p))])
+    return "\n".join(lines), markup(rows)
+
+
+async def _show_menu(bot: Bot, chat_id: int, state: FSMContext, post: Post, idx: int) -> None:
+    # buttons sent straight to the menu replace the current ones
+    await state.set_state(Editor.buttons)
+    await state.update_data(btn_mode="replace", btn_editing=False)
+    text, kb = buttons_menu(post, idx)
+    await show_panel(bot, chat_id, state, text, kb)
 
 
 @router.callback_query(Ed.filter(F.a == "btn"))
@@ -33,43 +74,36 @@ async def ed_buttons_menu(
     if post is None:
         return
     await cb.answer()
+    await _show_menu(bot, cb.from_user.id, state, post, idx)
+
+
+@router.callback_query(Ed.filter(F.a == "btn_comment"))
+async def ed_buttons_comment(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+) -> None:
+    """«Залишити коментар»: a button under the post that opens its comments; a tap switches it on and off."""
+    post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
     part = post.parts[idx]
-    typed, hidden = plain_buttons(part.buttons), bot_rows(part.buttons)
-    lines = [t("btn_menu.title"), "", t("btn_menu.pick"), t("btn_menu.or_send"), "", t("btn_menu.formats")]
-    if typed or hidden:
-        lines += ["", t("btn_menu.current")]
-    if typed:
-        lines.append(f"<code>{html.escape(buttons_to_text(typed))}</code>")
-    for row in hidden:
-        if "react" in row[0]:
-            lines.append(html.escape(" / ".join(b["text"] for b in row)))
-        else:
-            lines += [("🙈 " if "hidden" in b else "❓ ") + html.escape(b["text"]) for b in row]
-    if giveaway_rows(part.buttons):
-        lines += ["", t("btn_menu.giveaway_kept")]
-    if len(part.media) > 1:
-        lines += ["", "ℹ️ " + t("warn.album_buttons")]
-    p = post.id
-    react_row = [btn(t("btn_menu.reactions"), Ed(a="btn_react", p=p)), btn(t("btn_menu.comment"), Ed(a="btn_comment", p=p))]
-    if typed or hidden:  # there are buttons already: add more, or edit/delete what is there
-        rows = [
-            [btn(t("btn_menu.url_add"), Ed(a="btn_set", p=p))],
-            [btn(t("btn_menu.quiz_add"), Ed(a="btn_quiz", p=p))],
-            react_row,
-            [btn(t("btn_menu.edit"), Ed(a="btn_edit", p=p)), btn(t("btn_menu.delete"), Ed(a="btn_clear", p=p))],
-        ]
+    if has_comment_button(part.buttons):
+        part.buttons = [row for row in ([b for b in r if "comment" not in b] for r in part.buttons) if row]
+        await cb.answer(t("cm.off"))
     else:
-        rows = [
-            [btn(t("btn_menu.url"), Ed(a="btn_set", p=p))],
-            [btn(t("btn_menu.hidden"), Ed(a="btn_hidden", p=p)), btn(t("btn_menu.quiz"), Ed(a="btn_quiz", p=p))],
-            react_row,
-        ]
-    rows.append([btn(t("btn.back"), Ed(a="home", p=p)), btn(t("btn_menu.favorites"), Ed(a="btn_fav", p=p))])
-    kb = markup(rows)
-    # buttons sent straight to the menu replace the current ones
-    await state.set_state(Editor.buttons)
-    await state.update_data(btn_mode="replace", btn_editing=False)
-    await show_panel(bot, cb.from_user.id, state, "\n".join(lines), kb)
+        if len(plain_buttons(part.buttons)) + len(bot_rows(part.buttons)) >= MAX_BUTTON_ROWS:
+            await cb.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS), show_alert=True)
+            return
+        part.buttons = (
+            plain_buttons(part.buttons) + bot_rows(part.buttons)
+            + [[{"text": t("cm.btn"), "comment": True}]] + giveaway_rows(part.buttons)
+        )
+        channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+        if any(c.kind == "channel" and not c.discussion_chat_id for c in channels):
+            await cb.answer(t("cm.no_discussion"), show_alert=True)
+        else:
+            await cb.answer(t("cm.on"))
+    await session.flush()
+    await _show_menu(bot, cb.from_user.id, state, post, idx)
 
 
 @router.callback_query(Ed.filter(F.a.in_({"btn_set", "btn_edit"})))
