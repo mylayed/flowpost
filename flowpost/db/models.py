@@ -198,6 +198,20 @@ class GiveawayEntry(Base):
     first_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class QuizVote(Base):
+    """Someone's answer to a quiz under a post: the first answer button they tapped. Only that one counts."""
+
+    __tablename__ = "quiz_votes"
+    __table_args__ = (UniqueConstraint("post_id", "quiz", "user_tg_id", name="uq_quiz_votes_post_quiz_user"),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    quiz: Mapped[str] = mapped_column(String(16))  # which quiz of the post: the "quiz" of its answer buttons
+    answer: Mapped[str] = mapped_column(String(16))  # the "hid" of the tapped button
+    user_tg_id: Mapped[int] = mapped_column(BigInteger)
+    at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Feed(Base):
     """An RSS/Atom source whose new items become posts in a channel (drafts to review, or published right away)."""
 

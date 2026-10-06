@@ -15,13 +15,13 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services.parsing import MAX_BUTTON_ROWS, ParseError, buttons_to_text, parse_buttons
-from flowpost.services.posts import giveaway_rows, hidden_rows, plain_buttons
+from flowpost.services.posts import bot_rows, giveaway_rows, plain_buttons
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
 
 # Sections of the menu that are not built yet: a tap says so instead of doing nothing.
-SOON = {"btn_quiz", "btn_react", "btn_comment", "btn_fav"}
+SOON = {"btn_react", "btn_comment", "btn_fav"}
 
 
 @router.callback_query(Ed.filter(F.a == "btn"))
@@ -33,13 +33,13 @@ async def ed_buttons_menu(
         return
     await cb.answer()
     part = post.parts[idx]
-    typed, hidden = plain_buttons(part.buttons), hidden_rows(part.buttons)
+    typed, hidden = plain_buttons(part.buttons), bot_rows(part.buttons)
     lines = [t("btn_menu.title"), "", t("btn_menu.pick"), t("btn_menu.or_send"), "", t("btn_menu.formats")]
     if typed or hidden:
         lines += ["", t("btn_menu.current")]
     if typed:
         lines.append(f"<code>{html.escape(buttons_to_text(typed))}</code>")
-    lines += [f"🙈 {html.escape(b['text'])}" for row in hidden for b in row]
+    lines += [("🙈 " if "hidden" in b else "❓ ") + html.escape(b["text"]) for row in hidden for b in row]
     if giveaway_rows(part.buttons):
         lines += ["", t("btn_menu.giveaway_kept")]
     if len(part.media) > 1:
@@ -101,7 +101,7 @@ async def ed_buttons_clear(
     post, idx = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
-    if not (plain_buttons(post.parts[idx].buttons) or hidden_rows(post.parts[idx].buttons)):
+    if not (plain_buttons(post.parts[idx].buttons) or bot_rows(post.parts[idx].buttons)):
         await cb.answer(t("btn_menu.nothing"), show_alert=True)
         return
     await cb.answer(t("btn_menu.cleared"))
@@ -127,10 +127,10 @@ async def ed_buttons_input(
     part = post.parts[idx]
     if (await state.get_data()).get("btn_mode") == "add":
         rows = plain_buttons(part.buttons) + rows
-    if len(rows) + len(hidden_rows(part.buttons)) > MAX_BUTTON_ROWS:
+    if len(rows) + len(bot_rows(part.buttons)) > MAX_BUTTON_ROWS:
         await message.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS))
         return
-    part.buttons = rows + hidden_rows(part.buttons) + giveaway_rows(part.buttons)  # those aren't typed as text
+    part.buttons = rows + bot_rows(part.buttons) + giveaway_rows(part.buttons)  # those aren't typed as text
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=t("btn_menu.saved"))
 

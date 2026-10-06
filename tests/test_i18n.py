@@ -8,7 +8,7 @@ SRC = Path(__file__).resolve().parents[1] / "flowpost"
 PREFIXES = (
     "err|warn|ai|alb|save|notify|pay|addch|media|provider|cmd|bot|sch|ed|more|rep|parts|multi|plan|proj|set|sig|wm|"
     "topic|editp|fld|btn|btn_menu|media_menu|menu|start|help|post|pub|cancel|paywall|fmt|"
-    "pro|lnk|jr|rss|plan|tr|wr|gap|hidden|hc"
+    "pro|lnk|jr|rss|plan|tr|wr|gap|hidden|hc|qz"
 )
 KEY_RE = re.compile(r"[\"']((?:" + PREFIXES + r")\.[a-z0-9_]+)[\"']")
 FILE_SUFFIXES = ("png", "jpg", "mp4", "db")

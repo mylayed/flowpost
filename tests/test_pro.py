@@ -271,6 +271,69 @@ async def test_hidden_continuation_buttons(h: Harness):
     assert await tap(READER, boosted) == "Секрет 1"
 
 
+async def test_quiz_buttons(h: Harness):
+    await h.text("/start")
+    await _connect(h)
+    await h.text("Чи кипить вода при 100 °C?")
+    p = (await _post(h)).id
+
+    # two answers by hand, the second in the same row as the first
+    await h.click(Ed(a="btn", p=p))
+    await h.click(Ed(a="btn_quiz", p=p))
+    await h.text("Так")
+    await h.text("✅ Правильно, на рівні моря")
+    await h.click(Ed(a="qz_next", p=p))  # keeps the default text for outsiders
+    h.session.clear()
+    await h.click(Ed(a="qz_row", p=p))
+    await h.text("Ні")
+    await h.text("❌ Кипить")
+    await h.text("Підпишіться, щоб відповісти")
+    assert "#2" in h.session.texts()
+    await h.click(Ed(a="qz_done", p=p))
+    [[yes, no]] = (await _post(h)).parts[0].buttons
+    assert yes["text"] == "Так" and yes["comment"] == "✅ Правильно, на рівні моря" and yes["locked"] == ""
+    assert no["locked"] == "Підпишіться, щоб відповісти" and yes["quiz"] == no["quiz"]
+
+    await h.click(Ed(a="pub", p=p))
+    h.session.clear()
+    await h.click(Ed(a="pubok", p=p))
+    [[b_yes, b_no]] = _sent(h, "SendMessage", CHANNEL_CHAT)[0].reply_markup.inline_keyboard
+
+    async def tap(uid: int, data: str) -> str:
+        h.session.clear()
+        await h.feed(callback_query={
+            "id": "qz", "from": _person(uid), "chat_instance": "ch", "data": data,
+            "message": {"message_id": 55, "date": int(datetime.now().timestamp()), "chat": _chat(), "text": "post"},
+        })
+        return _sent(h, "AnswerCallbackQuery")[0].text
+
+    h.session.member_status[READER] = "left"
+    assert await tap(READER, b_yes.callback_data) == "Спочатку підпишіться на канал."
+    assert await tap(READER, b_no.callback_data) == "Підпишіться, щоб відповісти"
+    h.session.member_status[READER] = "member"
+    assert await tap(READER, b_yes.callback_data) == "✅ Правильно, на рівні моря\n\n📊 Так само відповіли 100% (1 з 1)"
+    # the first answer is the one that counts
+    assert (await tap(READER, b_no.callback_data)).startswith("Ваша відповідь: «Так»")
+    h.session.member_status[READER + 1] = "member"
+    assert await tap(READER + 1, b_no.callback_data) == "❌ Кипить\n\n📊 Так само відповіли 50% (1 з 2)"
+
+    # the AI writes a whole quiz at once
+    ai = h.dp.workflow_data["ai"]
+    ai.client = object()
+
+    async def fake_quiz(request, **kwargs):
+        return {"answers": [{"text": "A", "comment": "✅"}, {"text": "B", "comment": "❌"}], "locked": "Підпишіться"}
+    ai.quiz_buttons = fake_quiz
+    await h.text("Нове питання")
+    p2 = (await _post(h)).id
+    await h.click(Ed(a="btn_quiz", p=p2))
+    await h.click(Ed(a="qz_ai", p=p2))
+    await h.text("вікторина про воду")
+    await h.click(Ed(a="qz_apply", p=p2))
+    rows = (await _post(h)).parts[0].buttons
+    assert [[b["text"] for b in r] for r in rows] == [["A"], ["B"]] and rows[0][0]["locked"] == "Підпишіться"
+
+
 # ---- RSS ----------------------------------------------------------------------------------------
 
 def _rss(*items: tuple[str, str]) -> bytes:

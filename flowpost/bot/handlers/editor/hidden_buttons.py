@@ -19,20 +19,33 @@ from flowpost.bot.keyboards.common import btn, markup
 from flowpost.bot.middlewares.access import AccessMiddleware
 from flowpost.bot.states import Editor
 from flowpost.config import Settings
-from flowpost.db.models import Post, User
+from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 from flowpost.services import analytics
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
-from flowpost.services.billing.subscriptions import Access
 from flowpost.services.parsing import MAX_BUTTON_ROWS, MAX_BUTTON_TEXT
-from flowpost.services.posts import BUTTON_STYLES, MAX_HIDDEN, giveaway_rows, hidden_rows, plain_buttons
+from flowpost.services.posts import BUTTON_STYLES, MAX_HIDDEN, bot_rows, giveaway_rows, plain_buttons
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_hidden_buttons")
 
 COLORS = ("none", *BUTTON_STYLES)
+
+
+def color_kb(post_id: int, style: str | None, action: str, back: str):
+    """The colour picker: each choice painted its own colour, `action` with v=<colour> picks one."""
+    current = style or "none"
+
+    def choice(c: str):
+        return btn(("✅ " if c == current else "") + t(f"hc.color_{c}"), Ed(a=action, p=post_id, v=c), None if c == "none" else c)
+
+    return markup([
+        [choice("none"), choice("primary")],
+        [choice("success"), choice("danger")],
+        [btn(t("btn.back"), Ed(a=back, p=post_id))],
+    ])
 
 
 def _draft(data: dict) -> dict:
@@ -78,7 +91,7 @@ async def _add(session: AsyncSession, post: Post, idx: int, d: dict, made: list[
         "text": b["name"], "hid": secrets.token_hex(3), "hidden": b["hidden"], "locked": b.get("locked") or "",
         "audience": d["audience"], **({"style": d["style"]} if d["style"] else {}),
     }] for b in made]
-    rows = plain_buttons(part.buttons) + hidden_rows(part.buttons) + new
+    rows = plain_buttons(part.buttons) + bot_rows(part.buttons) + new
     if len(rows) > MAX_BUTTON_ROWS:
         return False
     part.buttons = rows + giveaway_rows(part.buttons)
@@ -127,18 +140,7 @@ async def hc_color(
         await _show(bot, cb.from_user.id, state, post.id, d)
         return
     await cb.answer()
-    current = d["style"] or "none"
-
-    def choice(c: str):
-        return btn(("✅ " if c == current else "") + t(f"hc.color_{c}"), Ed(a="hc_color", p=post.id, v=c),
-                   None if c == "none" else c)
-
-    kb = markup([
-        [choice("none"), choice("primary")],
-        [choice("success"), choice("danger")],
-        [btn(t("btn.back"), Ed(a="hc_back", p=post.id))],
-    ])
-    await show_panel(bot, cb.from_user.id, state, t("hc.color_title"), kb)
+    await show_panel(bot, cb.from_user.id, state, t("hc.color_title"), color_kb(post.id, d["style"], "hc_color", "hc_back"))
 
 
 @router.callback_query(Ed.filter(F.a == "hc_skip"))
@@ -204,29 +206,42 @@ async def hc_wrong(message: Message) -> None:
     await message.answer(t("err.expected_input"))
 
 
+async def take_ai(
+    bot: Bot, chat_id: int, session: AsyncSession, state: FSMContext, user: User,
+    ai: AIService, settings: Settings, post: Post, back,
+) -> Channel | None:
+    """Charges one AI text to the post's channel and shows «working»; None (with the reason shown) when it can't.
+    A failed request is refunded with `limits.add`."""
+    channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
+    primary = channels[0] if channels else None
+    owner = user if post.owner_id == user.id else (await session.get(User, post.owner_id) or user)
+    access = await AccessMiddleware._ai_access(session, settings, post, owner)
+    if access is None:
+        await show_panel(bot, chat_id, state, t("hc.ai_paid"), back, resend=True)
+        return None
+    if not ai.enabled:
+        await show_panel(bot, chat_id, state, t("ai.disabled"), back, resend=True)
+        return None
+    if await _quota_left(session, user, settings, access) <= 0:
+        await show_panel(bot, chat_id, state, t("ai.quota_over"), back, resend=True)
+        return None
+    if primary is None or not await limits.take(session, primary.id, "ai_text"):
+        await show_panel(bot, chat_id, state, t("ai.quota_channel_over"), back, resend=True)
+        return None
+    await session.commit()  # the quota row stays locked no longer than the take
+    await show_panel(bot, chat_id, state, t("ai.working"), None, resend=True)
+    return primary
+
+
 async def _generate(
     message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
     ai: AIService, settings: Settings, post: Post, idx: int, d: dict, request: str,
 ) -> None:
     chat_id = message.chat.id
     back = markup([[btn(t("btn.back"), Ed(a="hc_back", p=post.id))]])
-    channels = await channels_repo.get_by_ids(session, user.id, post.channel_ids)
-    primary = channels[0] if channels else None
-    access = await _ai_access(session, settings, post, user)
-    if access is None:
-        await show_panel(bot, chat_id, state, t("hc.ai_paid"), back, resend=True)
+    primary = await take_ai(bot, chat_id, session, state, user, ai, settings, post, back)
+    if primary is None:
         return
-    if not ai.enabled:
-        await show_panel(bot, chat_id, state, t("ai.disabled"), back, resend=True)
-        return
-    if await _quota_left(session, user, settings, access) <= 0:
-        await show_panel(bot, chat_id, state, t("ai.quota_over"), back, resend=True)
-        return
-    if primary is None or not await limits.take(session, primary.id, "ai_text"):
-        await show_panel(bot, chat_id, state, t("ai.quota_channel_over"), back, resend=True)
-        return
-    await session.commit()  # the quota row stays locked no longer than the take
-    await show_panel(bot, chat_id, state, t("ai.working"), None, resend=True)
     try:
         made = await ai.hidden_buttons(
             request, post=post.parts[idx].text_html, audience=d["audience"], max_name=MAX_BUTTON_TEXT,
@@ -249,12 +264,6 @@ async def _generate(
         [btn(t("btn.back"), Ed(a="hc_back", p=post.id))],
     ])
     await show_panel(bot, chat_id, state, "\n".join(lines), kb)
-
-
-async def _ai_access(session: AsyncSession, settings: Settings, post: Post, user: User) -> Access | None:
-    """AI needs the post's channels on a paid plan or trial, like the rest of the AI assistant."""
-    owner = user if post.owner_id == user.id else (await session.get(User, post.owner_id) or user)
-    return await AccessMiddleware._ai_access(session, settings, post, owner)
 
 
 @router.callback_query(Ed.filter(F.a == "hc_apply"))

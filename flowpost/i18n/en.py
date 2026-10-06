@@ -1249,6 +1249,58 @@ TEXTS: dict[str, str] = {
     "hc.saved": "✅ Hidden continuation added",
     "hc.bad_name": "The button's name must be 1 to {max} characters long.",
     "hc.too_long": "Too long: {n} characters, and the pop-up fits up to {max}. Please shorten it.",
+    # ---- Buttons → Quiz ------------------------------------------------------------------------
+    "qz.title": "🧩 <b>Add a quiz answer</b>",
+    "qz.intro": (
+        "A <b>quiz</b> is a post with a question and answer options. Each option shows as its own button. "
+        "Only subscribers can see the results and statistics."
+    ),
+    "qz.step1": "<b>Step 1.</b> Send an answer option. It will be shown on the button.",
+    "qz.step2": (
+        "🧩 <b>Step 2</b>\n\n"
+        "Send a <b>comment on the answer (right or wrong)</b>. Under it people will see how many answered the same.\n\n"
+        "<b>Important.</b> The message can be at most {max} characters, the answer statistics included. "
+        "If it's longer, the statistics get shortened."
+    ),
+    "qz.step3_subs": (
+        "🧩 <b>Step 3</b>\n\n"
+        "Send the message for people who are <b>NOT subscribed</b> to the channel.\n\n"
+        "To keep the current text, tap «Continue».\n\n"
+        "<blockquote><b>Current text:</b>\n\n{current}</blockquote>"
+    ),
+    "qz.step3_boost": (
+        "🧩 <b>Step 3</b>\n\n"
+        "Send the message for people who do <b>NOT boost</b> the channel.\n\n"
+        "To keep the current text, tap «Continue».\n\n"
+        "<blockquote><b>Current text:</b>\n\n{current}</blockquote>"
+    ),
+    "qz.continue": "Continue →",
+    "qz.locked_subs": "Subscribe to the channel first.",
+    "qz.locked_boost": "Boost the channel first.",
+    "qz.added": (
+        "✅ <b>Answer option #{n} added</b>\n\n"
+        "Now you can:\n\n"
+        "› Send another option\n"
+        "› Or finish the quiz"
+    ),
+    "qz.place": "Insert position: {place}",
+    "qz.place_new": "new row",
+    "qz.place_same": "same row",
+    "qz.done": "Finish the quiz",
+    "qz.saved": "✅ The quiz is under the post",
+    "qz.ai_title": "🪄 <b>Quiz</b>",
+    "qz.ai_help": (
+        "AI writes the quiz: answer options with a comment for each. Just send a request: "
+        "a topic or a question, with answer options if you have them.\n\n"
+        "For a more precise result you can give:\n\n"
+        "› The answer options and which one is right\n"
+        "› A comment for each\n"
+        "› The text for non-subscribers"
+    ),
+    "qz.ai_result": "🪄 <b>Here's what came out</b>",
+    "qz.yours": "Your answer: «{text}»",
+    "qz.stats": "📊 {pct}% answered the same ({n} of {total})",
+    "qz.stats_short": "📊 {pct}%",
     "more.hidden": "🔒 Hidden text for subscribers",
     "more.hidden_prompt": (
         "🔒 Send the text (up to {max} characters) only the channel's subscribers will see: a «Show hidden text» "

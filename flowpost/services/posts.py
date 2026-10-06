@@ -44,6 +44,7 @@ DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", 
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
 GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>
 HIDDEN_BTN_PREFIX = "hc:"  # callback data of a «Приховане продовження» button: hc:<post id>:<button id>
+QUIZ_PREFIX = "qz:"  # callback data of a quiz answer button: qz:<post id>:<button id>
 MAX_HIDDEN = 200  # Telegram's limit for the text of a callback alert
 BUTTON_STYLES = ("primary", "success", "danger")  # Bot API 9.4 button colours: blue, green, red
 
@@ -70,7 +71,7 @@ def paid_stars(opts: dict, media: list[dict]) -> int | None:
 
 
 def plain_buttons(rows: list[list[dict]] | None) -> list[list[dict]]:
-    """The link buttons the author typed in, without hidden continuations or a giveaway's «Беру участь» button."""
+    """The link buttons the author typed in, without bot buttons (hidden continuations, quiz answers, giveaways)."""
     return [row for row in ([b for b in r if "url" in b] for r in rows or []) if row]
 
 
@@ -79,8 +80,29 @@ def hidden_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
     return [row for row in ([b for b in r if "hidden" in b] for r in rows or []) if row]
 
 
+def quiz_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
+    """Quiz answer buttons: {"text", "hid", "quiz", "comment", "locked", "audience", "style"?}."""
+    return [row for row in ([b for b in r if "quiz" in b] for r in rows or []) if row]
+
+
+def bot_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
+    """The author's bot buttons — hidden continuations and quiz answers — in their order: the ones a typed list of
+    link buttons doesn't replace."""
+    return [row for row in ([b for b in r if "hidden" in b or "quiz" in b] for r in rows or []) if row]
+
+
 def find_hidden(post: Post, hid: str) -> dict | None:
+    """A hidden continuation or quiz answer button by its id."""
     return next((b for part in post.parts for row in part.buttons or [] for b in row if b.get("hid") == hid), None)
+
+
+def quiz_locked_text(button: dict, lang: str | None = None) -> str:
+    """What someone who may not answer a quiz sees: the author's text, or a nudge to subscribe (or boost)."""
+    return button.get("locked") or t(f"qz.locked_{button.get('audience') or 'subs'}", locale=lang)
+
+
+def quiz_answers(post: Post, quiz: str) -> list[dict]:
+    return [b for part in post.parts for row in part.buttons or [] for b in row if b.get("quiz") == quiz]
 
 
 def giveaway_rows(rows: list[list[dict]] | None) -> list[list[dict]]:
@@ -269,11 +291,14 @@ def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | Non
 
 def part_buttons(post: Post, idx: int, lang: str, *, hidden: bool = True) -> list[list[dict]]:
     """A part's buttons plus, under the last part, the «show hidden text» button when the post has one
-    (`hidden=False` on the free plan leaves that one out). Hidden continuations become bot buttons on every plan."""
+    (`hidden=False` on the free plan leaves that one out). Hidden continuations and quiz answers become bot buttons
+    on every plan."""
     buttons = [
         [
             {"text": b["text"], "callback": f"{HIDDEN_BTN_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
-            if "hidden" in b else b
+            if "hidden" in b else
+            {"text": b["text"], "callback": f"{QUIZ_PREFIX}{post.id}:{b['hid']}", "style": b.get("style")}
+            if "quiz" in b else b
             for b in row
         ]
         for row in post.parts[idx].buttons or []

@@ -7,14 +7,19 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, ChatJoinRequest, ChatMemberUpdated
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.db.models import Post, User
+from flowpost.db.models import Post, QuizVote, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import detect_lang, t
 from flowpost.services import giveaway, growth
-from flowpost.services.posts import GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, find_hidden, options_of
+from flowpost.services.posts import (
+    GIVEAWAY_PREFIX, HIDDEN_BTN_PREFIX, HIDDEN_PREFIX, MAX_HIDDEN, QUIZ_PREFIX, find_hidden, options_of, quiz_answers,
+    quiz_locked_text,
+)
 
 log = logging.getLogger(__name__)
 router = Router(name="chat_events")
@@ -103,20 +108,69 @@ async def on_hidden_button(cb: CallbackQuery, bot: Bot, session: AsyncSession) -
         await cb.answer(t("hidden.gone", locale=lang), show_alert=True)
         return
     chat = cb.message.chat if cb.message is not None else None
-    if chat is not None and chat.type != "private":  # in the bot's chat it's the owner's preview
-        if button.get("audience") == "boost":
-            allowed = await _boosts(bot, chat.id, cb.from_user.id)
-        else:
-            try:
-                allowed = _is_in(await bot.get_chat_member(chat.id, cb.from_user.id))
-            except TelegramAPIError as e:
-                log.info("membership check in %s failed: %s", chat.id, e)
-                allowed = False
-        if not allowed:
-            default = "hidden.need_boost" if button.get("audience") == "boost" else "hidden.subscribe"
-            await cb.answer(button.get("locked") or t(default, locale=lang), show_alert=True)
-            return
+    if chat is not None and chat.type != "private" and not await _may_see(bot, chat.id, cb.from_user.id, button):
+        default = "hidden.need_boost" if button.get("audience") == "boost" else "hidden.subscribe"
+        await cb.answer(button.get("locked") or t(default, locale=lang), show_alert=True)
+        return
     await cb.answer(button["hidden"], show_alert=True)
+
+
+async def _may_see(bot: Bot, chat_id: int, user_id: int, button: dict) -> bool:
+    """A subscriber of the chat — or a booster, for a button meant for boosters."""
+    if button.get("audience") == "boost":
+        return await _boosts(bot, chat_id, user_id)
+    try:
+        return _is_in(await bot.get_chat_member(chat_id, user_id))
+    except TelegramAPIError as e:
+        log.info("membership check in %s failed: %s", chat_id, e)
+        return False
+
+
+@router.callback_query(F.data.startswith(QUIZ_PREFIX))
+async def on_quiz_answer(cb: CallbackQuery, bot: Bot, session: AsyncSession) -> None:
+    """A quiz answer button: the first answer someone taps is theirs; every tap shows that answer's comment and how
+    many people answered the same."""
+    lang = detect_lang(cb.from_user.language_code)
+    post_id, _, hid = (cb.data or "")[len(QUIZ_PREFIX):].partition(":")
+    post = await session.get(Post, int(post_id)) if post_id.isdigit() else None
+    button = find_hidden(post, hid) if post is not None and hid else None
+    if button is None or "quiz" not in button:
+        await cb.answer(t("hidden.gone", locale=lang), show_alert=True)
+        return
+    chat = cb.message.chat if cb.message is not None else None
+    if chat is None or chat.type == "private":  # the owner's preview: nothing is counted
+        await cb.answer(button["comment"][:MAX_HIDDEN], show_alert=True)
+        return
+    if not await _may_see(bot, chat.id, cb.from_user.id, button):
+        await cb.answer(quiz_locked_text(button, lang)[:MAX_HIDDEN], show_alert=True)
+        return
+    quiz = button["quiz"]
+    vote = await session.scalar(select(QuizVote).where(
+        QuizVote.post_id == post.id, QuizVote.quiz == quiz, QuizVote.user_tg_id == cb.from_user.id,
+    ))
+    if vote is None:
+        try:
+            async with session.begin_nested():
+                vote = QuizVote(post_id=post.id, quiz=quiz, answer=hid, user_tg_id=cb.from_user.id)
+                session.add(vote)
+        except IntegrityError:  # a double tap: the other one counted it
+            vote = await session.scalar(select(QuizVote).where(
+                QuizVote.post_id == post.id, QuizVote.quiz == quiz, QuizVote.user_tg_id == cb.from_user.id,
+            ))
+    mine = next((b for b in quiz_answers(post, quiz) if b["hid"] == vote.answer), button)
+    counts = dict((await session.execute(
+        select(QuizVote.answer, func.count()).where(QuizVote.post_id == post.id, QuizVote.quiz == quiz)
+        .group_by(QuizVote.answer)
+    )).all())
+    total, same = sum(counts.values()), counts.get(mine["hid"], 0)
+    pct = round(same * 100 / total) if total else 0
+    head = t("qz.yours", text=mine["text"], locale=lang) + "\n\n" if mine["hid"] != hid else ""
+    stats = t("qz.stats", pct=pct, n=same, total=total, locale=lang)
+    if len(head) + len(mine["comment"]) + len(stats) + 2 > MAX_HIDDEN:
+        stats = t("qz.stats_short", pct=pct, locale=lang)
+    room = MAX_HIDDEN - len(head) - len(stats) - 2
+    comment = mine["comment"] if len(mine["comment"]) <= room else mine["comment"][:room - 1] + "…"
+    await cb.answer(f"{head}{comment}\n\n{stats}", show_alert=True)
 
 
 @router.callback_query(F.data.startswith(GIVEAWAY_PREFIX))
