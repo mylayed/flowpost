@@ -25,6 +25,7 @@ class Editor(StatesGroup):
 
 class ChannelInput(StatesGroup):
     signature = State()
+    signature_add = State()
     wm_text = State()
     wm_image = State()
     ai_style = State()

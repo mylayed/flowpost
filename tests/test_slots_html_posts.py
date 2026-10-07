@@ -65,7 +65,7 @@ def test_visible_len_and_snippet():
 
 
 def _channel(**kw):
-    base = dict(id=1, title="Діти в місті", username="dnipro_dityvmisti", signature_template=None, chat_id=-1001234567890)
+    base = dict(id=1, title="Діти в місті", username="dnipro_dityvmisti", signature_template=None, signature_extra=[], chat_id=-1001234567890)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -78,6 +78,10 @@ def test_signature_and_final_text():
     text = final_text("Текст", {"signature": True, "ad_label": True}, ch, is_last=True, lang="uk")
     assert text.startswith("Текст\n\n<i>Реклама</i>\n\n<a href=")
     assert final_text("Текст", {"signature": True}, ch, is_last=False, lang="uk") == "Текст"
+    extra = _channel(signature_extra=[{"id": 2, "html": "🍳 {title}"}])
+    assert final_text("Текст", {"signature": True, "signature_tpl": 2}, extra, is_last=True, lang="uk") == "Текст\n\n🍳 Діти в місті"
+    # a deleted template falls back to the main one
+    assert render_signature(extra, 5) == render_signature(ch)
 
 
 def test_group_rules():

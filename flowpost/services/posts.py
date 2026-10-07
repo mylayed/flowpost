@@ -24,6 +24,7 @@ DEFAULT_OPTIONS: dict = {
     "auto_delete_hours": None,
     "watermark": False,
     "signature": True,
+    "signature_tpl": 0,  # which of the channel's auto-signature templates goes under the post (see signature_templates)
     "ad_label": False,
     "comments": True,
     "hidden_text": None,  # shown only to channel subscribers, behind a button under the post
@@ -277,8 +278,16 @@ def channel_link_html(channel: Channel) -> str:
     return f'<a href="{channel_link(channel)}">{title}</a>'
 
 
-def render_signature(channel: Channel) -> str:
-    template = channel.signature_template or default_signature_template(channel)
+def signature_templates(channel: Channel) -> list[tuple[int, str]]:
+    """(id, template) of every auto-signature: 0 is the main one, then those added with «Додати шаблон»."""
+    main = channel.signature_template or default_signature_template(channel)
+    return [(0, main)] + [(int(x["id"]), x["html"]) for x in (channel.signature_extra or [])]
+
+
+def render_signature(channel: Channel, template_id: int = 0) -> str:
+    """The signature from template `template_id`; the main one when that template is gone (or the channel never had it)."""
+    templates = dict(signature_templates(channel))
+    template = templates.get(int(template_id or 0)) or templates[0]
     link = f"https://t.me/{channel.username}" if channel.username else ""
     return (
         template.replace("{title}", html.escape(channel.title or ""))
@@ -292,7 +301,7 @@ def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: 
     if is_last and opts.get("ad_label"):
         chunks.append(f"<i>{html.escape(t('post.ad_label', locale=lang))}</i>")
     if is_last and opts.get("signature") and channel is not None:
-        signature = render_signature(channel).strip()
+        signature = render_signature(channel, opts.get("signature_tpl") or 0).strip()
         if signature:
             chunks.append(signature)
     return "\n\n".join(chunks)

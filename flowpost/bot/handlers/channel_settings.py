@@ -30,7 +30,9 @@ from flowpost.services.delivery import engagement_score, publication_message_ids
 from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
 from flowpost.services.moderation import MAX_BANNED_WORDS, moderation_settings
 from flowpost.services.parsing import ParseError, parse_topic
-from flowpost.services.posts import default_signature_template, message_link, options_of, part_preview_text, render_signature
+from flowpost.services.posts import (
+    message_link, options_of, part_preview_text, render_signature, signature_templates,
+)
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import POSITIONS, wm_configured, wm_settings
 
@@ -42,6 +44,7 @@ router = Router(name="channel_settings")
 POSITION_ICONS = {"tl": "↖️", "tc": "⬆️", "tr": "↗️", "ml": "⬅️", "mc": "⏺", "mr": "➡️", "bl": "↙️", "bc": "⬇️", "br": "↘️"}
 MAX_WM_TEXT = 40
 MAX_SIGNATURE = 512
+MAX_SIGNATURE_TEMPLATES = 10
 MAX_STYLE = 1500
 
 
@@ -161,30 +164,57 @@ def wm_position_menu(channel: Channel, post_id: int) -> tuple[str, InlineKeyboar
     return t("wm.position_title"), markup(rows)
 
 
-def sig_menu(channel: Channel, post: Post | None, *, can_settings: bool = True) -> tuple[str, InlineKeyboardMarkup]:
+def sig_menu(
+    channel: Channel, post: Post | None, *, can_settings: bool = True, can_templates: bool = True,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """`can_templates` — may add and delete the extra templates (the owner and admins with posts or settings rights)."""
     p = post.id if post else 0
     c = channel.id
-    template = channel.signature_template or default_signature_template(channel)
-    lines = [
-        t("sig.title", title=html.escape(channel.title)),
-        "",
-        t("sig.preview"),
-        render_signature(channel),
-        "",
-        t("sig.template", template=html.escape(template)),
-        "",
-        t("sig.help"),
-    ]
+    templates = signature_templates(channel)
+    ids = [tid for tid, _ in templates]
+    chosen = options_of(post)["signature_tpl"] if post is not None else 0
+    chosen = chosen if chosen in ids else 0
+    lines = [t("sig.title", title=html.escape(channel.title)), ""]
+    if len(templates) == 1:
+        lines += [t("sig.preview"), render_signature(channel), "", t("sig.template", template=html.escape(templates[0][1]))]
+    else:
+        for n, (tid, template) in enumerate(templates, 1):
+            head = t("sig.item_main", n=n) if tid == 0 else t("sig.item", n=n)
+            if post is not None and tid == chosen:
+                head += " ✅"
+            lines += [head, render_signature(channel, tid), f"<code>{html.escape(template)}</code>", ""]
+        lines.pop()
+    lines += ["", t("sig.help")]
     rows = []
     if post is not None:
         rows.append([btn(on(options_of(post)["signature"]) + t("sig.apply_post"), Cs(a="sig_post", c=c, p=p))])
+        if len(templates) > 1:
+            picks = [btn(("✅ " if tid == chosen else "") + t("sig.pick", n=n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))
+                     for n, (tid, _) in enumerate(templates, 1)]
+            rows += [picks[i:i + 3] for i in range(0, len(picks), 3)]
     if can_settings:
         rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
         if channel.signature_template:
             rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
+    if can_templates:
+        if len(templates) < MAX_SIGNATURE_TEMPLATES:
+            rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
+        dels = [btn(t("sig.delete", n=n), Cs(a="sig_del", c=c, p=p, v=str(tid)))
+                for n, (tid, _) in enumerate(templates, 1) if tid != 0]
+        rows += [dels[i:i + 3] for i in range(0, len(dels), 3)]
+    if can_settings:
         rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
+
+
+async def sig_rights(session: AsyncSession, channel: Channel, user: User) -> dict:
+    """sig_menu's keyword arguments for `user`."""
+    if channel.owner_id == user.id:
+        return {"can_settings": True, "can_templates": True}
+    can_settings = await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+    can_posts = await channel_admins_repo.has_permission(session, channel.id, user.id, "posts")
+    return {"can_settings": can_settings, "can_templates": can_settings or can_posts}
 
 
 def cm_menu(channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
@@ -296,19 +326,22 @@ async def _ask_input(cb: CallbackQuery, state: FSMContext, new_state, channel: C
     await state.set_state(new_state)
     await state.update_data(cs_channel=channel.id, cs_post=post_id)
     back = Cs(a="wm", c=channel.id, p=post_id) if new_state in (ChannelInput.wm_text, ChannelInput.wm_image) else (
-        Cs(a="sig", c=channel.id, p=post_id) if new_state == ChannelInput.signature else (
+        Cs(a="sig", c=channel.id, p=post_id) if new_state in (ChannelInput.signature, ChannelInput.signature_add) else (
             Ed(a="home", p=post_id) if post_id else Pj(a="ch", c=channel.id)
         )
     )
     await _edit(cb, prompt, markup([[btn(t("btn.back"), back)]]))
 
 
-async def _input_channel(message: Message, session: AsyncSession, state: FSMContext, user: User) -> Channel | None:
+async def _input_channel(
+    message: Message, session: AsyncSession, state: FSMContext, user: User, perms: tuple[str, ...] = ("settings",),
+) -> Channel | None:
+    """`perms` — a delegated admin needs any one of these."""
     data = await state.get_data()
     channel = await channels_repo.get_channel(session, user.id, int(data.get("cs_channel") or 0))
     ok = channel is not None and (
         channel.owner_id == user.id
-        or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
+        or any([await channel_admins_repo.has_permission(session, channel.id, user.id, perm) for perm in perms])
     )
     if not ok:
         await state.set_state(None)
@@ -430,27 +463,35 @@ async def cs_wm_image(cb: CallbackQuery, callback_data: Cs, session: AsyncSessio
     await _ask_input(cb, state, ChannelInput.wm_image, channel, callback_data.p, t("wm.image_prompt"))
 
 
-@router.callback_query(Cs.filter(F.a.in_({"sig", "sig_post", "sig_reset", "sig_def"})))
+@router.callback_query(Cs.filter(F.a.in_({"sig", "sig_post", "sig_pick", "sig_del", "sig_reset", "sig_def"})))
 async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
     a = callback_data.a
-    # Viewing the menu or toggling signature for one's own post only needs post authoring rights;
-    # resetting the template or flipping the channel default changes channel-level config.
-    require = None if a == "sig" else ("posts" if a == "sig_post" else "settings")
+    # Viewing the menu or toggling/picking the signature for one's own post only needs post authoring rights;
+    # deleting an extra template is checked below (posts or settings); resetting the main template or flipping
+    # the channel default changes channel-level config.
+    require = None if a in ("sig", "sig_del") else ("posts" if a in ("sig_post", "sig_pick") else "settings")
     channel, post = await _context(cb, callback_data, session, user, require=require)
     if channel is None:
+        return
+    rights = await sig_rights(session, channel, user)
+    if a == "sig_del" and not rights["can_templates"]:
+        await cb.answer(t("err.not_found"), show_alert=True)
         return
     if post is not None and cb.message is not None:
         await state.update_data(panel_id=cb.message.message_id, post_id=post.id)
     if a == "sig_post" and post is not None:
         post.options = {**(post.options or {}), "signature": not options_of(post)["signature"]}
+    elif a == "sig_pick" and post is not None and callback_data.v.isdigit():
+        post.options = {**(post.options or {}), "signature": True, "signature_tpl": int(callback_data.v)}
+    elif a == "sig_del" and callback_data.v.isdigit():
+        channel.signature_extra = [x for x in (channel.signature_extra or []) if int(x["id"]) != int(callback_data.v)]
     elif a == "sig_reset":
         channel.signature_template = None
     elif a == "sig_def":
         channel.signature_on = not channel.signature_on
     await session.flush()
-    await cb.answer()
-    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(session, channel.id, user.id, "settings")
-    await _edit(cb, *sig_menu(channel, post, can_settings=can_settings))
+    await cb.answer(t("sig.deleted") if a == "sig_del" else None)
+    await _edit(cb, *sig_menu(channel, post, **rights))
 
 
 @router.callback_query(Cs.filter(F.a == "sig_edit"))
@@ -460,6 +501,21 @@ async def cs_signature_edit(cb: CallbackQuery, callback_data: Cs, session: Async
         return
     await cb.answer()
     await _ask_input(cb, state, ChannelInput.signature, channel, callback_data.p, t("sig.prompt"))
+
+
+@router.callback_query(Cs.filter(F.a == "sig_add"))
+async def cs_signature_add(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel, _ = await _context(cb, callback_data, session, user, require=None)
+    if channel is None:
+        return
+    if not (await sig_rights(session, channel, user))["can_templates"]:
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return
+    if len(signature_templates(channel)) >= MAX_SIGNATURE_TEMPLATES:
+        await cb.answer(t("sig.too_many", max=MAX_SIGNATURE_TEMPLATES), show_alert=True)
+        return
+    await cb.answer()
+    await _ask_input(cb, state, ChannelInput.signature_add, channel, callback_data.p, t("sig.add_prompt"))
 
 
 @router.callback_query(Cs.filter(F.a.in_({"ai_style", "ai_style_reset"})))
@@ -659,6 +715,41 @@ async def in_signature(message: Message, bot: Bot, session: AsyncSession, state:
     await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("sig.saved"))
 
 
+@router.message(ChannelInput.signature_add, F.text)
+async def in_signature_add(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
+                           publisher: Publisher, settings: Settings) -> None:
+    channel = await _input_channel(message, session, state, user, perms=("settings", "posts"))
+    if channel is None:
+        return
+    template = _template_from_message(message)
+    if not template or visible_len(template) > MAX_SIGNATURE:
+        await message.answer(t("sig.add_prompt"))
+        return
+    templates = signature_templates(channel)
+    if len(templates) >= MAX_SIGNATURE_TEMPLATES:
+        await state.set_state(None)
+        await message.answer(t("sig.too_many", max=MAX_SIGNATURE_TEMPLATES))
+        return
+    new_id = max(tid for tid, _ in templates) + 1
+    channel.signature_extra = [*(channel.signature_extra or []), {"id": new_id, "html": template}]
+    if not sanitize_html(render_signature(channel, new_id)):
+        channel.signature_extra = channel.signature_extra[:-1]
+        await message.answer(t("sig.invalid"))
+        return
+    post_id = (await state.get_data()).get("cs_post")
+    if post_id:
+        post = await posts_repo.get_post(session, user.id, int(post_id))
+        if post is not None:
+            post.options = {**(post.options or {}), "signature": True, "signature_tpl": new_id}
+        await session.flush()
+        await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("sig.added"))
+        return
+    await session.flush()
+    await state.set_state(None)
+    text, kb = sig_menu(channel, None, **await sig_rights(session, channel, user))
+    await message.answer(t("sig.added") + "\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
+
+
 @router.message(ChannelInput.ai_style, F.text)
 async def in_ai_style(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
                    settings: Settings) -> None:
@@ -725,6 +816,7 @@ async def in_auto_comment(message: Message, session: AsyncSession, state: FSMCon
 @router.message(ChannelInput.wm_image)
 @router.message(ChannelInput.wm_text)
 @router.message(ChannelInput.signature)
+@router.message(ChannelInput.signature_add)
 @router.message(ChannelInput.ai_style)
 @router.message(ChannelInput.topic)
 @router.message(ChannelInput.auto_comment)

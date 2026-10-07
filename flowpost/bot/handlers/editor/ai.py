@@ -129,7 +129,7 @@ async def run_ai(
     part = post.parts[idx]
     limit = CAPTION_LIMIT if part.media else TEXT_LIMIT
     if primary is not None and (post.options or {}).get("signature", True):
-        limit -= visible_len(render_signature(primary)) + 2
+        limit -= visible_len(render_signature(primary, (post.options or {}).get("signature_tpl") or 0)) + 2
     image = None
     if image_file_id:
         buf = await bot.download(image_file_id)

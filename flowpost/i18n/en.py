@@ -355,6 +355,19 @@ TEXTS: dict[str, str] = {
     ),
     "sig.invalid": "The signature came out empty. Try another template.",
     "sig.saved": "✅ Auto-signature saved",
+    "sig.item_main": "<b>Template {n}</b> · main",
+    "sig.item": "<b>Template {n}</b>",
+    "sig.pick": "Template {n}",
+    "sig.add": "➕ Add template",
+    "sig.delete": "🗑 Template {n}",
+    "sig.deleted": "Template deleted",
+    "sig.add_prompt": (
+        "Send a new signature template (up to 512 characters). You'll be able to pick it in the post editor "
+        "with the «✍️ Auto-signature» button. Telegram formatting or HTML is fine, for example:\n"
+        "<code>👉 &lt;a href=\"{{link}}\"&gt;{{title}}&lt;/a&gt;</code>"
+    ),
+    "sig.added": "✅ Template added",
+    "sig.too_many": "You can have up to {max} templates. Delete one to add a new one.",
 
     # ---- Comments (discussion group) ----------------------------------------------------------
     "cm.title": "💬 <b>Comments</b> · {title}",

@@ -113,7 +113,7 @@ async def run_check(
     primary = await _primary(session, user, post)
     limit = CAPTION_LIMIT if part.media else TEXT_LIMIT
     if primary is not None and (post.options or {}).get("signature", True):
-        limit -= visible_len(render_signature(primary)) + 2
+        limit -= visible_len(render_signature(primary, (post.options or {}).get("signature_tpl") or 0)) + 2
     await show_panel(bot, chat_id, state, t("check.working"), None)
     try:
         report = await ai.check_post(part.text_html, lang=user.lang, style=primary.ai_style_prompt if primary else None)
@@ -208,7 +208,7 @@ async def run_series(
     primary = await _primary(session, user, post)
     limit = TEXT_LIMIT
     if primary is not None and (post.options or {}).get("signature", True):
-        limit -= visible_len(render_signature(primary)) + 2
+        limit -= visible_len(render_signature(primary, (post.options or {}).get("signature_tpl") or 0)) + 2
     await show_panel(bot, chat_id, state, t("series.working"), None, resend=resend)
     try:
         texts = await ai.split_series(

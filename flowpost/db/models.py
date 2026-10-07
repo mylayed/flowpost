@@ -68,6 +68,8 @@ class Channel(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     signature_template: Mapped[str | None] = mapped_column(Text)
     signature_on: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Extra auto-signature templates to pick from in the editor: [{"id": int, "html": str}] (id 0 is `signature_template`)
+    signature_extra: Mapped[list] = mapped_column(JSONType, default=list)
     watermark: Mapped[dict] = mapped_column(JSONType, default=dict)
     ai_style_prompt: Mapped[str | None] = mapped_column(Text)
     notify_published: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ed
-from flowpost.bot.handlers.channel_settings import sig_menu, wm_menu
+from flowpost.bot.handlers.channel_settings import sig_menu, sig_rights, wm_menu
 from flowpost.bot.handlers.editor.view import post_from_callback, show_panel
 from flowpost.db.models import User
 from flowpost.db.repo import channel_admins as channel_admins_repo
@@ -30,11 +30,13 @@ async def ed_channel_menu(
         return
     await cb.answer()
     channel = channels[0]
-    can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(
-        session, channel.id, user.id, "settings"
-    )
-    builder = wm_menu if callback_data.a == "wm" else sig_menu
-    text, kb = builder(channel, post, can_settings=can_settings)
+    if callback_data.a == "wm":
+        can_settings = channel.owner_id == user.id or await channel_admins_repo.has_permission(
+            session, channel.id, user.id, "settings"
+        )
+        text, kb = wm_menu(channel, post, can_settings=can_settings)
+    else:
+        text, kb = sig_menu(channel, post, **await sig_rights(session, channel, user))
     if len(channels) > 1:
         text += "\n\n" + t("ed.primary_channel_note")
     await show_panel(bot, cb.from_user.id, state, text, kb)
