@@ -184,26 +184,27 @@ def sig_menu(
                 head += " ✅"
             lines += [head, render_signature(channel, tid), f"<code>{html.escape(template)}</code>", ""]
         lines.pop()
-    lines += ["", t("sig.help")]
+    if post is None:
+        lines += ["", t("sig.help")]
     rows = []
     if post is not None:
         rows.append([btn(on(options_of(post)["signature"]) + t("sig.apply_post"), Cs(a="sig_post", c=c, p=p))])
         if len(templates) > 1:
             rows += [[btn(("✅ " if tid == chosen else "") + sig_label(channel, tid, n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))]
                      for n, (tid, _) in enumerate(templates, 1)]
-    rights = {"can_settings": can_settings, "can_templates": can_templates}
-    if sig_editable(templates, rights):
-        rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
-    if can_settings and channel.signature_template:
-        rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
-    if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
-        rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
-    deletable = sig_deletable(templates, rights)
-    if post is None:  # deleting templates is for the channel card, not the post editor
+    if post is None:  # managing the templates is for the channel card; the post editor only picks one
+        rights = {"can_settings": can_settings, "can_templates": can_templates}
+        if sig_editable(templates, rights):
+            rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
+        if can_settings and channel.signature_template:
+            rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
+        if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
+            rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
+        deletable = sig_deletable(templates, rights)
         rows += [[btn("🗑 " + sig_label(channel, tid, n), Cs(a="sig_del", c=c, p=p, v=str(tid)))]
                  for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
-    if can_settings:
-        rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
+        if can_settings:
+            rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
 

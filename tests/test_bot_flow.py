@@ -259,7 +259,7 @@ async def test_full_editor_flow(h: Harness):
         Cs.unpack(b.callback_data).a for row in h.session.calls[-1][1].reply_markup.inline_keyboard for b in row
         if (b.callback_data or "").startswith("cs:")
     }
-    assert {"sig_pick", "sig_add"} <= editor_actions and "sig_del" not in editor_actions  # deleting is in the channel card
+    assert editor_actions == {"sig_post", "sig_pick"}  # managing the templates is in the channel card
     await h.click(Cs(a="sig_pick", c=c, p=p, v="0"))
     assert (await _post(h)).options["signature_tpl"] == 0
     # «Змінити шаблон» asks which one when there are several
