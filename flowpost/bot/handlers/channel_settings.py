@@ -192,20 +192,31 @@ def sig_menu(
             picks = [btn(("✅ " if tid == chosen else "") + t("sig.pick", n=n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))
                      for n, (tid, _) in enumerate(templates, 1)]
             rows += [picks[i:i + 3] for i in range(0, len(picks), 3)]
-    if can_settings:
+    rights = {"can_settings": can_settings, "can_templates": can_templates}
+    if sig_editable(templates, rights):
         rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
-        if channel.signature_template:
-            rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
-    if can_templates:
-        if len(templates) < MAX_SIGNATURE_TEMPLATES:
-            rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
-        dels = [btn(t("sig.delete", n=n), Cs(a="sig_del", c=c, p=p, v=str(tid)))
-                for n, (tid, _) in enumerate(templates, 1) if tid != 0]
-        rows += [dels[i:i + 3] for i in range(0, len(dels), 3)]
+    if can_settings and channel.signature_template:
+        rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
+    if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
+        rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
+    deletable = sig_deletable(templates, rights)
+    dels = [btn(t("sig.delete", n=n), Cs(a="sig_del", c=c, p=p, v=str(tid)))
+            for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
+    rows += [dels[i:i + 3] for i in range(0, len(dels), 3)]
     if can_settings:
         rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
+
+
+def sig_editable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
+    """Template ids `rights` may change: the main one needs settings rights, the extra ones posts or settings."""
+    return [tid for tid, _ in templates if rights["can_settings" if tid == 0 else "can_templates"]]
+
+
+def sig_deletable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
+    """Like sig_editable, but there is always one template left: the main one goes only while there are others."""
+    return [tid for tid in sig_editable(templates, rights) if tid != 0 or len(templates) > 1]
 
 
 async def sig_rights(session: AsyncSession, channel: Channel, user: User) -> dict:
@@ -474,7 +485,9 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
     if channel is None:
         return
     rights = await sig_rights(session, channel, user)
-    if a == "sig_del" and not rights["can_templates"]:
+    if a == "sig_del" and not (
+        callback_data.v.isdigit() and int(callback_data.v) in sig_deletable(signature_templates(channel), rights)
+    ):
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     if post is not None and cb.message is not None:
@@ -483,7 +496,12 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         post.options = {**(post.options or {}), "signature": not options_of(post)["signature"]}
     elif a == "sig_pick" and post is not None and callback_data.v.isdigit():
         post.options = {**(post.options or {}), "signature": True, "signature_tpl": int(callback_data.v)}
-    elif a == "sig_del" and callback_data.v.isdigit():
+    elif a == "sig_del" and callback_data.v == "0":
+        # The next template becomes the main one; posts that picked it fall back to the main one — the same text.
+        first, *rest = channel.signature_extra
+        channel.signature_template = first["html"]
+        channel.signature_extra = rest
+    elif a == "sig_del":
         channel.signature_extra = [x for x in (channel.signature_extra or []) if int(x["id"]) != int(callback_data.v)]
     elif a == "sig_reset":
         channel.signature_template = None
@@ -496,11 +514,34 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
 
 @router.callback_query(Cs.filter(F.a == "sig_edit"))
 async def cs_signature_edit(cb: CallbackQuery, callback_data: Cs, session: AsyncSession, state: FSMContext, user: User) -> None:
-    channel, _ = await _context(cb, callback_data, session, user)
+    """With several templates, first a list to pick which one to change (`v` — its id)."""
+    channel, _ = await _context(cb, callback_data, session, user, require=None)
     if channel is None:
         return
+    templates = signature_templates(channel)
+    editable = sig_editable(templates, await sig_rights(session, channel, user))
+    if not editable:
+        await cb.answer(t("err.not_found"), show_alert=True)
+        return
     await cb.answer()
-    await _ask_input(cb, state, ChannelInput.signature, channel, callback_data.p, t("sig.prompt"))
+    c, p = channel.id, callback_data.p
+    if callback_data.v.isdigit() and int(callback_data.v) in editable:
+        tid = int(callback_data.v)
+    elif len(templates) == 1:
+        tid = 0
+    else:
+        picks = [btn(t("sig.edit_n", n=n), Cs(a="sig_edit", c=c, p=p, v=str(i)))
+                 for n, (i, _) in enumerate(templates, 1) if i in editable]
+        rows = [picks[i:i + 3] for i in range(0, len(picks), 3)]
+        rows.append([btn(t("btn.back"), Cs(a="sig", c=c, p=p))])
+        await _edit(cb, t("sig.edit_pick"), markup(rows))
+        return
+    n, template = next((n, tpl) for n, (i, tpl) in enumerate(templates, 1) if i == tid)
+    prompt = t("sig.prompt") if len(templates) == 1 else (
+        t("sig.edit_current", n=n, template=html.escape(template)) + "\n\n" + t("sig.prompt")
+    )
+    await _ask_input(cb, state, ChannelInput.signature, channel, p, prompt)
+    await state.update_data(cs_sig=tid)
 
 
 @router.callback_query(Cs.filter(F.a == "sig_add"))
@@ -694,25 +735,48 @@ def _template_from_message(message: Message) -> str:
 @router.message(ChannelInput.signature, F.text)
 async def in_signature(message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
                    settings: Settings) -> None:
-    channel = await _input_channel(message, session, state, user)
+    channel = await _input_channel(message, session, state, user, perms=("settings", "posts"))
     if channel is None:
+        return
+    data = await state.get_data()
+    tid = int(data.get("cs_sig") or 0)
+    if tid not in sig_editable(signature_templates(channel), await sig_rights(session, channel, user)):
+        await state.set_state(None)
+        await message.answer(t("err.not_found"))
         return
     template = _template_from_message(message)
     if not template or visible_len(template) > MAX_SIGNATURE:
         await message.answer(t("sig.prompt"))
         return
-    channel.signature_template = template
-    if not sanitize_html(render_signature(channel)):
-        channel.signature_template = None
+    old_main, old_extra = channel.signature_template, list(channel.signature_extra or [])
+    if tid == 0:
+        channel.signature_template = template
+    else:
+        channel.signature_extra = [{**x, "html": template} if int(x["id"]) == tid else x for x in old_extra]
+    if not sanitize_html(render_signature(channel, tid)):
+        channel.signature_template, channel.signature_extra = old_main, old_extra
         await message.answer(t("sig.invalid"))
         return
-    post_id = (await state.get_data()).get("cs_post")
+    post_id = data.get("cs_post")
     if post_id:
         post = await posts_repo.get_post(session, user.id, int(post_id))
         if post is not None:
-            post.options = {**(post.options or {}), "signature": True}
+            post.options = {**(post.options or {}), "signature": True, "signature_tpl": tid}
     await session.flush()
-    await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("sig.saved"))
+    await _after_sig_input(message, bot, session, state, user, publisher, settings, channel, t("sig.saved"))
+
+
+async def _after_sig_input(
+    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher,
+    settings: Settings, channel: Channel, note: str,
+) -> None:
+    """Back to the post editor, or — from «Мої проєкти» — to the «Автопідпис» menu to see all the templates."""
+    if (await state.get_data()).get("cs_post"):
+        await _return_after_input(message, bot, session, state, user, publisher, settings, channel, note)
+        return
+    await state.set_state(None)
+    text, kb = sig_menu(channel, None, **await sig_rights(session, channel, user))
+    await message.answer(note + "\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
 
 
 @router.message(ChannelInput.signature_add, F.text)
@@ -741,13 +805,8 @@ async def in_signature_add(message: Message, bot: Bot, session: AsyncSession, st
         post = await posts_repo.get_post(session, user.id, int(post_id))
         if post is not None:
             post.options = {**(post.options or {}), "signature": True, "signature_tpl": new_id}
-        await session.flush()
-        await _return_after_input(message, bot, session, state, user, publisher, settings, channel, t("sig.added"))
-        return
     await session.flush()
-    await state.set_state(None)
-    text, kb = sig_menu(channel, None, **await sig_rights(session, channel, user))
-    await message.answer(t("sig.added") + "\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
+    await _after_sig_input(message, bot, session, state, user, publisher, settings, channel, t("sig.added"))
 
 
 @router.message(ChannelInput.ai_style, F.text)

@@ -367,6 +367,9 @@ TEXTS: dict[str, str] = {
         "<code>👉 &lt;a href=\"{{link}}\"&gt;{{title}}&lt;/a&gt;</code>"
     ),
     "sig.added": "✅ Template added",
+    "sig.edit_pick": "✏️ Which template do you want to change?",
+    "sig.edit_n": "✏️ Template {n}",
+    "sig.edit_current": "<b>Template {n}</b> now: <code>{template}</code>",
     "sig.too_many": "You can have up to {max} templates. Delete one to add a new one.",
 
     # ---- Comments (discussion group) ----------------------------------------------------------

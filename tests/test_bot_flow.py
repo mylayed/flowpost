@@ -261,10 +261,26 @@ async def test_full_editor_flow(h: Harness):
     }
     await h.click(Cs(a="sig_pick", c=c, p=p, v="0"))
     assert (await _post(h)).options["signature_tpl"] == 0
-    await h.click(Cs(a="sig_pick", c=c, p=p, v="1"))
+    # «Змінити шаблон» asks which one when there are several
+    await h.click(Cs(a="sig_edit", c=c, p=p))
+    assert "sig_edit" in {Cs.unpack(b.callback_data).a for row in h.session.calls[-1][1].reply_markup.inline_keyboard
+                          for b in row if b.callback_data.startswith("cs:")}
+    await h.click(Cs(a="sig_edit", c=c, p=p, v="1"))
+    await h.text("🍳 {title}")
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.signature_extra == [{"id": 1, "html": "🍳 {title}"}]
+    assert (await _post(h)).options["signature_tpl"] == 1
+    await h.click(Ed(a="sig", p=p))
     await h.click(Cs(a="sig_del", c=c, p=p, v="1"))
     channel = await h.db(lambda s: s.get(Channel, c))
     assert channel.signature_extra == []
+    # Deleting the main template makes the next one the main
+    await h.click(Cs(a="sig_add", c=c, p=p))
+    await h.text("👉 {username}")
+    await h.click(Ed(a="sig", p=p))
+    await h.click(Cs(a="sig_del", c=c, p=p, v="0"))
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.signature_template == "👉 {username}" and channel.signature_extra == []
     await h.click(Ed(a="wm", p=p))
     await h.click(Cs(a="wm_text", c=c, p=p))
     await h.text("@testchan")
