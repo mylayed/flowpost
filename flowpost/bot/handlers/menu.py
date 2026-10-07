@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.handlers import content_plan, edit_post, projects, settings as settings_handlers
+from flowpost.bot.handlers import ads, content_plan, edit_post, projects, settings as settings_handlers
 from flowpost.bot.handlers.create_post import start_post
 from flowpost.config import Settings
 from flowpost.db.models import User
@@ -27,10 +27,8 @@ async def menu_create_post(
 
 @router.message(Command("ad"))
 @router.message(F.text.in_(variants("btn.ad_post")))
-async def menu_ad_post(
-    message: Message, bot: Bot, session: AsyncSession, state: FSMContext, user: User, publisher: Publisher
-) -> None:
-    await start_post(message, bot, session, state, user, publisher, is_ad=True)
+async def menu_ad_post(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
+    await ads.send_ad_start(message, session, state, user)
 
 
 @router.message(Command("plan"))

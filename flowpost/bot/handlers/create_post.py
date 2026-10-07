@@ -82,7 +82,6 @@ async def start_post(
     user: User,
     publisher: Publisher,
     *,
-    is_ad: bool = False,
     text: str = "",
     media: list[dict] | None = None,
     source_signature: str = "",
@@ -95,14 +94,13 @@ async def start_post(
         return
     if len(channels) == 1:
         post = await posts_repo.create_post(
-            session, channels[0].owner_id, [channels[0].id], is_ad=is_ad, options=initial_options(channels[0], is_ad),
+            session, channels[0].owner_id, [channels[0].id], options=initial_options(channels[0], False),
             text=text, media=media, source_signature=source_signature, poll=poll,
             buttons=channel_defaults(channels[0])["buttons"],
         )
-        note = t("post.ad_intro") if is_ad else None
-        await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
+        await open_editor(bot, message.chat.id, session, state, user, post, publisher)
         return
-    post = await posts_repo.create_post(session, user.id, [], is_ad=is_ad, text=text, media=media,
+    post = await posts_repo.create_post(session, user.id, [], text=text, media=media,
                                          source_signature=source_signature, poll=poll)
     picker_text, picker_kb = await channel_picker(session, user, post.id)
     await message.answer(picker_text, reply_markup=picker_kb)
@@ -178,8 +176,7 @@ async def cb_pick_channel(
     await session.flush()
     if cb.message:
         await safe_delete(bot, cb.message.chat.id, [cb.message.message_id])
-    note = t("post.ad_intro") if post.is_ad else None
-    await open_editor(bot, cb.from_user.id, session, state, user, post, publisher, note=note)
+    await open_editor(bot, cb.from_user.id, session, state, user, post, publisher)
 
 
 # The folder settings screen keeps its state while the user browses it: text there renames the folder

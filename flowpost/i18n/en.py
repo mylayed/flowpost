@@ -115,12 +115,9 @@ TEXTS: dict[str, str] = {
     # ---- Creating a post ---------------------------------------------------------------------
     "post.no_channels": "First connect a channel or group to publish to.",
     "post.choose_channel": "Which channel is this post for?",
-    "post.ad_intro": "📣 Ad post: the «Ad» label is added, auto-signature is off, auto-delete in 24 h. Change it in «More settings».",
-    "post.ad_label": "Ad",
 
     # ---- Editor ------------------------------------------------------------------------------
     "ed.title": "✏️ <b>Post editor</b>",
-    "ed.title_ad": "📣 <b>Ad post</b>",
     "ed.title_published": "✏️ <b>Editing a published post</b>",
     "ed.channels": "📡 Channels: {names}",
     "ed.part": "🧩 Message {n} of {total}",
@@ -171,7 +168,6 @@ TEXTS: dict[str, str] = {
     "ed.exit": "↩️ Close editor",
     "ed.sum_signature": "signature",
     "ed.sum_watermark": "watermark",
-    "ed.sum_ad": "«Ad» label",
     "ed.sum_silent": "silent",
     "ed.sum_protect": "copy protection",
     "ed.sum_nopreview": "no link previews",
@@ -534,7 +530,6 @@ TEXTS: dict[str, str] = {
     "more.delete_off": "🗑 Auto-delete: no",
     "more.delete_hours": "🗑 Delete after {hours} h",
     "more.custom": "⌨️ Custom time",
-    "more.ad_label": "🏷 «Ad» label",
     "more.pin_prompt": "For how many hours should the post stay pinned? Send a number from 1 to {max}.",
     "more.delete_prompt": "After how many hours should the post be deleted? Send a number from 1 to {max}.",
     "err.number": "Send a whole number from 1 to {max}.",
@@ -952,14 +947,75 @@ TEXTS: dict[str, str] = {
     "adgen.prompt": (
         "🤝 <b>Ad post · {title}</b>\n\n"
         "Send the advertiser's brief in one message: what is advertised, the link, benefits, prices or a promo code, "
-        "wishes for the text. The AI writes a native post in your channel's style, labelled «Ad».\n\n"
+        "wishes for the text. The AI writes a native post in your channel's style.\n\n"
         "One post costs 1 AI text of the channel."
     ),
     "adgen.working": "⏳ Writing the ad post…",
     "adgen.result": "🤝 <b>Ad post:</b>",
     "adgen.use": "✍️ Open in the editor",
-    "adgen.opened": "🤝 The ad post is ready and the «Ad» label is on. Add media and buttons, then schedule it.",
+    "adgen.opened": "🤝 The ad post is ready. Add media and buttons, then schedule it.",
     "adgen.expired": "The brief has expired — send it again.",
+    "ad.start": (
+        "💲 <b>New ad</b>\n\n"
+        "<blockquote expandable>Ad posts work differently from regular ones. They carry no signature of your channel, "
+        "no watermark and no default formatting.</blockquote>\n\n"
+        "Choose the channel to publish your ad in."
+    ),
+    "ad.restore": "📥 Restore draft",
+    "ad.channel": (
+        "<b>Ad post in {channel}</b>\n\n"
+        "Send the ad post.\n\n"
+        "No post or payment yet? Book a slot — the ad will be published if you confirm the booking later."
+    ),
+    "ad.new_booking": "➕ New booking",
+    "ad.back": "← Back",
+    "ad.booking": (
+        "<b>New booking in {channel}</b>\n\n"
+        "Send the post. If you don't have it yet, send the bot the advertiser's name, and you can upload the content later."
+    ),
+    "ad.booked": "📌 Slot booked for «{name}». Set the time, send the ad post here later — and confirm the booking.",
+    "ad.settings": "⚙️ <b>Ad settings</b>",
+    "ad.settings_booking": "⚙️ <b>Ad booking settings</b>",
+    "ad.settings_help": "Set up the options and the publishing time of your ad post.",
+    "ad.formats_help": "<i>1 / 24 — an hour at the top (the channel's other posts wait) and 24 hours in the feed, then the ad is deleted.</i>",
+    "ad.advertiser": "👤 Advertiser: {name}",
+    "ad.reply_line": "↩️ Reply to post: {url}",
+    "ad.booking_unconfirmed": "⏳ The booking isn't confirmed — without confirmation the ad won't go out.",
+    "ad.hint_empty": "<i>Send the ad post here — text, a photo, a video or an album.</i>",
+    "ad.url_buttons": "URL buttons",
+    "ad.preview": "Preview",
+    "ad.reply_no": "Reply to post: no",
+    "ad.reply_yes": "Reply to post: yes",
+    "ad.no_pin": "Don't pin",
+    "ad.pin": "Pin",
+    "ad.delete_timer": "Delete timer",
+    "ad.delete_hours": "🗑 Delete in {hours} h",
+    "ad.sound": "With sound",
+    "ad.silent": "Silent",
+    "ad.no_comments": "Turn off comments",
+    "ad.repeat": "Auto-repeat",
+    "ad.multipost": "🔀 Multiposting",
+    "ad.schedule": "⏰ Set time",
+    "ad.publish": "🚀 Publish",
+    "ad.confirm": "✅ Confirm booking",
+    "ad.cancel": "← Cancel and back",
+    "ad.hours": "{hours} h",
+    "ad.delete_never": "Don't delete",
+    "ad.delete_title": "🗑 <b>Delete timer</b>\n\nHow many hours after publishing should the ad be deleted from the channel?",
+    "ad.reply_prompt": (
+        "↩️ <b>Reply to post</b>\n\n"
+        "Send a link to a channel post (e.g. <code>https://t.me/channel/123</code>) or forward it here — "
+        "the ad goes out as a reply to it."
+    ),
+    "ad.reply_wrong": "I don't recognise that post. Send a link to a post of the channel the ad goes to, or forward it from there.",
+    "ad.reply_saved": "✅ The ad goes out as a reply to the post",
+    "ad.reply_removed": "Reply to post is off",
+    "ad.confirmed": "Booking confirmed",
+    "ad.confirm_empty": "Send the ad post first — a booking can't be confirmed without it.",
+    "ad.publish_booking": "This is a booking: set the time and confirm it for the ad to go out.",
+    "err.booking_unconfirmed": "the booking wasn't confirmed",
+    "err.ad_top": "an ad is at the top of the channel, new publishing time",
+    "notify.booking_unconfirmed": "⚠️ The ad in «{title}» wasn't published: the booking wasn't confirmed by the scheduled time, so the slot was released.",
 
     "niche.title": "🔍 <b>Niche research · {title}</b>",
     "niche.help": (

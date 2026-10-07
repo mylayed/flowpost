@@ -34,6 +34,7 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
+from flowpost.services import ads
 from flowpost.services import ideas as ideas_service
 from flowpost.services import rich
 from flowpost.services.delivery import DeliveryOutcome
@@ -87,6 +88,9 @@ async def publish_now(
 
 
 async def _validate(cb: CallbackQuery, session: AsyncSession, user: User, post: Post) -> bool:
+    if ads.is_booking(post):
+        await cb.answer(t("ad.publish_booking"), show_alert=True)
+        return False
     if post_is_empty(post):
         await cb.answer(t("err.post_empty"), show_alert=True)
         return False

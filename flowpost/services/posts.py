@@ -25,14 +25,21 @@ DEFAULT_OPTIONS: dict = {
     "watermark": False,
     "signature": True,
     "signature_tpl": 0,  # which of the channel's auto-signature templates goes under the post (see signature_templates)
-    "ad_label": False,
     "comments": True,
     "hidden_text": None,  # shown only to channel subscribers, behind a button under the post
     "carousel": False,  # an album goes out as a slideshow to flip through (see services/rich.py)
     "spoiler": False,  # photos and videos come blurred until tapped
     "paid": False,  # photos and videos are unlocked for Stars (paid media)
     "paid_stars": 1,
+    "ad_format": None,  # an ad's «1 / 24»-style format: a key of AD_FORMATS
+    "ad_booking": False,  # a booked ad slot: it goes out only once the booking is confirmed
+    "ad_advertiser": None,  # who booked the slot, when the ad itself isn't there yet
+    "reply_to": None,  # {"ch": channel id, "msg": message id, "url": link}: the post goes out as a reply to it
 }
+
+# An ad's format «top / feed»: no other post goes out in the channel for the first `top` hours,
+# and the ad is deleted after `feed` hours.
+AD_FORMATS: dict[int, tuple[int, int]] = {1: (1, 24), 2: (2, 48), 3: (3, 72)}
 
 MEDIA_ICONS = {"photo": "🖼", "video": "🎬", "animation": "🎞", "document": "📄", "audio": "🎵"}
 WATERMARKABLE = {"photo", "video", "animation"}
@@ -40,8 +47,11 @@ SPOILERABLE = {"photo", "video", "animation"}
 PAID_TYPES = {"photo", "video"}
 MAX_PAID_STARS = 25000  # Telegram's limit for paid media
 
-# «Реклама» belongs to the /ad flow and a hidden text to its own post, so neither is carried over into other posts.
-DEFAULTABLE_OPTIONS = tuple(k for k in DEFAULT_OPTIONS if k not in ("ad_label", "hidden_text", "paid", "paid_stars"))
+# Ad settings and a hidden text belong to their own post, so none of them is carried over into other posts.
+DEFAULTABLE_OPTIONS = tuple(
+    k for k in DEFAULT_OPTIONS
+    if k not in ("hidden_text", "paid", "paid_stars", "ad_format", "ad_booking", "ad_advertiser", "reply_to")
+)
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
 GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>
 HIDDEN_BTN_PREFIX = "hc:"  # callback data of a «Приховане продовження» button: hc:<post id>:<button id>
@@ -154,7 +164,10 @@ def channel_defaults(channel: Channel) -> dict:
 
 
 def initial_options(channel: Channel, is_ad: bool) -> dict:
-    """Channel toggles, overridden by whatever «Зберегти форматування та налаштування» stored."""
+    """Channel toggles, overridden by whatever «Зберегти форматування та налаштування» stored. An ad goes out as
+    the advertiser sent it: without the channel's signature, watermark or saved formatting."""
+    if is_ad:
+        return {"signature": False, "watermark": False}
     wm = wm_settings(channel.watermark)
     configured = wm_configured(channel.watermark)
     opts = {
@@ -164,8 +177,6 @@ def initial_options(channel: Channel, is_ad: bool) -> dict:
     opts.update(channel_defaults(channel)["options"])
     # A saved default can't turn on a watermark the channel no longer has set up.
     opts["watermark"] = bool(opts["watermark"]) and configured
-    if is_ad:
-        opts.update({"signature": False, "ad_label": True, "auto_delete_hours": 24})
     return opts
 
 
@@ -298,8 +309,6 @@ def render_signature(channel: Channel, template_id: int = 0) -> str:
 
 def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: bool, lang: str) -> str:
     chunks = [part_text.strip()] if part_text and part_text.strip() else []
-    if is_last and opts.get("ad_label"):
-        chunks.append(f"<i>{html.escape(t('post.ad_label', locale=lang))}</i>")
     if is_last and opts.get("signature") and channel is not None:
         signature = render_signature(channel, opts.get("signature_tpl") or 0).strip()
         if signature:

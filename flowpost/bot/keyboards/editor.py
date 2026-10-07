@@ -9,7 +9,7 @@ from flowpost.bot.keyboards.common import btn, chunked, markup, on, page_nav, pa
 from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
 from flowpost.services import ideas
-from flowpost.services.posts import has_visual_media, options_of
+from flowpost.services.posts import AD_FORMATS, has_visual_media, options_of
 from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm
 
@@ -55,7 +55,45 @@ def hidden_buttons(post: Post, hidden, *, is_poll: bool = False) -> list:
     return [_toggle_button(post, k) for k in keys]
 
 
+def ad_kb(post: Post) -> InlineKeyboardMarkup:
+    """«Налаштування реклами»: an ad's own settings instead of the regular editor."""
+    p = post.id
+    opts = options_of(post)
+    booking = bool(opts["ad_booking"])
+    hours = opts["auto_delete_hours"]
+    rows = [
+        [btn(t("ad.url_buttons"), Ed(a="btn", p=p)), btn(on(opts["link_preview"]) + t("ad.preview"), Ed(a="ad_t", p=p, v="link_preview"))],
+        [btn(t("ad.reply_yes") if opts["reply_to"] else t("ad.reply_no"), Ed(a="ad_reply", p=p))],
+        [
+            btn(("🔘 " if opts["ad_format"] == n else "◯ ") + f"{top} / {feed}", Ed(a="ad_fmt", p=p, v=str(n)))
+            for n, (top, feed) in AD_FORMATS.items()
+        ],
+        [
+            btn(on(not opts["pin"]) + t("ad.no_pin"), Ed(a="ad_pin", p=p, v="0")),
+            btn(t("ad.delete_hours", hours=hours) if hours else t("ad.delete_timer"), Ed(a="ad_del", p=p)),
+        ],
+        [
+            btn(on(opts["pin"]) + t("ad.pin"), Ed(a="ad_pin", p=p, v="1")),
+            btn(t("ad.silent") if opts["silent"] else t("ad.sound"), Ed(a="ad_t", p=p, v="silent")),
+        ],
+        [btn(("☑️ " if not opts["comments"] else "☐ ") + t("ad.no_comments"), Ed(a="ad_t", p=p, v="comments"))],
+        [
+            btn(on(bool(post.repeat and post.repeat.active)) + t("ad.repeat"), Ed(a="rep", p=p)),
+            btn(t("ad.multipost") + (f" ({len(post.targets)})" if len(post.targets) > 1 else ""), Ed(a="multi", p=p)),
+        ],
+    ]
+    if booking:
+        rows.append([btn(t("ad.schedule"), Ed(a="sch", p=p))])
+        rows.append([btn(t("ad.confirm"), Ed(a="ad_ok", p=p))])
+    else:
+        rows.append([btn(t("ad.schedule"), Ed(a="sch", p=p)), btn(t("ad.publish"), Ed(a="pub", p=p))])
+    rows.append([btn(t("ad.cancel"), Ed(a="cancel", p=p))])
+    return markup(rows)
+
+
 def editor_kb(post: Post, part_idx: int, *, published: bool, hidden=()) -> InlineKeyboardMarkup:
+    if post.is_ad and not published:
+        return ad_kb(post)
     p = post.id
     opts = options_of(post)
     part = post.parts[part_idx]

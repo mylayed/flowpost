@@ -17,12 +17,12 @@ from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.i18n import t
 from flowpost.services.parsing import ParseError, parse_positive_int
-from flowpost.services.posts import MAX_HIDDEN, options_of
+from flowpost.services.posts import AD_FORMATS, MAX_HIDDEN, options_of
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_more")
 
-TOGGLES = {"silent", "protect", "link_preview", "ad_label", "comments"}
+TOGGLES = {"silent", "protect", "link_preview", "comments"}
 PIN_CYCLE: list[tuple[bool, int | None]] = [(False, None), (True, None), (True, 24), (True, 48)]
 DELETE_CYCLE: list[int | None] = [None, 1, 6, 12, 24, 48]
 MAX_HOURS = 720
@@ -53,8 +53,6 @@ def more_menu(post: Post, primary: Channel | None, hidden: list[str] = (), *, is
         [btn(_delete_label(opts), Ed(a="mo_del", p=p)), btn(t("more.custom"), Ed(a="mo_delc", p=p))],
         [btn(on(bool(opts["hidden_text"])) + t("more.hidden"), Ed(a="mo_hid", p=p))],
     ]
-    if post.is_ad:
-        rows.append([btn(on(opts["ad_label"]) + t("more.ad_label"), Ed(a="mo_t", p=p, v="ad_label"))])
     if primary is not None and primary.is_forum:
         rows.append([btn(t("btn.topic_set"), Cs(a="topic", c=primary.id, p=p))])
     rows.append([btn(t("btn.back"), Ed(a="home", p=p))])
@@ -133,6 +131,9 @@ async def in_hours(
         note = t("more.pin_hours", hours=hours)
     else:
         post.options = {**(post.options or {}), "auto_delete_hours": hours}
+        fmt = AD_FORMATS.get(options_of(post)["ad_format"] or 0)
+        if fmt and fmt[1] != hours:
+            post.options = {**post.options, "ad_format": None}
         note = t("more.delete_hours", hours=hours)
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note="✅ " + note)

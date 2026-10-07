@@ -17,6 +17,7 @@ from aiogram.types import (
     InputPaidMediaVideo,
     LinkPreviewOptions,
     Message,
+    ReplyParameters,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
@@ -55,6 +56,7 @@ class SendOptions:
     carousel: bool = False
     spoiler: bool = False
     paid_stars: int | None = None  # set per part: its media is sold for this many Stars
+    reply_to: int | None = None  # the part goes out as a reply to this message of the chat
 
 
 @dataclass
@@ -147,6 +149,10 @@ async def _send_single(bot: Bot, chat_id: int, item: OutMedia, *, spoiler: bool 
     raise ValueError(f"unsupported media type {item.type}")
 
 
+def _reply(opts: SendOptions) -> ReplyParameters | None:
+    return ReplyParameters(message_id=opts.reply_to, allow_sending_without_reply=True) if opts.reply_to else None
+
+
 async def send_poll_part(
     bot: Bot, chat_id: int, poll: dict, buttons: list[list[dict]] | None, opts: SendOptions,
     *, force_anonymous: bool = False,
@@ -169,6 +175,7 @@ async def send_poll_part(
         disable_notification=opts.silent,
         protect_content=opts.protect,
         message_thread_id=opts.thread_id,
+        reply_parameters=_reply(opts),
     )
     sent = SentPart()
     sent.ids = [m.message_id]
@@ -189,6 +196,7 @@ async def send_part(
         "disable_notification": opts.silent,
         "protect_content": opts.protect,
         "message_thread_id": opts.thread_id,
+        "reply_parameters": _reply(opts),
     }
     preview = LinkPreviewOptions(is_disabled=not opts.link_preview)
     sent = SentPart()
@@ -424,6 +432,9 @@ class Publisher:
             carousel=bool(opts["carousel"]),
             spoiler=bool(opts["spoiler"]),
         )
+        reply_to = opts.get("reply_to") or {}
+        if not preview and channel is not None and reply_to.get("ch") == channel.id:
+            send_opts.reply_to = reply_to.get("msg")
         indexes = part_indexes if part_indexes is not None else list(range(len(post.parts)))
         result = PublishResult()
         last_index = len(post.parts) - 1
@@ -435,6 +446,7 @@ class Publisher:
                     self.bot, target, part.poll, part_buttons(post, idx, lang, hidden=wm_allowed), send_opts,
                     force_anonymous=force_anonymous,
                 )
+                send_opts.reply_to = None  # only the first message answers the post
                 result.parts.append(sent)
                 continue
             source = (texts or {}).get(idx, part.text_html)
@@ -447,6 +459,7 @@ class Publisher:
             sellable = preview or channel is None or channel.kind == "channel"
             send_opts.paid_stars = paid_stars(opts, part.media) if sellable else None
             sent = await send_part(self.bot, target, text, media, buttons, send_opts)
+            send_opts.reply_to = None
             if not preview and channel is not None and has_comment_button(part.buttons):
                 await self._link_comments(post, idx, lang, channel, sent, hidden=wm_allowed)
             if self.remember_uploads(media, sent):

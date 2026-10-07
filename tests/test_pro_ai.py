@@ -154,9 +154,11 @@ async def test_ad_post_from_a_brief_opens_in_the_editor_labelled_as_an_ad(h: Har
     h.session.clear()
     await h.click(Px(a="ad_use", c=c))
     post = await h.db(lambda s: s.scalar(select(Post).where(Post.is_ad.is_(True))))
-    assert post is not None and post.status == "draft" and post.options.get("ad_label") is True
+    assert post is not None and post.status == "draft" and "ad_label" not in post.options
+    assert post.options["signature"] is False and post.options["watermark"] is False
     assert "MISTO" in (await h.db(lambda s: s.scalar(select(PostPart).where(PostPart.post_id == post.id)))).text_html
-    assert "позначку «Реклама» увімкнено" in h.session.texts()
+    assert "Рекламний пост готовий" in h.session.texts()
+    assert "Налаштування реклами" in h.session.texts()
 
 
 # ---- 🔍 niche research ----------------------------------------------------------------------------

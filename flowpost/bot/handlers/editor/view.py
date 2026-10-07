@@ -21,7 +21,14 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import set_locale, t
 from flowpost.services.billing import entitlements
-from flowpost.services.posts import has_visual_media, options_of, paid_ready, part_is_empty, part_warnings
+from flowpost.services.posts import (
+    has_visual_media,
+    options_of,
+    paid_ready,
+    part_is_empty,
+    part_warnings,
+    post_is_empty,
+)
 from flowpost.services.publisher import Publisher
 from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm, tz_of
@@ -89,8 +96,6 @@ def _summary(post: Post, opts: dict) -> list[str]:
         items.append(t("ed.sum_signature"))
     if opts["watermark"]:
         items.append(t("ed.sum_watermark"))
-    if opts["ad_label"]:
-        items.append(t("ed.sum_ad"))
     if opts["silent"]:
         items.append(t("ed.sum_silent"))
     if opts["protect"]:
@@ -114,6 +119,33 @@ def _summary(post: Post, opts: dict) -> list[str]:
     return items
 
 
+async def ad_panel_text(
+    session: AsyncSession, user: User, post: Post, channels: list[Channel], warnings: list[str], note: str | None,
+) -> str:
+    opts = options_of(post)
+    booking = bool(opts["ad_booking"])
+    lines = [t("ad.settings_booking" if booking else "ad.settings"), "", t("ad.settings_help"), t("ad.formats_help")]
+    details = [t("ed.channels", names=", ".join(html.escape(c.title) for c in channels) or "—")]
+    if opts["ad_advertiser"]:
+        details.append(t("ad.advertiser", name=html.escape(opts["ad_advertiser"])))
+    if opts["reply_to"]:
+        details.append(t("ad.reply_line", url=html.escape(opts["reply_to"].get("url") or "")))
+    run_at = await pubs_repo.next_run(session, post.id)
+    if run_at:
+        local = run_at.astimezone(tz_of(user.tz))
+        details.append(t("ed.scheduled_at", date=fmt_date(local.date(), user.lang), time=fmt_hm(local)))
+    if booking:
+        details.append(t("ad.booking_unconfirmed"))
+    lines += [""] + details
+    if post_is_empty(post):
+        lines += ["", t("ad.hint_empty")]
+    for key in warnings:
+        lines.append("⚠️ " + t(key))
+    if note:
+        lines += ["", note]
+    return "\n".join(lines)
+
+
 async def panel_text(
     session: AsyncSession,
     user: User,
@@ -124,10 +156,10 @@ async def panel_text(
     note: str | None,
 ) -> str:
     published = is_published_mode(post)
+    if post.is_ad and not published:
+        return await ad_panel_text(session, user, post, channels, warnings, note)
     if published:
         title = t("ed.title_published")
-    elif post.is_ad:
-        title = t("ed.title_ad")
     else:
         title = t("ed.title")
     lines = [title, t("ed.channels", names=", ".join(html.escape(c.title) for c in channels) or "—")]

@@ -21,6 +21,12 @@ class Editor(StatesGroup):
     quiz = State()           # «Кнопки → Вікторина»: an answer, its comment, text for outsiders, or an AI request
     reactions = State()      # «Кнопки → Реакції»: reactions typed as «👍 / 👎»
     hint = State()           # «Кнопки»: the text of a hint button whose name was sent on its own
+    ad_reply = State()       # ad settings → «Відповідь на пост»: a link to the channel post the ad answers
+
+
+class AdInput(StatesGroup):
+    content = State()  # «Рекламний пост у …»: the ad to publish
+    booking = State()  # «Нове бронювання в …»: the ad, or just the advertiser's name
 
 
 class ChannelInput(StatesGroup):

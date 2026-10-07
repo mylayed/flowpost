@@ -40,7 +40,7 @@ def post_title(post: Post) -> str:
     """The post's first line, short enough to sit inside «…» in a one-line confirmation."""
     part = post.parts[0] if post.parts else None
     text = snippet(part_preview_text(part), 48) if part is not None else ""
-    return html.escape(text) or t("parts.no_text")
+    return html.escape(text or options_of(post).get("ad_advertiser") or "") or t("parts.no_text")
 
 
 def saved_items(post: Post) -> list[str]:
@@ -100,8 +100,14 @@ async def done_screen(
                 "sch.done", title=post_title(post),
                 when=fmt_when_full(local.date(), local.time(), user.lang), channels=channels_line,
             )
+    booking = post.is_ad and post.status != "published" and bool(options_of(post).get("ad_booking"))
+    if booking:
+        text += "\n\n" + t("ad.booking_unconfirmed")
     if note:
         text += "\n\n" + note
+    if post.is_ad:
+        # An ad is the advertiser's post: nothing in it should become the channel's defaults.
+        return text, markup([[btn(t("ad.confirm"), Ed(a="ad_ok", p=post.id))]]) if booking and with_button else None
     kb = markup([[btn(t("ed.def_btn"), Ed(a="defs", p=post.id))]]) if with_button else None
     return text, kb
 

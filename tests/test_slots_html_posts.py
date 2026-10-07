@@ -75,8 +75,9 @@ def test_signature_and_final_text():
     assert render_signature(ch) == '<a href="https://t.me/dnipro_dityvmisti">Діти в місті</a>'
     assert render_signature(_channel(username=None)) == "<b>Діти в місті</b>"
     assert render_signature(_channel(signature_template="👉 {username}")) == "👉 @dnipro_dityvmisti"
+    # an «ad_label» left on an old ad post no longer adds «Реклама»
     text = final_text("Текст", {"signature": True, "ad_label": True}, ch, is_last=True, lang="uk")
-    assert text.startswith("Текст\n\n<i>Реклама</i>\n\n<a href=")
+    assert text.startswith("Текст\n\n<a href=")
     assert final_text("Текст", {"signature": True}, ch, is_last=False, lang="uk") == "Текст"
     extra = _channel(signature_extra=[{"id": 2, "html": "🍳 {title}"}])
     assert final_text("Текст", {"signature": True, "signature_tpl": 2}, extra, is_last=True, lang="uk") == "Текст\n\n🍳 Діти в місті"

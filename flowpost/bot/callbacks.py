@@ -101,3 +101,12 @@ class Bc(CallbackData, prefix="bc"):
 
     a: str
     v: str = ""
+
+
+class Ad(CallbackData, prefix="ad"):
+    """«Рекламний пост» before the editor: picking the channel, booking a slot, restoring a draft.
+    `c` — channel id, `p` — post id."""
+
+    a: str
+    c: int = 0
+    p: int = 0

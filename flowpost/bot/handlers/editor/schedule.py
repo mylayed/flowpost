@@ -23,7 +23,7 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import analytics
+from flowpost.services import ads, analytics
 from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.html_sanitize import snippet
 from flowpost.services.parsing import ParseError, parse_time
@@ -165,7 +165,7 @@ async def ed_schedule(
     post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
     if post is None:
         return
-    if post_is_empty(post):
+    if post_is_empty(post) and not ads.is_booking(post):
         await cb.answer(t("err.post_empty"), show_alert=True)
         return
     await cb.answer()
@@ -228,7 +228,7 @@ async def ed_schedule_confirm(
     if day is None or len(hhmm) != 4:
         await cb.answer()
         return
-    if post_is_empty(post):
+    if post_is_empty(post) and not ads.is_booking(post):
         await cb.answer(t("err.post_empty"), show_alert=True)
         return
     if not post.targets:

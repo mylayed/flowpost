@@ -18,7 +18,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat, Message, PhotoSize, Update, User as TgUser, Video
 from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Bl, Ca, Cp, Cs, Ed, Ep, Fd, Nc, Pj, St
+from flowpost.bot.callbacks import Ad, Bl, Ca, Cp, Cs, Ed, Ep, Fd, Nc, Pj, St
 from flowpost.bot.handlers.channel_settings import stats_view
 from flowpost.bot.setup import build_dispatcher
 from flowpost.config import Settings
@@ -1806,3 +1806,85 @@ async def test_editor_buttons_can_be_hidden_and_stay_in_more_settings(h: Harness
     # showing it again brings it back into the editor
     await h.click(St(a="ui_ed", v="wm"))
     assert (await _user(h)).editor_hidden == ["multi"]
+
+
+async def test_ad_post_flow(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    c = (await h.db(lambda s: s.scalar(select(Channel)))).id
+    worker = h.dp.workflow_data["worker"]
+
+    # «Нова реклама» → the channel → the ad itself
+    h.session.clear()
+    await h.text("/ad")
+    assert "Нова реклама" in h.session.texts()
+    await h.click(Ad(a="ch", c=c))
+    assert "Рекламний пост у" in h.session.texts()
+    h.session.clear()
+    await h.text("Кава, що будить місто\nЗнижка 20% за промокодом MISTO")
+    post = await _post(h)
+    p = post.id
+    assert post.is_ad and post.options["signature"] is False and post.options["watermark"] is False
+    assert "Налаштування реклами" in h.session.texts() and "Реклама</i>" not in h.session.texts()
+
+    # 1 / 24: an hour at the top and deleted after a day; then pin, silent, reply to a channel post
+    await h.click(Ed(a="ad_fmt", p=p, v="1"))
+    await h.click(Ed(a="ad_pin", p=p, v="1"))
+    await h.click(Ed(a="ad_t", p=p, v="silent"))
+    await h.click(Ed(a="ad_reply", p=p))
+    await h.text("https://t.me/testchan/55")
+    opts = (await _post(h)).options
+    assert opts["ad_format"] == 1 and opts["auto_delete_hours"] == 24 and opts["pin"] is True and opts["silent"] is True
+    assert opts["reply_to"]["msg"] == 55
+
+    h.session.clear()
+    await h.click(Ed(a="pub", p=p))
+    await h.click(Ed(a="pubok", p=p))
+    sent = [m for n, m in h.session.calls if n == "SendMessage" and m.chat_id == CHANNEL_CHAT]
+    assert sent and "MISTO" in sent[0].text and "Реклама" not in sent[0].text
+    assert sent[0].reply_parameters.message_id == 55 and sent[0].disable_notification is True
+
+    # while the ad is at the top, a regular post waits for the hour to end
+    await h.text("Звичайний пост")
+    regular = await _post(h)
+    await h.click(Ed(a="pub", p=regular.id))
+    await h.click(Ed(a="pubok", p=regular.id))
+    held = await h.db(lambda s: s.scalar(select(Publication).where(Publication.post_id == regular.id)))
+    assert held.status == "pending" and held.run_at - utcnow() > timedelta(minutes=55)
+
+    # a booking with just the advertiser's name: it can be scheduled, but goes out only once confirmed
+    await h.text("/ad")
+    await h.click(Ad(a="ch", c=c))
+    await h.click(Ad(a="book", c=c))
+    h.session.clear()
+    await h.text("Кав'ярня Ранок")
+    booking = await _post(h)
+    b = booking.id
+    assert booking.options["ad_booking"] is True and booking.options["ad_advertiser"] == "Кав'ярня Ранок"
+    assert "Налаштування бронювання реклами" in h.session.texts()
+    h.session.clear()
+    await h.click(Ed(a="ad_ok", p=b))
+    assert any(n == "AnswerCallbackQuery" and m.show_alert for n, m in h.session.calls)
+    tomorrow = local_now((await _user(h)).tz).date() + timedelta(days=1)
+    await h.click(Ed(a="schok", p=b, v=f"{tomorrow.toordinal()}_1200"))
+    pub = await h.db(lambda s: s.scalar(select(Publication).where(Publication.post_id == b)))
+    assert pub.status == "pending"
+
+    # nobody confirmed it: at its time the slot is given up
+    async def due(s):
+        await s.execute(update(Publication).where(Publication.post_id == b).values(run_at=utcnow() - timedelta(minutes=1)))
+        await s.commit()
+    await h.db(due)
+    await worker.process_due(utcnow())
+    pub = await h.db(lambda s: s.get(Publication, pub.id))
+    assert pub.status == "cancelled"
+
+    # a booking with the ad in it is confirmed with a tap
+    await h.text("/ad")
+    await h.click(Ad(a="ch", c=c))
+    await h.click(Ad(a="book", c=c))
+    await h.text("Нова кав'ярня на Соборній\nКожна друга кава — у подарунок")
+    confirmed = await _post(h)
+    assert confirmed.options["ad_booking"] is True and not confirmed.options.get("ad_advertiser")
+    await h.click(Ed(a="ad_ok", p=confirmed.id))
+    assert (await _post(h)).options["ad_booking"] is False

@@ -32,7 +32,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import ai_moderation, analytics, broadcast, gaps, giveaway, growth, pro_ai, rss
+from flowpost.services import ads, ai_moderation, analytics, broadcast, gaps, giveaway, growth, pro_ai, rss
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
@@ -201,7 +201,12 @@ class Worker:
                 if owner is not None and channel is not None
                 else None
             )
-            if entitlement is None or entitlement.plan == "none":
+            if post is not None and ads.is_booking(post):
+                # A booked ad slot nobody confirmed in time: the slot is given up.
+                pub.status = "cancelled"
+                outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.booking_unconfirmed")
+                notify_key = "notify.booking_unconfirmed"
+            elif entitlement is None or entitlement.plan == "none":
                 pub.status = "paused"
                 outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.no_access")
                 if owner and pub.notify and (paywalled is None or owner.id not in paywalled):
@@ -222,6 +227,18 @@ class Worker:
                 pub.status = "missed"
                 outcome = DeliveryOutcome(ok=False, channel_title=title, error="err.missed")
                 notify_key = "notify.missed" if pub.notify else None
+            elif (
+                post is not None and not post.is_ad
+                and (top_end := await ads.top_until(session, pub.channel_id, now)) is not None
+            ):
+                # An ad is in its «top» hours: everything else in the channel waits until they're over.
+                pub.status = "pending"
+                pub.attempts = max(0, pub.attempts - 1)
+                pub.run_at = top_end
+                local_run = top_end.astimezone(tz_of(owner.tz))
+                outcome = DeliveryOutcome(
+                    ok=False, channel_title=title, error="err.ad_top", detail=local_run.strftime("%d.%m %H:%M")
+                )
             elif await entitlements.posts_left(session, self.settings, channel, owner, entitlement, now) == 0:
                 pub.status = "pending"
                 pub.attempts = 0
