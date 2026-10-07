@@ -8,7 +8,14 @@ from datetime import timedelta
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LinkPreviewOptions,
+    Message,
+    WebAppInfo,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ca, Cs, Ed, Pj, Px
@@ -182,7 +189,10 @@ def sig_menu(
             head = t("sig.item_main", n=n) if tid == 0 else t("sig.item", n=n)
             if post is not None and tid == chosen:
                 head += " ✅"
-            lines += [head, render_signature(channel, tid), f"<code>{html.escape(template)}</code>", ""]
+            lines += [head, render_signature(channel, tid)]
+            if post is None:  # the raw template is for the channel card; the post editor shows just the signatures
+                lines.append(f"<code>{html.escape(template)}</code>")
+            lines.append("")
         lines.pop()
     if post is None:
         lines += ["", t("sig.help")]
@@ -296,14 +306,15 @@ async def stats_view(session: AsyncSession, channel: Channel, user: User, days: 
     return "\n".join(lines), markup(rows)
 
 
-async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -> None:
+async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None, *, no_preview: bool = False) -> None:
     if cb.message is None:
         return
+    preview = LinkPreviewOptions(is_disabled=True) if no_preview else None
     try:
-        await cb.message.edit_text(text, reply_markup=kb)
+        await cb.message.edit_text(text, reply_markup=kb, link_preview_options=preview)
     except TelegramBadRequest as e:
         if "not modified" not in str(e):
-            await cb.message.answer(text, reply_markup=kb)
+            await cb.message.answer(text, reply_markup=kb, link_preview_options=preview)
 
 
 async def _context(
@@ -514,7 +525,7 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         channel.signature_on = not channel.signature_on
     await session.flush()
     await cb.answer(t("sig.deleted") if a == "sig_del" else None)
-    await _edit(cb, *sig_menu(channel, post, **rights))
+    await _edit(cb, *sig_menu(channel, post, **rights), no_preview=post is not None)
 
 
 @router.callback_query(Cs.filter(F.a == "sig_edit"))
