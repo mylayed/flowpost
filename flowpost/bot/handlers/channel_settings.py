@@ -199,8 +199,9 @@ def sig_menu(
     if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
         rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
     deletable = sig_deletable(templates, rights)
-    rows += [[btn("🗑 " + sig_label(channel, tid, n), Cs(a="sig_del", c=c, p=p, v=str(tid)))]
-             for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
+    if post is None:  # deleting templates is for the channel card, not the post editor
+        rows += [[btn("🗑 " + sig_label(channel, tid, n), Cs(a="sig_del", c=c, p=p, v=str(tid)))]
+                 for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
     if can_settings:
         rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
