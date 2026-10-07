@@ -595,6 +595,12 @@ TEXTS: dict[str, str] = {
     "pub.fail_line": "❌ {title}: {error}",
 
     # ---- Захист від дублів ---------------------------------------------------------------------
+    "conflict.title": "⚠️ <b>За годину до чи після цього часу в каналі вже є публікація:</b>",
+    "conflict.line": "• {time} — {kind} у «{channel}»: {what}",
+    "conflict.post": "пост",
+    "conflict.ad": "📣 реклама",
+    "conflict.schedule_anyway": "✅ Все одно запланувати",
+    "conflict.publish_anyway": "🚀 Все одно опублікувати",
     "dup.warn_text": "⚠️ Схожий текст уже публікувався в «{channel}» {date}.",
     "dup.warn_media": "⚠️ Це медіа вже публікувалось у «{channel}» {date}.",
     "dup.warn_link": "(<a href=\"{link}\">той пост</a>)",

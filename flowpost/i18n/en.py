@@ -595,6 +595,12 @@ TEXTS: dict[str, str] = {
     "pub.fail_line": "❌ {title}: {error}",
 
     # ---- Duplicate protection --------------------------------------------------------------------
+    "conflict.title": "⚠️ <b>The channel already has a publication within an hour of this time:</b>",
+    "conflict.line": "• {time} — {kind} in \"{channel}\": {what}",
+    "conflict.post": "post",
+    "conflict.ad": "📣 ad",
+    "conflict.schedule_anyway": "✅ Schedule anyway",
+    "conflict.publish_anyway": "🚀 Publish anyway",
     "dup.warn_text": "⚠️ Similar text was already published in \"{channel}\" {date}.",
     "dup.warn_media": "⚠️ This media was already published in \"{channel}\" {date}.",
     "dup.warn_link": "(<a href=\"{link}\">that post</a>)",

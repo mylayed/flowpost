@@ -23,7 +23,7 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import ads, analytics
+from flowpost.services import ads, analytics, conflicts
 from flowpost.services.duplicates import find_duplicates, warning_lines
 from flowpost.services.html_sanitize import snippet
 from flowpost.services.parsing import ParseError, parse_time
@@ -151,8 +151,13 @@ async def ask_confirmation(
     matches = await find_duplicates(session, user.id, post, {c.id: c for c in channels})
     for line in warning_lines(matches, user.tz, user.lang):
         text += "\n" + line
+    run_at = to_utc(day, time(hour, minute), user.tz)
+    clashes = await conflicts.find_conflicts(session, [post.id], channels, run_at)
+    if clashes:
+        text += "\n\n" + conflicts.warning_text(clashes, run_at, user.tz, user.lang)
+    yes = t("conflict.schedule_anyway") if clashes else t("sch.confirm_yes")
     kb = markup([
-        [btn(t("sch.confirm_yes"), Ed(a="schok", p=post.id, v=value))],
+        [btn(yes, Ed(a="schok", p=post.id, v=value))],
         [btn(t("sch.change"), Ed(a="sch", p=post.id, v=f"{day.toordinal()}_0"))],
     ])
     await show_panel(bot, chat_id, state, text, kb, resend=resend)

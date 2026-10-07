@@ -189,6 +189,7 @@ const I18N = {
     cal_move: "Перенести",
     cal_past: "Цей час уже минув. Оберіть пізніший.",
     cal_not_movable: "Цей пост уже публікується або його скасували.",
+    cal_anyway: "Все одно запланувати",
     ideas_title: "Ідеї на тиждень",
     ideas_hint: "Утримуйте ідею й перетягніть її в календар на потрібний день і час.",
     ideas_empty: "ШІ підготує 7 чернеток постів під тематику каналу, а ви розкладете їх по днях.",
@@ -379,6 +380,7 @@ const I18N = {
     cal_move: "Reschedule",
     cal_past: "That time has passed. Pick a later one.",
     cal_not_movable: "This post is already being published or was cancelled.",
+    cal_anyway: "Schedule anyway",
     ideas_title: "Ideas for the week",
     ideas_hint: "Press and hold an idea, then drag it onto a day and time in the calendar.",
     ideas_empty: "AI will draft 7 posts on the channel's topic for you to spread across the week.",
@@ -1964,6 +1966,22 @@ function endCalDrag() {
   drag.card.classList.remove("dragging");
 }
 
+// Schedules via `path`; when the channel already has a post within an hour, asks first and resends with `force`.
+// Throws an error marked `declined` if the user backs out.
+async function scheduleAnyway(path, body) {
+  try {
+    return await api(path, body);
+  } catch (error) {
+    if (error.message !== "conflict") throw error;
+    const ok = await new Promise((resolve) => tg.showPopup({
+      message: error.data.message,
+      buttons: [{ id: "go", type: "default", text: t("cal_anyway") }, { type: "cancel" }],
+    }, (id) => resolve(id === "go")));
+    if (!ok) throw Object.assign(new Error("declined"), { declined: true });
+    return api(path, { ...body, force: true });
+  }
+}
+
 async function moveCalGroup(group, date, time) {
   const cal = state.cal;
   const ids = group.items.map((i) => i.id);
@@ -1972,10 +1990,14 @@ async function moveCalGroup(group, date, time) {
   moved.forEach((i) => Object.assign(i, { date, time }));
   if (route() === "calendar") render();
   try {
-    await api("calendar/move", { ids, date, time });
+    await scheduleAnyway("calendar/move", { ids, date, time });
     tg.HapticFeedback?.notificationOccurred("success");
   } catch (error) {
     moved.forEach((i, n) => Object.assign(i, { date: before[n][0], time: before[n][1] }));
+    if (error.declined) {
+      if (route() === "calendar") render();
+      return;
+    }
     let message = t("error");
     if (error.message === "past") message = t("cal_past");
     else if (error.status === 409) message = t("cal_not_movable");
@@ -2163,10 +2185,10 @@ async function scheduleIdea(idea, date, time) {
   });
   if (route() === "calendar") render();
   try {
-    await api("ideas/schedule", { id: idea.id, date, time });
+    await scheduleAnyway("ideas/schedule", { id: idea.id, date, time });
     tg.HapticFeedback?.notificationOccurred("success");
   } catch (error) {
-    tg.showAlert(error.message === "past" ? t("cal_past") : t("error"));
+    if (!error.declined) tg.showAlert(error.message === "past" ? t("cal_past") : t("error"));
   }
   await loadCalendar(cal).catch(() => {});
   if (route() === "calendar") render();

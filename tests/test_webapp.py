@@ -13,7 +13,8 @@ from sqlalchemy import select, update
 
 from flowpost.config import Settings
 from flowpost.db.models import (
-    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, Publication, Subscription, User,
+    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, PostPart, Publication, Subscription,
+    User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services.billing import limits, plans
@@ -448,6 +449,23 @@ async def test_calendar_week_and_move(sessionmaker, seeded):
         assert [(i["id"], i["date"], i["time"]) for i in later["items"]] == [
             (ids.upcoming, "2099-01-05", "09:30"), (ids.paused, "2099-01-05", "09:30"),
         ]
+
+        # Within an hour of another post in the channel: the Mini App is asked to confirm, then forces it.
+        async with sessionmaker() as session:
+            neighbour = Post(owner_id=seeded.user_id)
+            neighbour.parts = [PostPart(position=0, text_html="Сусідній пост", media=[], buttons=[])]
+            session.add(neighbour)
+            await session.flush()
+            session.add(Publication(post_id=neighbour.id, channel_id=seeded.channel_id, owner_id=seeded.user_id,
+                                    run_at=moved[0].run_at, status="pending"))
+            await session.commit()
+        clash = await move([ids.upcoming], hm="10:15")
+        assert clash.status == 409 and (await clash.json())["error"] == "conflict"
+        forced = await client.post(
+            "/api/calendar/move", json={"ids": [ids.upcoming], "date": "2099-01-05", "time": "09:30", "force": True},
+            headers=auth,
+        )
+        assert forced.status == 200
     finally:
         await client.close()
 

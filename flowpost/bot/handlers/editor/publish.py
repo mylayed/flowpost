@@ -34,7 +34,7 @@ from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
-from flowpost.services import ads
+from flowpost.services import ads, conflicts
 from flowpost.services import ideas as ideas_service
 from flowpost.services import rich
 from flowpost.services.delivery import DeliveryOutcome
@@ -121,8 +121,13 @@ async def ed_publish_ask(
     matches = await find_duplicates(session, user.id, post, {c.id: c for c in channels})
     for line in warning_lines(matches, user.tz, user.lang):
         text += "\n" + line
+    now = utcnow()
+    clashes = await conflicts.find_conflicts(session, [post.id], channels, now)
+    if clashes:
+        text += "\n\n" + conflicts.warning_text(clashes, now, user.tz, user.lang)
+    yes = t("conflict.publish_anyway") if clashes else t("pub.confirm_yes")
     await state.set_state(Editor.confirm)
-    await show_panel(bot, cb.from_user.id, state, text, confirm_kb(post.id, "pubok", t("pub.confirm_yes")))
+    await show_panel(bot, cb.from_user.id, state, text, confirm_kb(post.id, "pubok", yes))
 
 
 @router.callback_query(Ed.filter(F.a == "pubok"), flags={"publish": True})

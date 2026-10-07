@@ -25,6 +25,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANGS, t
+from flowpost.services import conflicts
 from flowpost.services import ideas as ideas_service
 from flowpost.services.billing import channel_subs, entitlements, limits, plans
 from flowpost.services.billing.stars import create_topup_link
@@ -442,6 +443,25 @@ async def calendar(request: web.Request, session: AsyncSession, user: User) -> w
     })
 
 
+# Telegram's popup takes at most 256 characters.
+CONFLICT_MESSAGE_MAX = 250
+
+
+async def _conflict_response(
+    session: AsyncSession, user: User, exclude: list[int], channel_ids: list[int], run_at: datetime
+) -> web.Response | None:
+    """A 409 listing the posts within an hour of `run_at` in those channels, so the Mini App can ask
+    «Все одно запланувати?» and resend with `force`; None when there's nothing there."""
+    channels = [c for c in await channels_repo.list_channels(session, user.id, perm="posts") if c.id in channel_ids]
+    clashes = await conflicts.find_conflicts(session, exclude, channels, run_at)
+    if not clashes:
+        return None
+    message = html_to_plain(conflicts.warning_text(clashes, run_at, user.tz, user.lang))
+    if len(message) > CONFLICT_MESSAGE_MAX:
+        message = message[: CONFLICT_MESSAGE_MAX - 1].rsplit("\n", 1)[0] + "\n…"
+    return web.json_response({"error": "conflict", "message": message}, status=409)
+
+
 async def calendar_move(request: web.Request, session: AsyncSession, user: User) -> web.Response:
     """Reschedule publications (a post's copies in several channels move together) to a local date and time."""
     body = await _json_body(request)
@@ -459,6 +479,13 @@ async def calendar_move(request: web.Request, session: AsyncSession, user: User)
     run_at = to_utc(day, hm, user.tz)
     if run_at <= now:
         return web.json_response({"error": "past"}, status=400)
+    if not body.get("force"):
+        pubs = (await session.scalars(select(Publication).where(Publication.id.in_(ids)))).all()
+        clash = await _conflict_response(
+            session, user, list({p.post_id for p in pubs}), list({p.channel_id for p in pubs}), run_at,
+        )
+        if clash is not None:
+            return clash
     if await pubs_repo.move_queued(session, user.id, ids, run_at, now) != len(ids):
         await session.rollback()
         return web.json_response({"error": "not_movable"}, status=409)
@@ -493,6 +520,10 @@ async def schedule_idea(request: web.Request, session: AsyncSession, user: User)
     run_at = to_utc(day, hm, user.tz)
     if run_at <= utcnow():
         return web.json_response({"error": "past"}, status=400)
+    if not body.get("force"):
+        clash = await _conflict_response(session, user, [post.id], post.channel_ids, run_at)
+        if clash is not None:
+            return clash
     await ideas_service.schedule(session, user, post, run_at)
     return web.json_response({"ok": True})
 
