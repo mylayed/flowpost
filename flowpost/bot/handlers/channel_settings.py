@@ -189,9 +189,8 @@ def sig_menu(
     if post is not None:
         rows.append([btn(on(options_of(post)["signature"]) + t("sig.apply_post"), Cs(a="sig_post", c=c, p=p))])
         if len(templates) > 1:
-            picks = [btn(("✅ " if tid == chosen else "") + t("sig.pick", n=n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))
+            rows += [[btn(("✅ " if tid == chosen else "") + sig_label(channel, tid, n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))]
                      for n, (tid, _) in enumerate(templates, 1)]
-            rows += [picks[i:i + 3] for i in range(0, len(picks), 3)]
     rights = {"can_settings": can_settings, "can_templates": can_templates}
     if sig_editable(templates, rights):
         rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
@@ -200,13 +199,17 @@ def sig_menu(
     if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
         rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
     deletable = sig_deletable(templates, rights)
-    dels = [btn(t("sig.delete", n=n), Cs(a="sig_del", c=c, p=p, v=str(tid)))
-            for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
-    rows += [dels[i:i + 3] for i in range(0, len(dels), 3)]
+    rows += [[btn("🗑 " + sig_label(channel, tid, n), Cs(a="sig_del", c=c, p=p, v=str(tid)))]
+             for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
     if can_settings:
         rows.append([btn(on(channel.signature_on) + t("sig.default_toggle"), Cs(a="sig_def", c=c, p=p))])
     rows.append([back_button(channel, p)])
     return "\n".join(lines), markup(rows)
+
+
+def sig_label(channel: Channel, template_id: int, n: int) -> str:
+    """A button label for a template: the signature itself as plain text, so it's clear which one it is."""
+    return snippet(render_signature(channel, template_id), 50) or t("sig.pick", n=n)
 
 
 def sig_editable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
@@ -530,9 +533,8 @@ async def cs_signature_edit(cb: CallbackQuery, callback_data: Cs, session: Async
     elif len(templates) == 1:
         tid = 0
     else:
-        picks = [btn(t("sig.edit_n", n=n), Cs(a="sig_edit", c=c, p=p, v=str(i)))
-                 for n, (i, _) in enumerate(templates, 1) if i in editable]
-        rows = [picks[i:i + 3] for i in range(0, len(picks), 3)]
+        rows = [[btn("✏️ " + sig_label(channel, i, n), Cs(a="sig_edit", c=c, p=p, v=str(i)))]
+                for n, (i, _) in enumerate(templates, 1) if i in editable]
         rows.append([btn(t("btn.back"), Cs(a="sig", c=c, p=p))])
         await _edit(cb, t("sig.edit_pick"), markup(rows))
         return

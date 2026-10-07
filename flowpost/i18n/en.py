@@ -359,7 +359,6 @@ TEXTS: dict[str, str] = {
     "sig.item": "<b>Template {n}</b>",
     "sig.pick": "Template {n}",
     "sig.add": "➕ Add template",
-    "sig.delete": "🗑 Template {n}",
     "sig.deleted": "Template deleted",
     "sig.add_prompt": (
         "Send a new signature template (up to 512 characters). You'll be able to pick it in the post editor "
@@ -368,7 +367,6 @@ TEXTS: dict[str, str] = {
     ),
     "sig.added": "✅ Template added",
     "sig.edit_pick": "✏️ Which template do you want to change?",
-    "sig.edit_n": "✏️ Template {n}",
     "sig.edit_current": "<b>Template {n}</b> now: <code>{template}</code>",
     "sig.too_many": "You can have up to {max} templates. Delete one to add a new one.",
 
