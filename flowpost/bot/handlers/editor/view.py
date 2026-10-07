@@ -12,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flowpost.bot.keyboards.editor import editor_kb
+from flowpost.bot.keyboards.editor import ad_check_verdict, editor_kb
 from flowpost.bot.states import Editor
 from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
@@ -136,6 +136,11 @@ async def ad_panel_text(
         details.append(t("ed.scheduled_at", date=fmt_date(local.date(), user.lang), time=fmt_hm(local)))
     if booking:
         details.append(t("ad.booking_unconfirmed"))
+    verdict = ad_check_verdict(post)
+    if verdict:
+        details.append(t(f"adchk.line_{verdict}"))
+    if opts["ad_report"]:
+        details.append(t("adrep.line"))
     lines += [""] + details
     if post_is_empty(post):
         lines += ["", t("ad.hint_empty")]

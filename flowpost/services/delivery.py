@@ -14,7 +14,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from flowpost.db.models import Channel, Post, Publication, User
 from flowpost.db.repo import posts as posts_repo
-from flowpost.services import analytics
+from flowpost.services import ads, analytics
 from flowpost.services.ai import AIError, AIService
 from flowpost.services.billing import limits
 from flowpost.services.posts import CAPTION_LIMIT, TEXT_LIMIT, message_link, options_of, post_is_empty
@@ -220,6 +220,12 @@ async def deliver_publication(
             outcome.warnings.append("warn.pin_failed")
     if opts.get("auto_delete_hours"):
         pub.delete_at = now + timedelta(hours=float(opts["auto_delete_hours"]))
+    if post.is_ad and opts.get("ad_report") and extras:
+        pub.report_at = ads.report_due(opts, now)
+        try:
+            pub.ad_stats = {"members_before": await bot.get_chat_member_count(channel.chat_id)}
+        except TelegramAPIError as e:
+            log.info("member count of %s unavailable: %s", channel.chat_id, e)
 
     post.published_at = now
     analytics.track(session, owner.id, "post_published", channel_id=channel.id, post_id=post.id)

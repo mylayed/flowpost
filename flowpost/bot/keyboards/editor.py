@@ -8,7 +8,7 @@ from flowpost.bot.callbacks import Ed
 from flowpost.bot.keyboards.common import btn, chunked, markup, on, page_nav, paged
 from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
-from flowpost.services import ideas
+from flowpost.services import ads, ideas
 from flowpost.services.posts import AD_FORMATS, has_visual_media, options_of
 from flowpost.services.rich import carousel_ready
 from flowpost.services.slots import fmt_date, fmt_hm
@@ -55,6 +55,12 @@ def hidden_buttons(post: Post, hidden, *, is_poll: bool = False) -> list:
     return [_toggle_button(post, k) for k in keys]
 
 
+def ad_check_verdict(post: Post) -> str | None:
+    """The verdict of the last «Перевірити рекламу», while the ad is still what was checked."""
+    check = options_of(post)["ad_check"]
+    return check["report"]["verdict"] if check and check.get("hash") == ads.content_hash(post) else None
+
+
 def ad_kb(post: Post) -> InlineKeyboardMarkup:
     """«Налаштування реклами»: an ad's own settings instead of the regular editor."""
     p = post.id
@@ -77,6 +83,10 @@ def ad_kb(post: Post) -> InlineKeyboardMarkup:
             btn(t("ad.silent") if opts["silent"] else t("ad.sound"), Ed(a="ad_t", p=p, v="silent")),
         ],
         [btn(("☑️ " if not opts["comments"] else "☐ ") + t("ad.no_comments"), Ed(a="ad_t", p=p, v="comments"))],
+        [
+            btn(t(f"adchk.btn_{verdict}") if (verdict := ad_check_verdict(post)) else t("adchk.btn"), Ed(a="ad_chk", p=p)),
+            btn(("☑️ " if opts["ad_report"] else "☐ ") + t("adrep.btn"), Ed(a="ad_rep", p=p)),
+        ],
         [
             btn(on(bool(post.repeat and post.repeat.active)) + t("ad.repeat"), Ed(a="rep", p=p)),
             btn(t("ad.multipost") + (f" ({len(post.targets)})" if len(post.targets) > 1 else ""), Ed(a="multi", p=p)),

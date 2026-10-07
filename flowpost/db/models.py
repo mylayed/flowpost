@@ -355,6 +355,8 @@ class Publication(Base):
     published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     delete_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     unpin_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    report_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)  # an ad's report for the advertiser is due
+    ad_stats: Mapped[dict] = mapped_column(JSONType, default=dict)  # {"members_before": n} kept for that report
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

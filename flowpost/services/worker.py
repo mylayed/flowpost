@@ -17,7 +17,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, ReplyParameters, WebAppInfo
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -109,6 +109,7 @@ class Worker:
         await self.process_due(now)
         await self.process_broadcasts(now)
         await self.process_unpins(now)
+        await self.process_ad_reports(now)  # before the deletes: an ad's views can't be read once it's gone
         await self.process_deletes(now)
         await self.trial_reminders(now)
         await self.subscription_reminders(now)
@@ -404,6 +405,33 @@ class Worker:
                     pub.deleted = True
                     pub.delete_at = None
             await session.commit()
+
+    async def process_ad_reports(self, now: datetime) -> None:
+        """«📊 Звіт рекламодавцю»: tell the owner how each ad that ran its time did."""
+        async with self.sessionmaker() as session:
+            rows = (await session.scalars(
+                select(Publication)
+                .where(Publication.report_at.is_not(None), Publication.report_at <= now,
+                       Publication.status == "published")
+                .limit(BATCH)
+            )).all()
+            for pub in rows:
+                pub.report_at = None
+            await session.commit()  # claimed first, so a crash halfway can't send a report twice
+            for pub in rows:
+                post = await session.get(Post, pub.post_id)
+                channel = await session.get(Channel, pub.channel_id)
+                owner = await session.get(User, pub.owner_id)
+                if post is None or channel is None or owner is None or owner.is_blocked:
+                    continue
+                try:
+                    text = await ads.build_report(session, self.bot, self.ai, pub, post, channel, owner, now)
+                    await session.commit()
+                    await self.bot.send_message(owner.tg_id, text, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                except TelegramForbiddenError:
+                    await self._mark_blocked(owner)
+                except Exception:  # noqa: BLE001 - one report must not hold up the others
+                    log.exception("ad report for pub %s failed", pub.id)
 
     async def process_unpins(self, now: datetime) -> None:
         async with self.sessionmaker() as session:

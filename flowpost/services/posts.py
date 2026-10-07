@@ -35,6 +35,8 @@ DEFAULT_OPTIONS: dict = {
     "ad_booking": False,  # a booked ad slot: it goes out only once the booking is confirmed
     "ad_advertiser": None,  # who booked the slot, when the ad itself isn't there yet
     "reply_to": None,  # {"ch": channel id, "msg": message id, "url": link}: the post goes out as a reply to it
+    "ad_report": False,  # «📊 Звіт рекламодавцю»: the owner gets a report on how the ad ran (services/ads.py)
+    "ad_check": None,  # the last «🛡 Перевірити рекламу»: {"hash": what was checked, "report": the AI verdict}
 }
 
 # An ad's format «top / feed»: no other post goes out in the channel for the first `top` hours,
@@ -50,7 +52,8 @@ MAX_PAID_STARS = 25000  # Telegram's limit for paid media
 # Ad settings and a hidden text belong to their own post, so none of them is carried over into other posts.
 DEFAULTABLE_OPTIONS = tuple(
     k for k in DEFAULT_OPTIONS
-    if k not in ("hidden_text", "paid", "paid_stars", "ad_format", "ad_booking", "ad_advertiser", "reply_to")
+    if k not in ("hidden_text", "paid", "paid_stars", "ad_format", "ad_booking", "ad_advertiser", "reply_to",
+                 "ad_report", "ad_check")
 )
 HIDDEN_PREFIX = "hx:"  # callback data of the «show hidden text» button: hx:<post id>
 GIVEAWAY_PREFIX = "gwj:"  # callback data of a giveaway's «Беру участь» button without the Mini App: gwj:<giveaway id>

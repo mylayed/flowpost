@@ -331,3 +331,70 @@ async def test_ai_service_answer_comment_escapes_the_comment(settings):
     request = sent["messages"][0]["content"][0]["text"]
     assert "<comment>&lt;b&gt;ви працюєте?&lt;/b&gt;</comment>" in request
     assert sent["output_config"]["format"]["type"] == "json_schema"
+
+
+async def test_ad_check_and_report_for_the_advertiser(h: Harness, monkeypatch):
+    from flowpost.bot.callbacks import Ad, Ed
+    from flowpost.services import ads
+
+    c = await _pro_channel(h, ai_texts=5)
+    ai = h.dp.workflow_data["ai"]
+    checked = []
+
+    async def fake_check(text, links, **kw):
+        checked.append((text, links))
+        return {"verdict": "warn", "category": "кав'ярня", "summary": "Попросіть прибрати «гарантовано».",
+                "issues": [{"kind": "misleading", "note": "«Гарантована знижка» без умов"}]}
+
+    async def fake_summary(text, stats, *, lang):
+        assert "views: 1.2K" in stats and "1000 before" in stats
+        return "Реклама зібрала добрий відгук."
+
+    async def fake_probe(url):
+        return "opens: " + url
+
+    async def fake_views(channel, message_id):
+        return "1.2K"
+
+    ai.check_ad, ai.ad_report_summary = fake_check, fake_summary
+    monkeypatch.setattr(ads, "probe", fake_probe)
+    monkeypatch.setattr(ads, "fetch_views", fake_views)
+
+    await h.text("/ad")
+    await h.click(Ad(a="ch", c=c))
+    await h.text('Кава зі знижкою: <a href="https://coffee.example">замовити</a>')
+    post = (await h.db(lambda s: s.scalars(select(Post).where(Post.is_ad.is_(True)))))
+    p = post.first().id
+
+    # a check costs one AI text; looking at it again is free until the ad changes or it's asked for again
+    h.session.clear()
+    await h.click(Ed(a="ad_chk", p=p))
+    assert "Є питання до рекламодавця" in h.session.texts() and "кав'ярня" in h.session.texts()
+    assert checked[0][1] == [("https://coffee.example", "opens: https://coffee.example")]
+    assert await _ai_texts_left(h, c) == 4
+    await h.click(Ed(a="ad_chk", p=p))
+    assert len(checked) == 1 and await _ai_texts_left(h, c) == 4
+    await h.click(Ed(a="ad_chk", p=p, v="again"))
+    assert len(checked) == 2 and await _ai_texts_left(h, c) == 3
+
+    # the report: due right before the 1/24 ad is deleted
+    await h.click(Ed(a="ad_rep", p=p))
+    await h.click(Ed(a="ad_fmt", p=p, v="1"))
+    await h.click(Ed(a="pub", p=p))
+    await h.click(Ed(a="pubok", p=p))
+    pub = await h.db(lambda s: s.scalar(select(Publication).where(Publication.post_id == p)))
+    assert pub.ad_stats == {"members_before": 1000}
+    assert timedelta(hours=23) < pub.report_at - pub.published_at < timedelta(hours=24)
+
+    async def due(s):
+        await s.execute(update(Publication).where(Publication.id == pub.id).values(report_at=utcnow()))
+        await s.commit()
+    await h.db(due)
+    worker = h.dp.workflow_data["worker"]
+    worker.ai = ai
+    h.session.clear()
+    await worker.process_ad_reports(utcnow())
+    report = h.session.texts()
+    assert "Звіт про рекламу" in report and "1.2K" in report and "Реклама зібрала добрий відгук" in report
+    assert await _ai_texts_left(h, c) == 2
+    assert (await h.db(lambda s: s.get(Publication, pub.id))).report_at is None
