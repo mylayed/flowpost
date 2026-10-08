@@ -1888,3 +1888,21 @@ async def test_ad_post_flow(h: Harness):
     assert confirmed.options["ad_booking"] is True and not confirmed.options.get("ad_advertiser")
     await h.click(Ed(a="ad_ok", p=confirmed.id))
     assert (await _post(h)).options["ad_booking"] is False
+
+    # the channel's screen lists its bookings: open one, then cancel it
+    await h.click(Ed(a="schok", p=confirmed.id, v=f"{tomorrow.toordinal()}_1500"))
+    await h.text("/ad")
+    h.session.clear()
+    await h.click(Ad(a="ch", c=c))
+    kb = [m for n, m in h.session.calls if n in ("SendMessage", "EditMessageText")][-1].reply_markup
+    labels = {b.callback_data: b.text for row in kb.inline_keyboard for b in row}
+    opened = Ad(a="open", p=confirmed.id).pack()
+    assert "Виберіть його зі списку" in h.session.texts() and "15:00 💰 Нова кав'ярня" in labels[opened]
+    h.session.clear()
+    await h.click(Ad(a="open", p=confirmed.id))
+    assert "Налаштування реклами" in h.session.texts()
+    await h.click(Ed(a="ad_drop", p=confirmed.id))
+    h.session.clear()
+    await h.click(Ed(a="ad_dropok", p=confirmed.id))
+    assert "Бронювання скасовано" in h.session.texts()
+    assert await h.db(lambda s: s.get(Post, confirmed.id)) is None

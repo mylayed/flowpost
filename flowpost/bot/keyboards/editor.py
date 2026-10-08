@@ -97,7 +97,12 @@ def ad_kb(post: Post) -> InlineKeyboardMarkup:
         rows.append([btn(t("ad.confirm"), Ed(a="ad_ok", p=p))])
     else:
         rows.append([btn(t("ad.schedule"), Ed(a="sch", p=p)), btn(t("ad.publish"), Ed(a="pub", p=p))])
-    rows.append([btn(t("ad.cancel"), Ed(a="cancel", p=p))])
+    if booking or post.status == "scheduled":
+        # A booked slot stays in the channel's list when the panel is left; dropping it is a separate button.
+        rows.append([btn(t("ad.drop"), Ed(a="ad_drop", p=p))])
+        rows.append([btn(t("ad.back"), Ed(a="ad_back", p=p))])
+    else:
+        rows.append([btn(t("ad.cancel"), Ed(a="cancel", p=p))])
     return markup(rows)
 
 

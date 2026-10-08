@@ -11,12 +11,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Ed
 from flowpost.bot.handlers.editor.defaults import done_screen
-from flowpost.bot.handlers.editor.view import load_editor_post, post_from_callback, render_editor, show_panel
+from flowpost.bot.handlers.editor.view import (
+    NO_PREVIEW,
+    close_editor,
+    load_editor_post,
+    post_from_callback,
+    render_editor,
+    show_panel,
+)
 from flowpost.bot.keyboards.common import btn, chunked, markup
+from flowpost.bot.keyboards.editor import confirm_kb
 from flowpost.bot.states import Editor
 from flowpost.config import Settings
 from flowpost.db.models import Post, User
 from flowpost.db.repo import channels as channels_repo
+from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import ads, analytics, pro_ai
@@ -170,6 +179,57 @@ async def ed_ad_confirm(
     text, kb = await done_screen(session, user, post)
     if cb.message is not None:
         await cb.message.edit_text(text, reply_markup=kb)
+
+
+async def _back_to_channel(bot: Bot, chat_id: int, session: AsyncSession, user: User, channel_ids: list[int],
+                           note: str | None = None) -> None:
+    """After leaving a booking: the channel's «Рекламний пост у …» screen with its bookings."""
+    from flowpost.bot.handlers.ads import channel_view
+
+    channels = await channels_repo.get_by_ids(session, user.id, channel_ids[:1])
+    if not channels:
+        if note:
+            await bot.send_message(chat_id, note)
+        return
+    text, kb = await channel_view(session, user, channels[0])
+    await bot.send_message(chat_id, (note + "\n\n" + text) if note else text, reply_markup=kb,
+                           link_preview_options=NO_PREVIEW)
+
+
+@router.callback_query(Ed.filter(F.a == "ad_back"))
+async def ed_ad_back(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+) -> None:
+    """Leave a booking's panel: it stays booked (and confirmed, if it was), with every change already saved."""
+    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        await state.clear()
+        return
+    await cb.answer()
+    await close_editor(bot, cb.from_user.id, state)
+    await _back_to_channel(bot, cb.from_user.id, session, user, post.channel_ids)
+
+
+@router.callback_query(Ed.filter(F.a.in_({"ad_drop", "ad_dropok"})))
+async def ed_ad_drop(
+    cb: CallbackQuery, callback_data: Ed, bot: Bot, session: AsyncSession, state: FSMContext, user: User
+) -> None:
+    """«Скасувати бронювання»: the slot is given up and the ad won't go out."""
+    post, _ = await post_from_callback(cb, session, user, state, callback_data.p)
+    if post is None:
+        return
+    if callback_data.a == "ad_drop":
+        await cb.answer()
+        await state.set_state(Editor.confirm)
+        await show_panel(bot, cb.from_user.id, state, t("ad.drop_confirm"), confirm_kb(post.id, "ad_dropok", t("ad.drop_yes")))
+        return
+    channel_ids = post.channel_ids
+    await pubs_repo.cancel_pending(session, post.id)
+    await session.delete(post)
+    await session.flush()
+    await cb.answer(t("ad.dropped"))
+    await close_editor(bot, cb.from_user.id, state, delete_preview=True)
+    await _back_to_channel(bot, cb.from_user.id, session, user, channel_ids, note="❌ " + t("ad.dropped"))
 
 
 # ---- 🛡 vetting the ad ----------------------------------------------------------------------------------------------

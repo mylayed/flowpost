@@ -974,6 +974,12 @@ TEXTS: dict[str, str] = {
         "No post or payment yet? Book a slot — the ad will be published if you confirm the booking later."
     ),
     "ad.new_booking": "➕ New booking",
+    "ad.pick_booking": "Need to confirm a booking? Pick it from the list.",
+    "ad.no_time": "no time",
+    "ad.drop": "❌ Cancel booking",
+    "ad.drop_confirm": "Cancel this booking? The ad won't go out and the post will be deleted.",
+    "ad.drop_yes": "❌ Yes, cancel",
+    "ad.dropped": "Booking cancelled",
     "ad.back": "← Back",
     "ad.booking": (
         "<b>New booking in {channel}</b>\n\n"
