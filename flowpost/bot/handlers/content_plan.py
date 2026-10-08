@@ -8,7 +8,9 @@ from datetime import date
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from aiogram.types import (
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage, Message, WebAppInfo,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Cp
@@ -46,32 +48,31 @@ async def channel_picker_view(
     return t("plan.pick_channel"), markup(rows)
 
 
-PLAN_TEXT_LIMIT = 3800  # leaves room under Telegram's 4096 for the «and N more» line
+PLAN_ROWS_LIMIT = 100  # rich messages allow 500 blocks; a day never needs more than this
 
 
-def open_link(username: str, post_id: int, mode: str, ordinal: int, channel_id: int) -> str:
-    """«Відкрити» in the list: a /start deep link that opens the post's card."""
-    return f"https://t.me/{username}?start=cp_{post_id}_{mode}_{ordinal}_{channel_id}"
-
-
-def _row(
-    post: Post, when: str, status: str, link: str, channel: Channel | None
-) -> str:
-    """«⏳ 12:00 🖼 НОРМ ЧИ СТРЬОМ…  Відкрити»; an ad gets 💰 and «Реклама»."""
+def _row(post: Post, when: str, status: str, open_cb: Cp, channel: Channel | None) -> str:
+    """A table row: «⏳ 12:00» | «🖼 НОРМ ЧИ СТРЬОМ…» | «Відкрити» on the right; an ad gets 💰 and «Реклама»."""
     first = post.parts[0]
-    title = html.escape(snippet(part_preview_text(first), 45)) or t("parts.no_text")
+    title = html.escape(snippet(part_preview_text(first), 60)) or t("parts.no_text")
     if post.is_ad:
         what = f"💰 <b>{t('cp.ad_label')}</b> · <i>{title}</i>"
     else:
         what = f"{part_icon(first)} <i>{title}</i>"
-    where = f" · {html.escape(channel.title)}" if channel is not None else ""
-    return f"{status} <b>{when}</b> {what}{where}  <a href=\"{link}\">{t('cp.open')}</a>"
+    if channel is not None:
+        what += f"<br>📢 {html.escape(channel.title)}"
+    button = f'<tg-button type="callback_data" style="link" data="{open_cb.pack()}">{t("cp.open")}</tg-button>'
+    return (
+        f'<tr><td valign="top">{status}&nbsp;<b>{when}</b></td><td align="left" valign="top">{what}</td>'
+        f'<td align="right" valign="middle">{button}</td></tr>'
+    )
 
 
 async def plan_view(
     session: AsyncSession, user: User, day: date | None = None, mode: str = "s", channel_id: int = 0,
-    *, multi: bool = False, settings: Settings | None = None, username: str = "",
+    *, multi: bool = False, settings: Settings | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
+    """The day's posts as rich HTML (a table: time, post, «Відкрити») and the navigation keyboard."""
     today = local_now(user.tz).date()
     day = max(day or today, today) if mode != "p" else (day or today)
     ordinal = day.toordinal()
@@ -100,7 +101,7 @@ async def plan_view(
 
     channel = await session.get(Channel, channel_id) if channel_id else None
     header = f"📢 <i>{channel_link_html(channel)}</i>" if channel is not None else t("plan.all_channels")
-    lines = [header, t("cp.title"), ""]
+    parts = [f"<p>{header}<br>{t('cp.title')}</p>"]
 
     entries: list[str] = []
     seen: set[int] = set()
@@ -119,28 +120,25 @@ async def plan_view(
         else:
             status = "🔐" if post.is_ad else "⏳"
         other = None if channel_id else await session.get(Channel, pub.channel_id)
-        entries.append(_row(post, when, status, open_link(username, post.id, mode, ordinal, c), other))
+        entries.append(_row(post, when, status, Cp(a="post", d=ordinal, id=post.id, m=mode, c=c), other))
 
     if entries:
-        lines += [t("cp.hint"), "", f"<blockquote><b>{fmt_date(day, user.lang)} {day.year}</b></blockquote>"]
-        size = sum(len(x) + 1 for x in lines)
-        for i, entry in enumerate(entries):
-            if size + len(entry) + 1 > PLAN_TEXT_LIMIT:
-                lines.append(t("cp.more", n=len(entries) - i))
-                break
-            lines.append(entry)
-            size += len(entry) + 1
+        parts.append(f"<p>{t('cp.hint')}</p>")
+        head = f'<tr><th colspan="3" align="left">{fmt_date(day, user.lang)} {day.year}</th></tr>'
+        parts.append("<table striped>" + head + "".join(entries[:PLAN_ROWS_LIMIT]) + "</table>")
+        if len(entries) > PLAN_ROWS_LIMIT:
+            parts.append(f"<p>{t('cp.more', n=len(entries) - PLAN_ROWS_LIMIT)}</p>")
     else:
-        lines.append(t("plan.empty_published") if published else t("plan.empty"))
+        parts.append(f"<p>{t('plan.empty_published') if published else t('plan.empty')}</p>")
     url = settings.calendar_url(channel_id) if settings is not None else None
     if url:
         rows.append([InlineKeyboardButton(text=t("plan.calendar"), web_app=WebAppInfo(url=url))])
     rows.append([btn(t("plan.new_post"), Cp(a="new"))])
-    return "\n".join(lines), markup(rows)
+    return "".join(parts), markup(rows)
 
 
-async def _username(bot: Bot) -> str:
-    return (await bot.me()).username or ""
+def _rich(body: str) -> InputRichMessage:
+    return InputRichMessage(html=body, skip_entity_detection=True)
 
 
 async def send_plan(message: Message, session: AsyncSession, user: User, settings: Settings) -> None:
@@ -150,16 +148,33 @@ async def send_plan(message: Message, session: AsyncSession, user: User, setting
         await message.answer(text, reply_markup=kb)
         return
     channel_id = channels[0].id if channels else 0
-    text, kb = await plan_view(session, user, channel_id=channel_id, settings=settings,
-                               username=await _username(message.bot))
-    await message.answer(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
+    body, kb = await plan_view(session, user, channel_id=channel_id, settings=settings)
+    await message.bot.send_rich_message(message.chat.id, _rich(body), reply_markup=kb)
+
+
+async def _show_plan(cb: CallbackQuery, bot: Bot, body: str, kb: InlineKeyboardMarkup) -> None:
+    """Puts the plan in place of the pressed screen: edited in place if that's already a plan, else sent anew."""
+    msg = cb.message
+    if msg is not None and getattr(msg, "rich_message", None) is not None:
+        try:
+            await bot.edit_message_text(
+                chat_id=msg.chat.id, message_id=msg.message_id, rich_message=_rich(body), reply_markup=kb
+            )
+            return
+        except TelegramBadRequest as e:
+            if "not modified" in str(e):
+                return
+    if msg is not None:
+        with suppress(TelegramBadRequest):
+            await msg.delete()
+    await bot.send_rich_message(cb.from_user.id, _rich(body), reply_markup=kb)
 
 
 async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -> None:
     if cb.message is None:
         return
     if getattr(cb.message, "text", None) is None:
-        # a post card with a media preview can't be edited into a text screen
+        # the plan (a rich message) or a card with a media preview can't be edited into a text screen
         with suppress(TelegramBadRequest):
             await cb.message.delete()
         await cb.message.answer(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
@@ -183,9 +198,8 @@ async def cp_day(
     await cb.answer()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     day = date.fromordinal(callback_data.d) if callback_data.d else None
-    await _edit(cb, *await plan_view(
+    await _show_plan(cb, bot, *await plan_view(
         session, user, day, callback_data.m, callback_data.c, multi=len(channels) > 1, settings=settings,
-        username=await _username(bot),
     ))
 
 
@@ -276,7 +290,7 @@ async def cp_post(cb: CallbackQuery, callback_data: Cp, bot: Bot, session: Async
 
 
 async def open_from_link(message: Message, session: AsyncSession, user: User, arg: str) -> None:
-    """«Відкрити» next to a post in the list: /start cp_<post>_<tab>_<day>_<channel>."""
+    """/start cp_<post>_<tab>_<day>_<channel>: «Відкрити» links in plans sent before the list became a table."""
     try:
         _, post_id, mode, d, c = arg.split("_")
         post_id, d, c = int(post_id), int(d), int(c)
@@ -344,9 +358,9 @@ async def cp_drop(
     await session.flush()
     await cb.answer(t("plan.dropped"))
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
-    await _edit(cb, *await plan_view(
+    await _show_plan(cb, bot, *await plan_view(
         session, user, date.fromordinal(callback_data.d), channel_id=callback_data.c, multi=len(channels) > 1,
-        settings=settings, username=await _username(bot),
+        settings=settings,
     ))
 
 

@@ -114,7 +114,11 @@ class MockSession(BaseSession):
         return [n for n, _ in self.calls]
 
     def texts(self) -> str:
-        return "\n".join(str(getattr(m, "text", "") or getattr(m, "caption", "") or "") for _, m in self.calls)
+        return "\n".join(
+            str(getattr(m, "text", "") or getattr(m, "caption", "") or getattr(getattr(m, "rich_message", None), "html", "")
+                or "")
+            for _, m in self.calls
+        )
 
     def clear(self):
         self.calls.clear()
@@ -366,7 +370,7 @@ async def test_full_editor_flow(h: Harness):
     h.session.clear()
     await h.click(Cp(a="day", d=ordinal))  # ▶️ to tomorrow
     plan_text = h.session.texts()
-    assert "10:15" in plan_text and f"start=cp_{p}_s_{ordinal}_" in plan_text  # «Відкрити» deep link
+    assert "10:15" in plan_text and Cp(a="post", d=ordinal, id=p).pack() in plan_text  # «Відкрити» in the table
     await h.text(f"/start cp_{p}_s_{ordinal}_0")
     assert "Запланований пост" in h.session.texts()
     await h.click(Cp(a="post", d=ordinal, id=p))
@@ -382,9 +386,10 @@ async def test_full_editor_flow(h: Harness):
     today_ordinal = local_now("Europe/Kyiv").date().toordinal()
     h.session.clear()
     await h.click(Cp(a="day", d=today_ordinal, m="p"))
-    assert "SendMessage" in h.session.names() or "EditMessageText" in h.session.names()
+    assert "SendRichMessage" in h.session.names() or "EditMessageText" in h.session.names()
     kb_text = str(h.session.calls[-1][1].reply_markup)
     assert "Опубліковані" in kb_text
+    assert "<table" in h.session.texts() and "Відкрити" in h.session.texts()
     await h.click(Cp(a="post", d=today_ordinal, id=p, m="p"))
     post_kb = str(h.session.calls[-1][1].reply_markup)
     assert "Редагувати" in post_kb
