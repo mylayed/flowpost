@@ -1036,6 +1036,8 @@ TEXTS: dict[str, str] = {
     "ad.publish_booking": "This is a booking: set the time and confirm it for the ad to go out.",
     "err.booking_unconfirmed": "the booking wasn't confirmed",
     "err.ad_top": "an ad is at the top of the channel, new publishing time",
+    "notify.booking_remind": "⏰ <b>Unconfirmed ad booking</b>\n\nIn {minutes} min, at {time}, an ad is due in «{title}»:\n💰 <i>{what}</i>\n\nThe booking isn't confirmed yet. If it isn't confirmed by {time}, the ad won't go out and the slot will be freed.",
+    "notify.booking_remind_btn": "💰 Open the ad post",
     "notify.booking_unconfirmed": "⚠️ The ad in «{title}» wasn't published: the booking wasn't confirmed by the scheduled time, so the slot was released.",
     "adchk.btn": "🛡 Check the ad",
     "adchk.btn_ok": "🟢 Checked",

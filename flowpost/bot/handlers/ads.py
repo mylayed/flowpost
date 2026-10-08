@@ -171,7 +171,7 @@ async def ad_channel(cb: CallbackQuery, callback_data: Ad, session: AsyncSession
     await _swap(cb, text, kb)
 
 
-@router.callback_query(Ad.filter(F.a.in_({"draft", "open"})))
+@router.callback_query(Ad.filter(F.a.in_({"draft", "open", "rem"})))
 async def ad_draft(
     cb: CallbackQuery, callback_data: Ad, bot: Bot, session: AsyncSession, state: FSMContext, user: User,
     publisher: Publisher,
@@ -182,7 +182,7 @@ async def ad_draft(
         await cb.answer(t("err.post_not_found"), show_alert=True)
         return
     await cb.answer()
-    if cb.message:
+    if cb.message and callback_data.a != "rem":  # the reminder about an unconfirmed booking stays in the chat
         await safe_delete(bot, cb.message.chat.id, [cb.message.message_id])
     await open_editor(bot, cb.from_user.id, session, state, user, post, publisher)
 

@@ -1924,6 +1924,23 @@ async def test_ad_post_flow(h: Harness):
     booked = await _post(h)
     await h.click(Ed(a="schok", p=booked.id, v=f"{tomorrow.toordinal()}_1600"))
     d = tomorrow.toordinal()
+
+    # nothing to remind about a day ahead; half an hour before the slot the owner gets a reminder, once
+    h.session.clear()
+    await worker.booking_reminders(utcnow())
+    assert "SendMessage" not in h.session.names()
+    slot = (await h.db(lambda s: s.scalar(select(Publication).where(Publication.post_id == booked.id)))).run_at
+    await worker.booking_reminders(slot - timedelta(minutes=20))
+    await worker.booking_reminders(slot - timedelta(minutes=10))
+    reminders = [m for n, m in h.session.calls if n == "SendMessage" and "Непідтверджене бронювання" in m.text]
+    assert len(reminders) == 1 and "Через 20 хв" in reminders[0].text and "Пекарня" in reminders[0].text
+    (button,) = [b for row in reminders[0].reply_markup.inline_keyboard for b in row]
+    assert button.callback_data == Ad(a="rem", p=booked.id).pack()
+    h.session.clear()
+    await h.click(Ad(a="rem", p=booked.id))
+    assert "Налаштування бронювання реклами" in h.session.texts()
+    assert "DeleteMessage" not in h.session.names()
+
     h.session.clear()
     await h.click(Cp(a="post", d=d, id=booked.id))
     card_kb = str(h.session.calls[-1][1].reply_markup)

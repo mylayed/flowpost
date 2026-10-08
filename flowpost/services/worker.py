@@ -21,7 +21,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from flowpost.bot.callbacks import Cp, Cs, Px
+from flowpost.bot.callbacks import Ad, Cp, Cs, Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
 from flowpost.db.models import Broadcast, Channel, Commenter, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
@@ -43,12 +43,14 @@ from flowpost.services.delivery import (
     deliver_publication,
     publication_message_ids,
 )
-from flowpost.services.html_sanitize import visible_len
+from flowpost.services.html_sanitize import snippet, visible_len
 from flowpost.services.moderation import moderation_settings
-from flowpost.services.posts import TEXT_LIMIT, channel_defaults, initial_options, render_signature
+from flowpost.services.posts import (
+    TEXT_LIMIT, channel_defaults, initial_options, part_preview_text, render_signature,
+)
 from flowpost.services.publisher import EmptyPostError, Publisher
 from flowpost.services.reports import report_due_since, weekly_report
-from flowpost.services.slots import day_bounds_utc, tz_of
+from flowpost.services.slots import day_bounds_utc, fmt_hm, tz_of
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ FEEDS_PER_TICK = 5
 MEMBERS_EVERY = timedelta(hours=1)
 REPORTS_EVERY = timedelta(minutes=10)
 GAPS_EVERY = timedelta(minutes=10)
+BOOKING_REMIND_BEFORE = timedelta(minutes=30)
 
 
 def next_day_same_time(run_at: datetime, tz_name: str, now: datetime) -> datetime:
@@ -106,6 +109,7 @@ class Worker:
     async def tick(self, now: datetime | None = None) -> None:
         now = now or utcnow()
         await self.recover_stale()
+        await self.booking_reminders(now)
         await self.process_due(now)
         await self.process_broadcasts(now)
         await self.process_unpins(now)
@@ -432,6 +436,50 @@ class Worker:
                     await self._mark_blocked(owner)
                 except Exception:  # noqa: BLE001 - one report must not hold up the others
                     log.exception("ad report for pub %s failed", pub.id)
+
+    async def booking_reminders(self, now: datetime) -> None:
+        """Half an hour before a booked ad slot that still isn't confirmed, remind the owner (once per slot time) with a
+        button to its ad panel: unconfirmed, it is given up at its time."""
+        outbox: list[tuple[User, int, str]] = []
+        async with self.sessionmaker() as session:
+            rows = (await session.execute(
+                select(Publication, Post)
+                .join(Post, Post.id == Publication.post_id)
+                .where(
+                    Publication.status == "pending",
+                    Publication.run_at > now,
+                    Publication.run_at <= now + BOOKING_REMIND_BEFORE,
+                    Post.is_ad.is_(True),
+                )
+                .order_by(Publication.run_at)
+            )).tuples().all()
+            for pub, post in rows:
+                slot = pub.run_at.isoformat()
+                if not ads.is_booking(post) or (post.options or {}).get("ad_reminded") == slot:
+                    continue
+                owner = await session.get(User, pub.owner_id)
+                channel = await session.get(Channel, pub.channel_id)
+                if owner is None or channel is None or owner.is_blocked:
+                    continue
+                post.options = {**(post.options or {}), "ad_reminded": slot}
+                part = post.parts[0] if post.parts else None
+                what = (snippet(part_preview_text(part), 60) if part is not None else "") \
+                    or (post.options or {}).get("ad_advertiser") or t("parts.no_text", locale=owner.lang)
+                text = t(
+                    "notify.booking_remind", locale=owner.lang, title=html.escape(channel.title),
+                    time=fmt_hm(pub.run_at.astimezone(tz_of(owner.tz))),
+                    minutes=max(1, round((pub.run_at - now).total_seconds() / 60)), what=html.escape(what),
+                )
+                outbox.append((owner, post.id, text))
+            await session.commit()
+        for owner, post_id, text in outbox:
+            kb = markup([[btn(t("notify.booking_remind_btn", locale=owner.lang), Ad(a="rem", p=post_id))]])
+            try:
+                await self.bot.send_message(owner.tg_id, text, reply_markup=kb)
+            except TelegramForbiddenError:
+                await self._mark_blocked(owner)
+            except TelegramAPIError as e:
+                log.info("booking reminder for %s not delivered: %s", owner.tg_id, e)
 
     async def process_unpins(self, now: datetime) -> None:
         async with self.sessionmaker() as session:
