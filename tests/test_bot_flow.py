@@ -365,7 +365,10 @@ async def test_full_editor_flow(h: Harness):
     await h.text("🗓 Контент-план")  # opens today
     h.session.clear()
     await h.click(Cp(a="day", d=ordinal))  # ▶️ to tomorrow
-    assert any("10:15" in str(getattr(m, "reply_markup", "")) for _, m in h.session.calls)
+    plan_text = h.session.texts()
+    assert "10:15" in plan_text and f"start=cp_{p}_s_{ordinal}_" in plan_text  # «Відкрити» deep link
+    await h.text(f"/start cp_{p}_s_{ordinal}_0")
+    assert "Запланований пост" in h.session.texts()
     await h.click(Cp(a="post", d=ordinal, id=p))
     await h.click(Cp(a="now", d=ordinal, id=p))
     pub = await h.db(lambda s: s.scalar(select(Publication).where(Publication.status == "published")))

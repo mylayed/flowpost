@@ -52,6 +52,11 @@ async def cmd_start(
     if command.args and command.args.startswith("adm_"):
         await _redeem_admin_invite(message, session, user, command.args[len("adm_"):])
         return
+    if command.args and command.args.startswith("cp_"):
+        from flowpost.bot.handlers.content_plan import open_from_link
+
+        await open_from_link(message, session, user, command.args)
+        return
     name = html.escape(message.from_user.first_name if message.from_user else "")
     text = t("start.welcome", name=name, days=settings.trial_days)
     image = ASSETS / "start.png"

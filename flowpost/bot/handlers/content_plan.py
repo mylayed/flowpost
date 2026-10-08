@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+from contextlib import suppress
 from datetime import date
 
 from aiogram import Bot, F, Router
@@ -13,16 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flowpost.bot.callbacks import Cp
 from flowpost.bot.handlers.editor.publish import publish_now
 from flowpost.bot.handlers.editor.schedule import show_schedule
-from flowpost.bot.handlers.editor.view import fmt_interval, open_editor
+from flowpost.bot.handlers.editor.view import NO_PREVIEW, fmt_interval, open_editor
 from flowpost.bot.keyboards.common import btn, markup, page_nav, paged
 from flowpost.config import Settings
-from flowpost.db.models import Channel, User
+from flowpost.db.models import Channel, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import snippet
-from flowpost.services.posts import part_icon, post_is_empty
+from flowpost.services import ads
+from flowpost.services.posts import channel_link_html, part_icon, part_preview_text, post_is_empty
 from flowpost.services.publisher import Publisher
 from flowpost.services.slots import day_bounds_utc, fmt_date, fmt_hm, local_now, tz_of
 from flowpost.services.worker import Worker
@@ -44,12 +46,34 @@ async def channel_picker_view(
     return t("plan.pick_channel"), markup(rows)
 
 
+PLAN_TEXT_LIMIT = 3800  # leaves room under Telegram's 4096 for the «and N more» line
+
+
+def open_link(username: str, post_id: int, mode: str, ordinal: int, channel_id: int) -> str:
+    """«Відкрити» in the list: a /start deep link that opens the post's card."""
+    return f"https://t.me/{username}?start=cp_{post_id}_{mode}_{ordinal}_{channel_id}"
+
+
+def _row(
+    post: Post, when: str, status: str, link: str, channel: Channel | None
+) -> str:
+    """«⏳ 12:00 🖼 НОРМ ЧИ СТРЬОМ…  Відкрити»; an ad gets 💰 and «Реклама»."""
+    first = post.parts[0]
+    title = html.escape(snippet(part_preview_text(first), 45)) or t("parts.no_text")
+    if post.is_ad:
+        what = f"💰 <b>{t('cp.ad_label')}</b> · <i>{title}</i>"
+    else:
+        what = f"{part_icon(first)} <i>{title}</i>"
+    where = f" · {html.escape(channel.title)}" if channel is not None else ""
+    return f"{status} <b>{when}</b> {what}{where}  <a href=\"{link}\">{t('cp.open')}</a>"
+
+
 async def plan_view(
     session: AsyncSession, user: User, day: date | None = None, mode: str = "s", channel_id: int = 0,
-    *, multi: bool = False, settings: Settings | None = None,
+    *, multi: bool = False, settings: Settings | None = None, username: str = "",
 ) -> tuple[str, InlineKeyboardMarkup]:
     today = local_now(user.tz).date()
-    day = max(day or today, today)
+    day = max(day or today, today) if mode != "p" else (day or today)
     ordinal = day.toordinal()
     start, end = day_bounds_utc(day, user.tz)
     published = mode == "p"
@@ -62,39 +86,61 @@ async def plan_view(
 
     rows = [
         [
-            btn("◀️", Cp(a="day", d=ordinal - 1, m=mode, c=c)) if day > today else btn("·", Cp(a="noop")),
+            btn("◀️", Cp(a="day", d=ordinal - 1, m=mode, c=c)) if day > today or published else btn("·", Cp(a="noop")),
             btn(fmt_date(day, user.lang), Cp(a="noop")),
-            btn("▶️", Cp(a="day", d=ordinal + 1, m=mode, c=c)),
+            btn("▶️", Cp(a="day", d=ordinal + 1, m=mode, c=c)) if day < today or not published else btn("·", Cp(a="noop")),
         ],
         [
-            btn(t("plan.tab_scheduled"), Cp(a="day", d=ordinal, m="s", c=c)),
-            btn(t("plan.tab_published"), Cp(a="day", d=ordinal, m="p", c=c)),
+            btn(("• " if not published else "") + t("plan.tab_scheduled"), Cp(a="day", d=ordinal, m="s", c=c)),
+            btn(("• " if published else "") + t("plan.tab_published"), Cp(a="day", d=ordinal, m="p", c=c)),
         ],
     ]
     if multi:
         rows.append([btn(t("plan.channels_btn"), Cp(a="channels", d=ordinal, m=mode))])
-    lines = [t("plan.title"), t("sch.date", date=fmt_date(day, user.lang)), ""]
+
+    channel = await session.get(Channel, channel_id) if channel_id else None
+    header = f"📢 <i>{channel_link_html(channel)}</i>" if channel is not None else t("plan.all_channels")
+    lines = [header, t("cp.title"), ""]
+
+    entries: list[str] = []
     seen: set[int] = set()
     for pub in pubs:
         if pub.post_id in seen:
             continue
-        seen.add(pub.post_id)
         post = await posts_repo.get_post(session, user.id, pub.post_id)
         if post is None or not post.parts:
             continue
-        first = post.parts[0]
-        when = pub.published_at if published else pub.run_at
-        label = f"{fmt_hm(when.astimezone(zone))} {part_icon(first)} {snippet(first.text_html, 30) or t('parts.no_text')}"
-        if not published and pub.status == "paused":
-            label = "⏸ " + label
-        rows.append([btn(label, Cp(a="post", d=ordinal, id=post.id, m=mode, c=c))])
-    lines.append((t("plan.count_published", n=len(seen)) if seen else t("plan.empty_published")) if published
-                 else (t("plan.count", n=len(seen)) if seen else t("plan.empty")))
+        seen.add(pub.post_id)
+        when = fmt_hm((pub.published_at if published else pub.run_at).astimezone(zone))
+        if published:
+            status = "✅"
+        elif pub.status == "paused":
+            status = "⏸"
+        else:
+            status = "🔐" if post.is_ad else "⏳"
+        other = None if channel_id else await session.get(Channel, pub.channel_id)
+        entries.append(_row(post, when, status, open_link(username, post.id, mode, ordinal, c), other))
+
+    if entries:
+        lines += [t("cp.hint"), "", f"<blockquote><b>{fmt_date(day, user.lang)} {day.year}</b></blockquote>"]
+        size = sum(len(x) + 1 for x in lines)
+        for i, entry in enumerate(entries):
+            if size + len(entry) + 1 > PLAN_TEXT_LIMIT:
+                lines.append(t("cp.more", n=len(entries) - i))
+                break
+            lines.append(entry)
+            size += len(entry) + 1
+    else:
+        lines.append(t("plan.empty_published") if published else t("plan.empty"))
     url = settings.calendar_url(channel_id) if settings is not None else None
     if url:
         rows.append([InlineKeyboardButton(text=t("plan.calendar"), web_app=WebAppInfo(url=url))])
     rows.append([btn(t("plan.new_post"), Cp(a="new"))])
     return "\n".join(lines), markup(rows)
+
+
+async def _username(bot: Bot) -> str:
+    return (await bot.me()).username or ""
 
 
 async def send_plan(message: Message, session: AsyncSession, user: User, settings: Settings) -> None:
@@ -104,18 +150,25 @@ async def send_plan(message: Message, session: AsyncSession, user: User, setting
         await message.answer(text, reply_markup=kb)
         return
     channel_id = channels[0].id if channels else 0
-    text, kb = await plan_view(session, user, channel_id=channel_id, settings=settings)
-    await message.answer(text, reply_markup=kb)
+    text, kb = await plan_view(session, user, channel_id=channel_id, settings=settings,
+                               username=await _username(message.bot))
+    await message.answer(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
 
 
 async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -> None:
     if cb.message is None:
         return
+    if getattr(cb.message, "text", None) is None:
+        # a post card with a media preview can't be edited into a text screen
+        with suppress(TelegramBadRequest):
+            await cb.message.delete()
+        await cb.message.answer(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
+        return
     try:
-        await cb.message.edit_text(text, reply_markup=kb)
+        await cb.message.edit_text(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
     except TelegramBadRequest as e:
         if "not modified" not in str(e):
-            await cb.message.answer(text, reply_markup=kb)
+            await cb.message.answer(text, reply_markup=kb, link_preview_options=NO_PREVIEW)
 
 
 @router.callback_query(Cp.filter(F.a == "noop"))
@@ -125,13 +178,14 @@ async def cp_noop(cb: CallbackQuery) -> None:
 
 @router.callback_query(Cp.filter(F.a == "day"))
 async def cp_day(
-    cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User, settings: Settings
+    cb: CallbackQuery, callback_data: Cp, bot: Bot, session: AsyncSession, user: User, settings: Settings
 ) -> None:
     await cb.answer()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     day = date.fromordinal(callback_data.d) if callback_data.d else None
     await _edit(cb, *await plan_view(
         session, user, day, callback_data.m, callback_data.c, multi=len(channels) > 1, settings=settings,
+        username=await _username(bot),
     ))
 
 
@@ -142,25 +196,27 @@ async def cp_channels(cb: CallbackQuery, callback_data: Cp, session: AsyncSessio
     await _edit(cb, *await channel_picker_view(channels, user.channels_per_page, callback_data.pg))
 
 
-@router.callback_query(Cp.filter(F.a == "post"))
-async def cp_post(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
-    post = await posts_repo.get_post(session, user.id, callback_data.id)
-    if post is None:
-        await cb.answer(t("err.post_not_found"), show_alert=True)
-        return
-    await cb.answer()
-    published = callback_data.m == "p"
+PREVIEWABLE = {"photo", "video", "animation", "document", "audio"}
+
+
+async def post_card(
+    session: AsyncSession, user: User, post: Post, d: int, m: str, c: int
+) -> tuple[str, InlineKeyboardMarkup, dict | None]:
+    """The post's card: what it is, where and when it goes out, what to do with it; plus its first media to preview."""
+    published = m == "p"
     zone = tz_of(user.tz)
-    lines = [t("plan.post_title_published") if published else t("plan.post_title"), ""]
+    lines = [t("plan.post_title_published") if published else t("plan.post_title")]
+    if post.is_ad:
+        lines.append(t("cp.ad_booking") if ads.is_booking(post) else t("cp.ad_post"))
+    lines.append("")
     first = post.parts[0]
-    lines.append(f"{part_icon(first)} {html.escape(snippet(first.text_html, 120)) or t('parts.no_text')}")
+    lines.append(f"{part_icon(first)} {html.escape(snippet(part_preview_text(first), 120)) or t('parts.no_text')}")
     if len(post.parts) > 1:
         lines.append(t("ed.part", n=1, total=len(post.parts)))
     lines.append("")
-    start, end = day_bounds_utc(date.fromordinal(callback_data.d), user.tz)
-    channel_ids = [callback_data.c] if callback_data.c else None
+    start, end = day_bounds_utc(date.fromordinal(d), user.tz)
     pubs = await (pubs_repo.published_between if published else pubs_repo.pending_between)(
-        session, user.id, start, end, channel_ids=channel_ids
+        session, user.id, start, end, channel_ids=[c] if c else None
     )
     icon = "✅" if published else "📡"
     for pub in pubs:
@@ -171,7 +227,7 @@ async def cp_post(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, u
         lines.append(f"{icon} {html.escape(channel.title if channel else '?')} — {fmt_date(local.date(), user.lang)} {fmt_hm(local)}")
     if not published and post.repeat and post.repeat.active:
         lines.append(t("ed.sum_repeat", interval=fmt_interval(post.repeat.interval_minutes)))
-    p, d, m, c = post.id, callback_data.d, callback_data.m, callback_data.c
+    p = post.id
     if published:
         rows = [[btn(t("plan.edit"), Cp(a="edit", d=d, id=p, m=m, c=c))]]
     else:
@@ -181,7 +237,60 @@ async def cp_post(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, u
             [btn(t("plan.drop"), Cp(a="drop", d=d, id=p, m=m, c=c))],
         ]
     rows.append([btn(t("btn.back"), Cp(a="day", d=d, m=m, c=c))])
-    await _edit(cb, "\n".join(lines), markup(rows))
+    media = None
+    if not first.poll and first.media and first.media[0].get("type") in PREVIEWABLE and first.media[0].get("file_id"):
+        media = first.media[0]
+    return "\n".join(lines), markup(rows), media
+
+
+async def send_card(bot: Bot, chat_id: int, text: str, kb: InlineKeyboardMarkup, media: dict | None) -> None:
+    """Sends the card with the post's first photo/video/… on top; falls back to text if Telegram refuses the file."""
+    if media is not None:
+        send = {
+            "photo": bot.send_photo, "video": bot.send_video, "animation": bot.send_animation,
+            "document": bot.send_document, "audio": bot.send_audio,
+        }[media["type"]]
+        try:
+            await send(chat_id, media["file_id"], caption=text, reply_markup=kb)
+            return
+        except TelegramBadRequest:
+            pass
+    await bot.send_message(chat_id, text, reply_markup=kb, link_preview_options=NO_PREVIEW)
+
+
+@router.callback_query(Cp.filter(F.a == "post"))
+async def cp_post(cb: CallbackQuery, callback_data: Cp, bot: Bot, session: AsyncSession, user: User) -> None:
+    post = await posts_repo.get_post(session, user.id, callback_data.id)
+    if post is None or not post.parts:
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return
+    await cb.answer()
+    text, kb, media = await post_card(session, user, post, callback_data.d, callback_data.m, callback_data.c)
+    if media is None:
+        await _edit(cb, text, kb)
+        return
+    if cb.message is not None:
+        with suppress(TelegramBadRequest):
+            await cb.message.delete()
+    await send_card(bot, cb.from_user.id, text, kb, media)
+
+
+async def open_from_link(message: Message, session: AsyncSession, user: User, arg: str) -> None:
+    """«Відкрити» next to a post in the list: /start cp_<post>_<tab>_<day>_<channel>."""
+    try:
+        _, post_id, mode, d, c = arg.split("_")
+        post_id, d, c = int(post_id), int(d), int(c)
+        date.fromordinal(d)
+    except ValueError:
+        post_id, mode, d, c = 0, "s", 0, 0
+    post = await posts_repo.get_post(session, user.id, post_id) if post_id else None
+    if post is None or not post.parts or mode not in ("s", "p"):
+        await message.answer(t("err.post_not_found"))
+        return
+    with suppress(TelegramBadRequest):
+        await message.delete()  # the /start line itself is just noise in the chat
+    text, kb, media = await post_card(session, user, post, d, mode, c)
+    await send_card(message.bot, message.chat.id, text, kb, media)
 
 
 @router.callback_query(Cp.filter(F.a.in_({"edit", "move"})))
@@ -214,7 +323,7 @@ async def cp_publish_now(
 
 @router.callback_query(Cp.filter(F.a.in_({"drop", "dropok"})))
 async def cp_drop(
-    cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User, settings: Settings
+    cb: CallbackQuery, callback_data: Cp, bot: Bot, session: AsyncSession, user: User, settings: Settings
 ) -> None:
     post = await posts_repo.get_post(session, user.id, callback_data.id)
     if post is None:
@@ -237,7 +346,7 @@ async def cp_drop(
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     await _edit(cb, *await plan_view(
         session, user, date.fromordinal(callback_data.d), channel_id=callback_data.c, multi=len(channels) > 1,
-        settings=settings,
+        settings=settings, username=await _username(bot),
     ))
 
 
