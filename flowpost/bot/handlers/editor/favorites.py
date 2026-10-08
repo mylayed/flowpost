@@ -18,7 +18,7 @@ from flowpost.bot.keyboards.common import btn, markup
 from flowpost.db.models import Post, User
 from flowpost.i18n import t
 from flowpost.services.parsing import MAX_BUTTON_ROWS
-from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons
+from flowpost.services.posts import bot_rows, drop_signature, giveaway_rows, has_comment_button, plain_buttons
 
 router = Router(name="editor_favorites")
 
@@ -100,6 +100,7 @@ async def fv_use(
         return
     row = [{**b, "hid": secrets.token_hex(3)} if "hidden" in b or "hint" in b else dict(b) for b in favorites[i]]
     part = post.parts[idx]
+    signature_dropped = False
     links, extra, giveaway = plain_buttons(part.buttons), bot_rows(part.buttons), giveaway_rows(part.buttons)
     if "react" in row[0]:  # one set of reactions per post: this one takes the place of the old
         ok = set_reactions(post, idx, [[b["text"] for b in row]], row[0].get("style"))
@@ -111,11 +112,15 @@ async def fv_use(
         ok = len(rows) <= MAX_BUTTON_ROWS
         if ok:
             part.buttons = rows + giveaway
+            signature_dropped = "url" in row[0] and drop_signature(post)
     if not ok:
         await cb.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS), show_alert=True)
         return
     await session.flush()
-    await cb.answer(t("fv.added", text=_label(row)))
+    note = t("fv.added", text=_label(row))
+    if signature_dropped:
+        note += "\n" + t("ed.signature_off_buttons")
+    await cb.answer(note, show_alert=signature_dropped)
 
 
 @router.callback_query(Ed.filter(F.a.in_({"fv_del", "fv_rm"})))

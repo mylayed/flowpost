@@ -981,6 +981,7 @@ TEXTS: dict[str, str] = {
     "ad.drop_yes": "❌ Yes, cancel",
     "ad.dropped": "Booking cancelled",
     "ed.buttons_skipped": "{n} button(s) weren't carried over: they only work in the bot that made them. Add your own under «Buttons».",
+    "ed.signature_off_buttons": "✍️ The auto-signature is off since the post has buttons. Turn it back on with «✍️ Auto-signature».",
     "ad.back": "← Back",
     "ad.booking": (
         "<b>New booking in {channel}</b>\n\n"

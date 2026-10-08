@@ -26,6 +26,7 @@ from flowpost.services.posts import (
     TEXT_LIMIT,
     buttons_from_messages,
     channel_defaults,
+    drop_signature,
     group_error,
     initial_options,
     media_from_message,
@@ -98,14 +99,16 @@ async def start_post(
         return
     if len(channels) == 1:
         post = await posts_repo.create_post(
-            session, channels[0].owner_id, [channels[0].id], options=initial_options(channels[0], False),
+            session, channels[0].owner_id, [channels[0].id],
+            options={**initial_options(channels[0], False), **({"signature": False} if buttons else {})},
             text=text, media=media, source_signature=source_signature, poll=poll,
             buttons=buttons or channel_defaults(channels[0])["buttons"],
         )
         await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
         return
     post = await posts_repo.create_post(session, user.id, [], text=text, media=media,
-                                         source_signature=source_signature, poll=poll, buttons=buttons)
+                                         source_signature=source_signature, poll=poll, buttons=buttons,
+                                         options={"signature": False} if buttons else None)
     picker_text, picker_kb = await channel_picker(session, user, post.id)
     await message.answer(f"{note}\n\n{picker_text}" if note else picker_text, reply_markup=picker_kb)
 

@@ -22,7 +22,14 @@ from flowpost.services.parsing import (
     MAX_BUTTON_ROWS, MAX_BUTTON_TEXT, MAX_HINT, SEPARATOR, ParseError, buttons_to_text, looks_like_reactions,
     normalize_url, parse_buttons,
 )
-from flowpost.services.posts import bot_rows, giveaway_rows, has_comment_button, plain_buttons, react_rows
+from flowpost.services.posts import (
+    bot_rows,
+    drop_signature,
+    giveaway_rows,
+    has_comment_button,
+    plain_buttons,
+    react_rows,
+)
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_buttons")
@@ -261,8 +268,11 @@ async def _save_typed(
         await message.answer(t("err.buttons_rows", max=MAX_BUTTON_ROWS))
         return
     part.buttons = rows + bot_rows(part.buttons) + giveaway_rows(part.buttons)  # those aren't typed as text
+    note = t("btn_menu.saved")
+    if rows and drop_signature(post):
+        note += "\n" + t("ed.signature_off_buttons")
     await session.flush()
-    await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=t("btn_menu.saved"))
+    await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
 
 
 @router.message(Editor.buttons)

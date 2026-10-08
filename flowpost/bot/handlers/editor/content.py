@@ -13,7 +13,7 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import TEXT_LIMIT, buttons_from_messages, group_error, poll_from_message
+from flowpost.services.posts import TEXT_LIMIT, buttons_from_messages, drop_signature, group_error, poll_from_message
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_content")
@@ -129,8 +129,10 @@ async def ed_replace_content(
         return
     part.poll = None
     buttons, skipped = buttons_from_messages(album or [message])
+    signature_dropped = False
     if buttons:
         part.buttons = buttons
+        signature_dropped = drop_signature(post)
     if media:
         error = group_error(media)
         if error:
@@ -145,6 +147,8 @@ async def ed_replace_content(
         part.text_html = text
         part.source_signature = source_signature
         note = t("ed.updated_text")
+    if signature_dropped:
+        note += "\n" + t("ed.signature_off_buttons")
     if skipped:
         note += "\n⚠️ " + t("ed.buttons_skipped", n=skipped)
     await session.flush()

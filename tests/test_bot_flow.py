@@ -223,6 +223,8 @@ async def test_full_editor_flow(h: Harness):
     assert "Приклад" in h.session.texts()
     await h.text("Читати далі — https://t.me/testchan")
     assert (await _post(h)).parts[0].buttons == [[{"text": "Читати далі", "url": "https://t.me/testchan"}]]
+    # buttons take the place of the auto-signature
+    assert (await _post(h)).options["signature"] is False and "Автопідпис вимкнено" in h.session.texts()
     # «URL Кнопки» adds rows; buttons sent straight to the menu replace them all
     await h.click(Ed(a="btn", p=p))
     await h.click(Ed(a="btn_set", p=p))
@@ -246,8 +248,7 @@ async def test_full_editor_flow(h: Harness):
     # Автопідпис + Водяний знак (channel-level menus opened from the editor)
     await h.click(Ed(a="sig", p=p))
     await h.click(Cs(a="sig_post", c=c, p=p))
-    assert (await _post(h)).options["signature"] is False
-    await h.click(Cs(a="sig_post", c=c, p=p))
+    assert (await _post(h)).options["signature"] is True
     # More templates: one added from the editor is picked for this post; the post falls back to the main one after a delete
     await h.click(Cs(a="sig_add", c=c, p=p))
     await h.text("👉 {username}")
@@ -1923,3 +1924,4 @@ async def test_forwarded_post_keeps_its_link_buttons(h: Harness):
         [{"text": "Сайт", "url": "https://example.com"}], [{"text": "Канал", "url": "https://t.me/otherchan"}],
     ]
     assert "Частину кнопок (2) не перенесено" in h.session.texts()
+    assert post.options["signature"] is False

@@ -319,6 +319,15 @@ def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: 
     return "\n\n".join(chunks)
 
 
+def drop_signature(post: Post) -> bool:
+    """Link buttons under a post take the place of the channel's auto-signature: it's switched off (the editor's
+    «✍️ Автопідпис» turns it back on). True when it was on."""
+    if not options_of(post)["signature"]:
+        return False
+    post.options = {**(post.options or {}), "signature": False}
+    return True
+
+
 def buttons_from_messages(messages: list) -> tuple[list[list[dict]], int]:
     """The link buttons of a sent or forwarded post, rows kept as they were, and how many buttons were left out:
     a bot's own buttons (callback, web app, …) only work in the bot that made them."""
