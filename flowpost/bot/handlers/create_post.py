@@ -24,6 +24,7 @@ from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
 from flowpost.services.posts import (
     TEXT_LIMIT,
+    buttons_from_messages,
     channel_defaults,
     group_error,
     initial_options,
@@ -86,7 +87,10 @@ async def start_post(
     media: list[dict] | None = None,
     source_signature: str = "",
     poll: dict | None = None,
+    buttons: list[list[dict]] | None = None,
+    note: str | None = None,
 ) -> None:
+    """`buttons` — the link buttons of a forwarded post; without them a single channel's default buttons go in."""
     await state.clear()
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     if not channels:
@@ -96,14 +100,14 @@ async def start_post(
         post = await posts_repo.create_post(
             session, channels[0].owner_id, [channels[0].id], options=initial_options(channels[0], False),
             text=text, media=media, source_signature=source_signature, poll=poll,
-            buttons=channel_defaults(channels[0])["buttons"],
+            buttons=buttons or channel_defaults(channels[0])["buttons"],
         )
-        await open_editor(bot, message.chat.id, session, state, user, post, publisher)
+        await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
         return
     post = await posts_repo.create_post(session, user.id, [], text=text, media=media,
-                                         source_signature=source_signature, poll=poll)
+                                         source_signature=source_signature, poll=poll, buttons=buttons)
     picker_text, picker_kb = await channel_picker(session, user, post.id)
-    await message.answer(picker_text, reply_markup=picker_kb)
+    await message.answer(f"{note}\n\n{picker_text}" if note else picker_text, reply_markup=picker_kb)
 
 
 async def channel_picker(
@@ -205,5 +209,7 @@ async def content_starts_post(
     if visible_len(text) > TEXT_LIMIT:
         await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
         return
+    buttons, skipped = buttons_from_messages(album or [message])
     await start_post(message, bot, session, state, user, publisher, text=text, media=media,
-                      source_signature=source_signature)
+                      source_signature=source_signature, buttons=buttons,
+                      note="⚠️ " + t("ed.buttons_skipped", n=skipped) if skipped else None)

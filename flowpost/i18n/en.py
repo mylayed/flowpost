@@ -980,6 +980,7 @@ TEXTS: dict[str, str] = {
     "ad.drop_confirm": "Cancel this booking? The ad won't go out and the post will be deleted.",
     "ad.drop_yes": "❌ Yes, cancel",
     "ad.dropped": "Booking cancelled",
+    "ed.buttons_skipped": "{n} button(s) weren't carried over: they only work in the bot that made them. Add your own under «Buttons».",
     "ad.back": "← Back",
     "ad.booking": (
         "<b>New booking in {channel}</b>\n\n"

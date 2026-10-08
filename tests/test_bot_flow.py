@@ -1906,3 +1906,20 @@ async def test_ad_post_flow(h: Harness):
     await h.click(Ed(a="ad_dropok", p=confirmed.id))
     assert "Бронювання скасовано" in h.session.texts()
     assert await h.db(lambda s: s.get(Post, confirmed.id)) is None
+
+
+async def test_forwarded_post_keeps_its_link_buttons(h: Harness):
+    await h.text("/start")
+    await h.feed(message=h._message(chat_shared={"request_id": 1, "chat_id": CHANNEL_CHAT}))
+    h.session.clear()
+    keyboard = {"inline_keyboard": [
+        [{"text": "Сайт", "url": "https://example.com"}, {"text": "👍", "callback_data": "like:1"}],
+        [{"text": "Канал", "url": "https://t.me/otherchan"}],
+        [{"text": "Голосувати", "callback_data": "vote:1"}],
+    ]}
+    await h.feed(message=h._message(text="Пост з кнопками", reply_markup=keyboard))
+    post = await _post(h)
+    assert post.parts[0].buttons == [
+        [{"text": "Сайт", "url": "https://example.com"}], [{"text": "Канал", "url": "https://t.me/otherchan"}],
+    ]
+    assert "Частину кнопок (2) не перенесено" in h.session.texts()

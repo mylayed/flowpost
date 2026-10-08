@@ -319,6 +319,24 @@ def final_text(part_text: str, opts: dict, channel: Channel | None, *, is_last: 
     return "\n\n".join(chunks)
 
 
+def buttons_from_messages(messages: list) -> tuple[list[list[dict]], int]:
+    """The link buttons of a sent or forwarded post, rows kept as they were, and how many buttons were left out:
+    a bot's own buttons (callback, web app, …) only work in the bot that made them."""
+    rows: list[list[dict]] = []
+    skipped = 0
+    markup = next((m.reply_markup for m in messages if getattr(m, "reply_markup", None)), None)
+    for row in getattr(markup, "inline_keyboard", None) or []:
+        kept = []
+        for b in row:
+            if b.url:
+                kept.append({"text": b.text, "url": b.url, **({"style": b.style} if getattr(b, "style", None) else {})})
+            else:
+                skipped += 1
+        if kept:
+            rows.append(kept)
+    return rows, skipped
+
+
 def build_markup(buttons: list[list[dict]] | None) -> InlineKeyboardMarkup | None:
     """Link buttons ({"text", "url"}) and bot buttons ({"text", "callback"})."""
     if not buttons:

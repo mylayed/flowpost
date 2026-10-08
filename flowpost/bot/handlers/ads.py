@@ -26,6 +26,7 @@ from flowpost.services import ads
 from flowpost.services.html_sanitize import snippet, visible_len
 from flowpost.services.posts import (
     TEXT_LIMIT,
+    buttons_from_messages,
     channel_link_html,
     group_error,
     initial_options,
@@ -208,6 +209,7 @@ async def ad_content(
     booking = await state.get_state() == AdInput.booking.state
     options = {**initial_options(channel, True), "ad_booking": booking}
     content: dict = {}
+    skipped = 0
     if booking and not album and message.text and ads.looks_like_advertiser(message.text):
         options["ad_advertiser"] = message.text.strip()
     elif message.poll:
@@ -221,9 +223,12 @@ async def ad_content(
         if visible_len(text) > TEXT_LIMIT:
             await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
             return
-        content = {"text": text, "media": media, "source_signature": source_signature}
+        buttons, skipped = buttons_from_messages(album or [message])
+        content = {"text": text, "media": media, "source_signature": source_signature, "buttons": buttons}
     post = await posts_repo.create_post(session, channel.owner_id, [channel.id], is_ad=True, options=options, **content)
     note = t("ad.booked", name=html.escape(options["ad_advertiser"])) if options.get("ad_advertiser") else None
+    if skipped:
+        note = "⚠️ " + t("ed.buttons_skipped", n=skipped)
     await open_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
 
 

@@ -13,7 +13,7 @@ from flowpost.bot.states import Editor
 from flowpost.db.models import User
 from flowpost.i18n import t
 from flowpost.services.html_sanitize import visible_len
-from flowpost.services.posts import TEXT_LIMIT, group_error, poll_from_message
+from flowpost.services.posts import TEXT_LIMIT, buttons_from_messages, group_error, poll_from_message
 from flowpost.services.publisher import Publisher
 
 router = Router(name="editor_content")
@@ -128,6 +128,9 @@ async def ed_replace_content(
         await message.answer(t("err.text_too_long", max=TEXT_LIMIT))
         return
     part.poll = None
+    buttons, skipped = buttons_from_messages(album or [message])
+    if buttons:
+        part.buttons = buttons
     if media:
         error = group_error(media)
         if error:
@@ -142,6 +145,8 @@ async def ed_replace_content(
         part.text_html = text
         part.source_signature = source_signature
         note = t("ed.updated_text")
+    if skipped:
+        note += "\n⚠️ " + t("ed.buttons_skipped", n=skipped)
     await session.flush()
     await render_editor(bot, message.chat.id, session, state, user, post, publisher, note=note)
 
