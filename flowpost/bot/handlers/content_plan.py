@@ -248,8 +248,15 @@ async def post_card(
         rows = [
             [btn(t("plan.edit"), Cp(a="edit", d=d, id=p, m=m, c=c)), btn(t("plan.move"), Cp(a="move", d=d, id=p, m=m, c=c))],
             [btn(t("plan.now"), Cp(a="now", d=d, id=p, m=m, c=c))],
-            [btn(t("plan.drop"), Cp(a="drop", d=d, id=p, m=m, c=c))],
         ]
+        if ads.is_booking(post):
+            # not confirmed yet: it won't go out until it is
+            rows.append([btn(t("ad.confirm"), Cp(a="adok", d=d, id=p, m=m, c=c))])
+            rows.append([btn(t("plan.drop"), Cp(a="drop", d=d, id=p, m=m, c=c))])
+        elif post.is_ad:
+            rows.append([btn(t("ad.drop"), Cp(a="addrop", d=d, id=p, m=m, c=c))])
+        else:
+            rows.append([btn(t("plan.drop"), Cp(a="drop", d=d, id=p, m=m, c=c))])
     rows.append([btn(t("btn.back"), Cp(a="day", d=d, m=m, c=c))])
     media = None
     if not first.poll and first.media and first.media[0].get("type") in PREVIEWABLE and first.media[0].get("file_id"):
@@ -279,7 +286,11 @@ async def cp_post(cb: CallbackQuery, callback_data: Cp, bot: Bot, session: Async
         await cb.answer(t("err.post_not_found"), show_alert=True)
         return
     await cb.answer()
-    text, kb, media = await post_card(session, user, post, callback_data.d, callback_data.m, callback_data.c)
+    await _show_card(cb, bot, session, user, post, callback_data)
+
+
+async def _show_card(cb: CallbackQuery, bot: Bot, session: AsyncSession, user: User, post: Post, data: Cp) -> None:
+    text, kb, media = await post_card(session, user, post, data.d, data.m, data.c)
     if media is None:
         await _edit(cb, text, kb)
         return
@@ -287,6 +298,25 @@ async def cp_post(cb: CallbackQuery, callback_data: Cp, bot: Bot, session: Async
         with suppress(TelegramBadRequest):
             await cb.message.delete()
     await send_card(bot, cb.from_user.id, text, kb, media)
+
+
+@router.callback_query(Cp.filter(F.a == "adok"))
+async def cp_confirm_booking(
+    cb: CallbackQuery, callback_data: Cp, bot: Bot, session: AsyncSession, user: User
+) -> None:
+    """«Підтвердити бронювання»: the ad is there and paid, so it goes out at its time."""
+    post = await posts_repo.get_post(session, user.id, callback_data.id)
+    if post is None or not post.parts:
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return
+    if ads.is_booking(post):
+        if post_is_empty(post):
+            await cb.answer(t("ad.confirm_empty"), show_alert=True)
+            return
+        post.options = {**(post.options or {}), "ad_booking": False}
+        await session.flush()
+    await cb.answer(t("ad.confirmed"))
+    await _show_card(cb, bot, session, user, post, callback_data)
 
 
 async def open_from_link(message: Message, session: AsyncSession, user: User, arg: str) -> None:
@@ -333,6 +363,34 @@ async def cp_publish_now(
     await cb.answer(t("pub.working"))
     report, _ = await publish_now(session, worker, post)
     await _edit(cb, report, markup([[btn(t("btn.back"), Cp(a="day", d=callback_data.d, c=callback_data.c))]]))
+
+
+@router.callback_query(Cp.filter(F.a.in_({"addrop", "addropok"})))
+async def cp_drop_booking(
+    cb: CallbackQuery, callback_data: Cp, bot: Bot, session: AsyncSession, user: User, settings: Settings
+) -> None:
+    """«Скасувати бронювання» of a confirmed ad: the slot is given up, the ad won't go out and its post is deleted."""
+    post = await posts_repo.get_post(session, user.id, callback_data.id)
+    if post is None or not post.is_ad:
+        await cb.answer(t("err.post_not_found"), show_alert=True)
+        return
+    d, m, c = callback_data.d, callback_data.m, callback_data.c
+    if callback_data.a == "addrop":
+        await cb.answer()
+        kb = markup([
+            [btn(t("ad.drop_yes"), Cp(a="addropok", d=d, id=post.id, m=m, c=c))],
+            [btn(t("btn.back"), Cp(a="post", d=d, id=post.id, m=m, c=c))],
+        ])
+        await _edit(cb, t("ad.drop_confirm"), kb)
+        return
+    await pubs_repo.cancel_pending(session, post.id)
+    await session.delete(post)
+    await session.flush()
+    await cb.answer(t("ad.dropped"))
+    channels = await channels_repo.list_channels(session, user.id, perm="posts")
+    await _show_plan(cb, bot, *await plan_view(
+        session, user, date.fromordinal(d), m, c, multi=len(channels) > 1, settings=settings,
+    ))
 
 
 @router.callback_query(Cp.filter(F.a.in_({"drop", "dropok"})))

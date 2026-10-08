@@ -1916,6 +1916,33 @@ async def test_ad_post_flow(h: Harness):
     assert "Бронювання скасовано" in h.session.texts()
     assert await h.db(lambda s: s.get(Post, confirmed.id)) is None
 
+    # the content plan's card confirms a booking, and cancels a confirmed one
+    await h.text("/ad")
+    await h.click(Ad(a="ch", c=c))
+    await h.click(Ad(a="book", c=c))
+    await h.text("Пекарня «Хліб»\nСвіжий хліб щоранку")
+    booked = await _post(h)
+    await h.click(Ed(a="schok", p=booked.id, v=f"{tomorrow.toordinal()}_1600"))
+    d = tomorrow.toordinal()
+    h.session.clear()
+    await h.click(Cp(a="post", d=d, id=booked.id))
+    card_kb = str(h.session.calls[-1][1].reply_markup)
+    assert "Підтвердити бронювання" in card_kb and "Скасувати бронювання" not in card_kb
+    assert "бронювання ще не підтверджене" in h.session.texts()
+    h.session.clear()
+    await h.click(Cp(a="adok", d=d, id=booked.id))
+    assert (await h.db(lambda s: s.get(Post, booked.id))).options["ad_booking"] is False
+    card_kb = str(h.session.calls[-1][1].reply_markup)
+    assert "Скасувати бронювання" in card_kb and "Підтвердити бронювання" not in card_kb
+    await h.click(Cp(a="addrop", d=d, id=booked.id))
+    h.session.clear()
+    await h.click(Cp(a="addropok", d=d, id=booked.id))
+    assert any(n == "AnswerCallbackQuery" and m.text == "Бронювання скасовано" for n, m in h.session.calls)
+    assert await h.db(lambda s: s.get(Post, booked.id)) is None
+    assert not await h.db(lambda s: s.scalar(
+        select(Publication).where(Publication.post_id == booked.id, Publication.status == "pending")
+    ))
+
 
 async def test_forwarded_post_keeps_its_link_buttons(h: Harness):
     await h.text("/start")
