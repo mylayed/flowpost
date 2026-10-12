@@ -518,7 +518,14 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         channel.signature_template = first["html"]
         channel.signature_extra = rest
     elif a == "sig_del":
-        channel.signature_extra = [x for x in (channel.signature_extra or []) if int(x["id"]) != int(callback_data.v)]
+        # Only the first template with this id (a duplicated id must not take its twin along).
+        extra, removed = [], False
+        for x in channel.signature_extra or []:
+            if not removed and int(x["id"]) == int(callback_data.v):
+                removed = True
+                continue
+            extra.append(x)
+        channel.signature_extra = extra
     elif a == "sig_reset":
         channel.signature_template = None
     elif a == "sig_def":
@@ -809,8 +816,12 @@ async def in_signature_add(message: Message, bot: Bot, session: AsyncSession, st
         await state.set_state(None)
         await message.answer(t("sig.too_many", max=MAX_SIGNATURE_TEMPLATES))
         return
+    extra = list(channel.signature_extra or [])
+    if any(x["html"] == template for x in extra[-1:]):  # the same message handled twice (retry / double delivery)
+        await _after_sig_input(message, bot, session, state, user, publisher, settings, channel, t("sig.added"))
+        return
     new_id = max(tid for tid, _ in templates) + 1
-    channel.signature_extra = [*(channel.signature_extra or []), {"id": new_id, "html": template}]
+    channel.signature_extra = [*extra, {"id": new_id, "html": template}]
     if not sanitize_html(render_signature(channel, new_id)):
         channel.signature_extra = channel.signature_extra[:-1]
         await message.answer(t("sig.invalid"))
