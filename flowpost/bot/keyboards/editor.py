@@ -5,7 +5,7 @@ from datetime import date
 from aiogram.types import InlineKeyboardMarkup
 
 from flowpost.bot.callbacks import Ed
-from flowpost.bot.keyboards.common import btn, chunked, markup, on, page_nav, paged
+from flowpost.bot.keyboards.common import btn, chunked, kind_tabs, markup, on, page_nav, paged
 from flowpost.db.models import Channel, ChannelFolder, Post
 from flowpost.i18n import t
 from flowpost.services import ads, ideas
@@ -234,20 +234,23 @@ def channels_pick_kb(
     folder_id: int = 0,
     page: int = 0,
     per_page: int = 20,
+    kind: str = "",
 ) -> InlineKeyboardMarkup:
     from flowpost.bot.callbacks import Fd, Nc
 
+    channels, tabs = kind_tabs(channels, kind, lambda k: Fd(a="pick", f=folder_id, p=post_id, k=k))
     entries = [
         btn(t("fld.row", icon=f.icon, title=f.title, n=n), Fd(a="pick", f=f.id, p=post_id), f.style)
         for f, n in folders
     ]
     entries += [btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Nc(c=c.id, p=post_id)) for c in channels]
     page, pages = paged(page, len(entries), per_page)
-    rows = [[e] for e in entries[page * per_page:(page + 1) * per_page]]
+    rows = [tabs] if tabs else []
+    rows += [[e] for e in entries[page * per_page:(page + 1) * per_page]]
     if pages > 1:
         rows.append(page_nav(
             page, pages,
-            lambda n: Fd(a="pick", f=folder_id, p=post_id, pg=n),
+            lambda n: Fd(a="pick", f=folder_id, p=post_id, pg=n, k=kind),
             Fd(a="noop", p=post_id),
         ))
     if folder_id:

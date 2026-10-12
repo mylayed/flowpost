@@ -676,6 +676,8 @@ TEXTS: dict[str, str] = {
     "proj.kind": "Тип: {kind}",
     "proj.kind_channel": "канал",
     "proj.kind_group": "група",
+    "tabs.channels": "📢 Канали",
+    "tabs.groups": "👥 Групи",
     "proj.status_active": "🟢 Підключено",
     "proj.status_inactive": "⛔ Відключено",
     "proj.signature": "✍️ Підпис: {signature}",

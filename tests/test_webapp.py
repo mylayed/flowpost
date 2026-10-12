@@ -558,6 +558,10 @@ async def test_admin_panel_lists_channels_and_grants_limits(sessionmaker, seeded
         for q in ("Наше", "NASHE_misto", str(seeded.tg_id), "1234567890"):
             assert (await (await client.get("/api/admin/channels", headers=admin, params={"q": q})).json())["total"] == 1
         assert (await (await client.get("/api/admin/channels", headers=admin, params={"q": "інший"})).json())["total"] == 0
+        # channels and groups are separate tabs, each with its count
+        assert data["kinds"] == {"channel": 1}
+        for kind, total in (("channel", 1), ("group", 0)):
+            assert (await (await client.get("/api/admin/channels", headers=admin, params={"kind": kind})).json())["total"] == total
 
         bad = [{"quotas": {"stars": 5}}, {"quotas": {"ai_text": -1}}, {"days": 30}, {}]
         for body in bad:

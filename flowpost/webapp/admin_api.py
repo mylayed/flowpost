@@ -78,13 +78,21 @@ async def admin_channels(request: web.Request, session: AsyncSession, user: User
     except ValueError:
         offset = 0
     query = select(Channel, User).join(User, User.id == Channel.owner_id).where(Channel.is_active.is_(True))
+    counts = (select(Channel.kind, func.count(Channel.id)).join(User, User.id == Channel.owner_id)
+              .where(Channel.is_active.is_(True)).group_by(Channel.kind))
     if q:
         query = query.where(_search(q))
+        counts = counts.where(_search(q))
+    # Channels and groups are separate tabs; `kinds` — how many of each the search finds, for the tab labels.
+    kinds = {k: int(n) for k, n in (await session.execute(counts)).all()}
+    kind = request.query.get("kind") or ""
+    if kind in ("channel", "group"):
+        query = query.where(Channel.kind == kind)
     total = int(await session.scalar(select(func.count()).select_from(query.subquery())) or 0)
     rows = (await session.execute(query.order_by(Channel.created_at.desc(), Channel.id.desc())
                                   .offset(offset).limit(PAGE))).all()
     items = [await _item(session, request, channel, owner) for channel, owner in rows]
-    return web.json_response({"total": total, "offset": offset, "page": PAGE, "items": items})
+    return web.json_response({"total": total, "offset": offset, "page": PAGE, "items": items, "kinds": kinds})
 
 
 async def admin_meta(request: web.Request, session: AsyncSession, user: User) -> web.Response:

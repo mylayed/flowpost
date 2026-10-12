@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Pj
 from flowpost.bot.handlers.channel_settings import card_kwargs, channel_card
-from flowpost.bot.keyboards.common import btn, markup
+from flowpost.bot.keyboards.common import btn, kind_tabs, markup
 from flowpost.config import Settings
 from flowpost.db.models import User
 from flowpost.db.repo import channel_admins as channel_admins_repo
@@ -20,17 +20,19 @@ from flowpost.i18n import t
 router = Router(name="projects")
 
 
-async def projects_view(session: AsyncSession, user: User) -> tuple[str, InlineKeyboardMarkup]:
+async def projects_view(session: AsyncSession, user: User, kind: str = "") -> tuple[str, InlineKeyboardMarkup]:
     # Only live projects: a disconnected channel is gone, and one the bot lost admin rights in stays hidden
     # until the rights come back (then it reappears with its settings intact).
     channels = await channels_repo.list_channels(session, user.id, perm="settings")
-    rows = [
+    shown, tabs = kind_tabs(channels, kind, lambda k: Pj(a="list", k=k))
+    rows = [tabs] if tabs else []
+    rows += [
         [btn(
             ("🤝 " if c.owner_id != user.id else ("📢 " if c.kind == "channel" else "👥 "))
             + c.title + (" 🔊" if c.notify_published else " 🔇"),
             Pj(a="ch", c=c.id),
         )]
-        for c in channels
+        for c in shown
     ]
     rows.append([btn(t("btn.add_channel"), Pj(a="add"))])
     text = t("proj.title") + "\n\n" + (t("proj.help") if channels else t("proj.empty"))
@@ -53,9 +55,9 @@ async def _edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | None) -
 
 
 @router.callback_query(Pj.filter(F.a == "list"))
-async def pj_list(cb: CallbackQuery, session: AsyncSession, user: User) -> None:
+async def pj_list(cb: CallbackQuery, callback_data: Pj, session: AsyncSession, user: User) -> None:
     await cb.answer()
-    await _edit(cb, *await projects_view(session, user))
+    await _edit(cb, *await projects_view(session, user, callback_data.k))
 
 
 @router.callback_query(Pj.filter(F.a == "ch"))
@@ -88,6 +90,7 @@ async def pj_disconnect(cb: CallbackQuery, callback_data: Pj, session: AsyncSess
         ])
         await _edit(cb, t("proj.disconnect_confirm", title=html.escape(channel.title)), kb)
         return
+    kind = "c" if channel.kind == "channel" else "g"
     await channels_repo.delete_channel(session, channel)
     await cb.answer(t("proj.disconnected"))
-    await _edit(cb, *await projects_view(session, user))
+    await _edit(cb, *await projects_view(session, user, kind))

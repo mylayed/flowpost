@@ -22,7 +22,8 @@ const ERRORS = {
   nothing_to_grant: "Вкажіть, що нарахувати.",
 };
 
-const state = { q: "", items: [], total: 0, offset: 0, loading: false, meta: null, current: null };
+const state = { q: "", kind: "channel", kinds: {}, items: [], total: 0, offset: 0, loading: false, meta: null, current: null };
+const KINDS = [["channel", "📢 Канали"], ["group", "👥 Групи"]];
 
 function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
@@ -120,16 +121,28 @@ function renderList() {
   view.replaceChildren(
     h("div", { class: "adm-head" }, h("h1", {}, "Адмін-панель"), h("span", { class: "adm-count", id: "count" }, "")),
     search,
+    h("div", { class: "segmented adm-kinds", role: "radiogroup", style: "grid-template-columns: repeat(2, minmax(0, 1fr))" }),
     list,
   );
   paintList();
+}
+
+function paintKinds() {
+  const tabs = view.querySelector(".adm-kinds");
+  if (!tabs) return;
+  tabs.replaceChildren(...KINDS.map(([kind, label]) => h("button", {
+    class: kind === state.kind ? "seg-opt active" : "seg-opt",
+    type: "button", role: "radio", "aria-checked": String(kind === state.kind),
+    onclick: () => { if (kind !== state.kind && !state.loading) { state.kind = kind; load(true); } },
+  }, state.kinds[kind] != null ? `${label} · ${state.kinds[kind]}` : label)));
 }
 
 function paintList() {
   const list = view.querySelector(".adm-list");
   const count = document.getElementById("count");
   if (!list) return;
-  if (count) count.textContent = `Каналів: ${state.total}`;
+  paintKinds();
+  if (count) count.textContent = `${state.kind === "group" ? "Груп" : "Каналів"}: ${state.total}`;
   const children = state.items.map(card);
   if (!state.items.length && !state.loading) children.push(h("div", { class: "adm-empty" }, "Нічого не знайдено."));
   if (state.items.length < state.total) {
@@ -146,10 +159,11 @@ async function load(reset) {
   if (reset) { state.items = []; state.offset = 0; }
   paintList();
   try {
-    const query = new URLSearchParams({ q: state.q, offset: String(state.items.length) });
+    const query = new URLSearchParams({ q: state.q, kind: state.kind, offset: String(state.items.length) });
     const data = await api(`channels?${query}`);
     state.items = reset ? data.items : state.items.concat(data.items);
     state.total = data.total;
+    state.kinds = data.kinds || {};
   } catch (e) {
     await alert(errorText(e));
   } finally {

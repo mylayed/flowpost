@@ -37,6 +37,21 @@ def paged(page: int, total: int, per_page: int) -> tuple[int, int]:
     return min(max(page, 0), pages - 1), pages
 
 
+def kind_tabs(channels: list, kind: str, to_kind) -> tuple[list, list[InlineKeyboardButton] | None]:
+    """Channels and groups apart: `kind` — "c" | "g" ("" = channels, or groups when there are no channels).
+    Returns the channels of that kind and a Канали | Групи switch row — None (and all of them) unless there are both."""
+    has = {c.kind for c in channels}
+    if not {"channel", "group"} <= has:
+        return list(channels), None
+    kind = kind if kind in ("c", "g") else "c"
+    shown = [c for c in channels if (c.kind == "channel") == (kind == "c")]
+    row = [
+        btn(("• " if kind == k else "") + t(key), to_kind(k))
+        for k, key in (("c", "tabs.channels"), ("g", "tabs.groups"))
+    ]
+    return shown, row
+
+
 def page_nav(page: int, pages: int, to_page, noop: CallbackData) -> list[InlineKeyboardButton]:
     return [
         btn("◀️", to_page(page - 1)) if page > 0 else btn("·", noop),

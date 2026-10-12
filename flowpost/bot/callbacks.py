@@ -37,15 +37,16 @@ class Cp(CallbackData, prefix="cp"):
 
 
 class Pj(CallbackData, prefix="pj"):
-    """Projects (connected channels)."""
+    """Projects (connected channels). `k` — list tab: c(hannels)|g(roups)."""
 
     a: str
     c: int = 0
+    k: str = ""
 
 
 class Fd(CallbackData, prefix="fd"):
     """Channel folders. `f` — folder id, `c` — channel id, `p` — post id (folder drill-down in the picker),
-    `v` — chosen icon or button style."""
+    `v` — chosen icon or button style, `k` — picker tab: c(hannels)|g(roups)."""
 
     a: str
     f: int = 0
@@ -53,6 +54,7 @@ class Fd(CallbackData, prefix="fd"):
     p: int = 0
     v: str = ""
     pg: int = 0
+    k: str = ""
 
 
 class St(CallbackData, prefix="st"):

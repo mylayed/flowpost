@@ -24,6 +24,8 @@ const I18N = {
     transfer: "Перенести підписку",
     plans: "Тарифи",
     my_channels: "Мої канали",
+    kind_channel: "📢 Канали",
+    kind_group: "👥 Групи",
     channels_hint: "Усі підключені канали.",
     no_channels: "Каналів немає.",
     renew_soon: "Час продовжити",
@@ -215,6 +217,8 @@ const I18N = {
     transfer: "Transfer subscription",
     plans: "Plans",
     my_channels: "My channels",
+    kind_channel: "📢 Channels",
+    kind_group: "👥 Groups",
     channels_hint: "All connected channels.",
     no_channels: "No channels yet.",
     renew_soon: "Time to renew",
@@ -1291,9 +1295,23 @@ function toggleFilter(category) {
   render();
 }
 
+// Channels and groups apart: a Канали | Групи switch when there are both; `ui.kind` remembers the tab.
+function kindTabs(channels, ui) {
+  const kinds = ["channel", "group"];
+  if (!kinds.every((k) => channels.some((c) => c.kind === k))) return [channels, null];
+  if (!kinds.includes(ui.kind)) ui.kind = "channel";
+  const tabs = h("div", { class: "segmented", role: "radiogroup", style: "grid-template-columns: repeat(2, minmax(0, 1fr))" },
+    kinds.map((kind) => h("button", {
+      class: kind === ui.kind ? "seg-opt active" : "seg-opt",
+      type: "button", role: "radio", "aria-checked": String(kind === ui.kind),
+      onclick: () => { ui.kind = kind; render(); },
+    }, `${t(`kind_${kind}`)} · ${channels.filter((c) => c.kind === kind).length}`)));
+  return [channels.filter((c) => c.kind === ui.kind), tabs];
+}
+
 function renderSubscribe() {
   const sub = (state.subscribe ??= subscribeState([]));
-  const channels = state.me.channels;
+  const [channels, tabs] = kindTabs(state.me.channels, sub);
   const counts = { renew: 0, none: 0, ok: 0 };
   channels.forEach((c) => { counts[channelCategory(c)] += 1; });
   const visible = channels.filter((c) => sub.filters.has(channelCategory(c)));
@@ -1327,6 +1345,7 @@ function renderSubscribe() {
   return [
     h("h1", { class: "title title-tight" }, t("sub_title")),
     h("div", { class: "subtitle" }, t("sub_hint")),
+    tabs,
     h("div", { class: "chips" }, CATEGORIES.map((category) =>
       h("button", {
         class: sub.filters.has(category) ? "chip active" : "chip",
@@ -1354,7 +1373,7 @@ function openChannel(id, back) {
 
 function renderChannels() {
   const ui = (state.channelsUi ??= { filters: new Set() });
-  const channels = state.me.channels;
+  const [channels, tabs] = kindTabs(state.me.channels, ui);
   const counts = { renew: 0, none: 0, ok: 0 };
   channels.forEach((c) => { counts[channelCategory(c)] += 1; });
   const visible = ui.filters.size ? channels.filter((c) => ui.filters.has(channelCategory(c))) : channels;
@@ -1379,6 +1398,7 @@ function renderChannels() {
   return [
     h("h1", { class: "title title-tight" }, t("my_channels")),
     h("div", { class: "subtitle" }, t("channels_hint")),
+    tabs,
     h("div", { class: "chips" }, CATEGORIES.map((category) =>
       h("button", {
         class: ui.filters.has(category) ? "chip active" : "chip",

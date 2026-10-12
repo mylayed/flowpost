@@ -114,7 +114,7 @@ def channel_card(
         rows.append([btn(t("admins.manage_btn"), Ca(a="list", c=c))])
     if is_owner or can_disconnect:
         rows.append([btn(t("proj.disconnect"), Pj(a="off", c=c))])
-    rows.append([btn(t("btn.back"), Pj(a="list"))])
+    rows.append([btn(t("btn.back"), Pj(a="list", k="c" if channel.kind == "channel" else "g"))])
     return "\n".join(lines), markup(rows)
 
 
