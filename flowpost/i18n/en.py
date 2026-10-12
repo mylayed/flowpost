@@ -646,6 +646,8 @@ TEXTS: dict[str, str] = {
     "cp.hint": "To view or edit a publication, pick it from the list.",
     "cp.open": "Open",
     "cp.ad_label": "Ad",
+    "cp.gw_label": "Giveaway auto results",
+    "cp.gw_info": "👥 {n} · winners: {winners}",
     "cp.more": "…and {n} more. Open the calendar to see them all.",
     "cp.ad_post": "💰 <b>Ad</b>",
     "cp.ad_booking": "💰 <b>Ad</b> · the booking is not confirmed yet",

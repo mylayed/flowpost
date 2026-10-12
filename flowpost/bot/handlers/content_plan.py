@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage, Message, WebAppInfo,
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.bot.callbacks import Cp
@@ -19,7 +20,7 @@ from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import NO_PREVIEW, fmt_interval, open_editor
 from flowpost.bot.keyboards.common import btn, markup, page_nav, paged
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Post, User
+from flowpost.db.models import Channel, Giveaway, Post, User
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
 from flowpost.db.repo import publications as pubs_repo
@@ -68,6 +69,21 @@ def _row(post: Post, when: str, status: str, open_cb: Cp, channel: Channel | Non
     )
 
 
+def _gw_row(gw: Giveaway, post: Post | None, when: str, open_cb: Cp, channel: Channel | None) -> str:
+    """«🎁 18:00» | «🎁 Автопідсумки розіграшу · …» | «Відкрити»: when the bot draws a giveaway's winners."""
+    title = html.escape(snippet(part_preview_text(post.parts[0]), 60)) if post and post.parts else ""
+    what = f"🎁 <b>{t('cp.gw_label')}</b> · " + t("cp.gw_info", n=gw.entries, winners=gw.draw_winners)
+    if title:
+        what += f"<br><i>{title}</i>"
+    if channel is not None:
+        what += f"<br>📢 {html.escape(channel.title)}"
+    button = f'<tg-button type="callback_data" style="link" data="{open_cb.pack()}">{t("cp.open")}</tg-button>'
+    return (
+        f'<tr><td valign="top">🎁&nbsp;<b>{when}</b></td><td align="left" valign="top">{what}</td>'
+        f'<td align="right" valign="middle">{button}</td></tr>'
+    )
+
+
 async def plan_view(
     session: AsyncSession, user: User, day: date | None = None, mode: str = "s", channel_id: int = 0,
     *, multi: bool = False, settings: Settings | None = None,
@@ -103,7 +119,7 @@ async def plan_view(
     header = f"📢 <i>{channel_link_html(channel)}</i>" if channel is not None else t("plan.all_channels")
     parts = [f"<p>{header}<br>{t('cp.title')}</p>"]
 
-    entries: list[str] = []
+    timed: list[tuple] = []  # (when, html) — posts and giveaway draws, in time order
     seen: set[int] = set()
     for pub in pubs:
         if pub.post_id in seen:
@@ -112,7 +128,7 @@ async def plan_view(
         if post is None or not post.parts:
             continue
         seen.add(pub.post_id)
-        when = fmt_hm((pub.published_at if published else pub.run_at).astimezone(zone))
+        at = pub.published_at if published else pub.run_at
         if published:
             status = "✅"
         elif pub.status == "paused":
@@ -120,7 +136,20 @@ async def plan_view(
         else:
             status = "🔐" if post.is_ad else "⏳"
         other = None if channel_id else await session.get(Channel, pub.channel_id)
-        entries.append(_row(post, when, status, Cp(a="post", d=ordinal, id=post.id, m=mode, c=c), other))
+        timed.append((at, _row(post, fmt_hm(at.astimezone(zone)), status,
+                               Cp(a="post", d=ordinal, id=post.id, m=mode, c=c), other)))
+    if not published:
+        # «Автопідсумки» of button giveaways due this day
+        ids = channel_ids or [ch.id for ch in await channels_repo.list_channels(session, user.id, perm="posts")]
+        draws = (await session.scalars(
+            select(Giveaway).where(Giveaway.channel_id.in_(ids), Giveaway.draw_at >= start, Giveaway.draw_at < end)
+        )).all() if ids else []
+        for gw in draws:
+            gw_post = await session.get(Post, gw.post_id) if gw.post_id else None
+            other = None if channel_id else await session.get(Channel, gw.channel_id)
+            timed.append((gw.draw_at, _gw_row(gw, gw_post, fmt_hm(gw.draw_at.astimezone(zone)),
+                                              Cp(a="gw", d=ordinal, id=gw.id, m=mode, c=c), other)))
+    entries = [row for _, row in sorted(timed, key=lambda x: x[0])]
 
     if entries:
         parts.append(f"<p>{t('cp.hint')}</p>")
@@ -298,6 +327,20 @@ async def _show_card(cb: CallbackQuery, bot: Bot, session: AsyncSession, user: U
         with suppress(TelegramBadRequest):
             await cb.message.delete()
     await send_card(bot, cb.from_user.id, text, kb, media)
+
+
+@router.callback_query(Cp.filter(F.a == "gw"))
+async def cp_giveaway(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
+    """«Відкрити» on an «Автопідсумки» row: the giveaway's own menu (counts, change or cancel the auto results)."""
+    from flowpost.bot.handlers.pro import _allowed, button_giveaway_view
+
+    gw = await session.get(Giveaway, callback_data.id)
+    channel = await _allowed(session, user, gw.channel_id) if gw is not None and gw.post_id else None
+    if channel is None:
+        await cb.answer(t("gwb.gone"), show_alert=True)
+        return
+    await cb.answer()
+    await _edit(cb, *await button_giveaway_view(session, channel, gw, user.tz))
 
 
 @router.callback_query(Cp.filter(F.a == "adok"))

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
-from flowpost.bot.callbacks import Cs, Ed, Nc, Pj, Px
+from flowpost.bot.callbacks import Cp, Cs, Ed, Nc, Pj, Px
 from flowpost.db.models import (
     Channel, ChannelAdmin, Commenter, Feed, Giveaway, GiveawayEntry, InviteJoin, InviteLink, JoinRequest, MemberCount,
     Post, Publication, User,
@@ -1347,6 +1347,17 @@ async def test_button_giveaway_is_drawn_and_announced_automatically_at_the_set_t
     assert Px(a="gb_auto_off", c=c, id=gw.id).pack() in str(shown.reply_markup)
     gw = await h.db(lambda s: s.get(Giveaway, gw.id))
     assert gw.draw_at is not None and gw.draw_winners == 2 and gw.is_open
+
+    # the content plan shows it on its day, marked, with «Відкрити» leading to the giveaway
+    from zoneinfo import ZoneInfo
+    day = gw.draw_at.astimezone(ZoneInfo("Europe/Kyiv")).date().toordinal()
+    h.session.clear()
+    await h.click(Cp(a="day", d=day, c=c))
+    plan = h.session.texts()
+    assert "🎁" in plan and "Автопідсумки розіграшу" in plan and "переможців: 2" in plan
+    assert Cp(a="gw", d=day, id=gw.id, c=c).pack() in plan
+    await h.click(Cp(a="gw", d=day, id=gw.id, c=c))
+    assert "Автопідсумки: " in h.session.texts()
 
     # not yet: nothing happens
     worker = h.dp.workflow_data["worker"]
