@@ -954,6 +954,9 @@ main { flex: 1; padding-bottom: 24px; }
 
 .cal-card.dragging { opacity: 0.3; }
 
+/* «Автопідсумки» of a giveaway: not a post, so outlined instead of filled */
+.cal-card.draw { border: 1px dashed var(--c); border-left: 3px solid var(--c); background: var(--surface); }
+
 .cal-ghost {
   position: fixed;
   z-index: 50;

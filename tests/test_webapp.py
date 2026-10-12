@@ -7,14 +7,15 @@ import time
 from datetime import timedelta
 from types import SimpleNamespace
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy import select, update
 
 from flowpost.config import Settings
 from flowpost.db.models import (
-    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Payment, Post, PostPart, Publication, Subscription,
-    User,
+    BalanceEntry, Channel, ChannelQuota, ChannelSubscription, Giveaway, Payment, Post, PostPart, Publication,
+    Subscription, User,
 )
 from flowpost.db.types import utcnow
 from flowpost.services.billing import limits, plans
@@ -368,6 +369,36 @@ async def test_subscribe_channels_from_wallet(sessionmaker, seeded):
         assert data["balance"] == 151
         detail = await (await client.get(f"/api/channels/{seeded.channel_id}", headers=auth)).json()
         assert (detail["posts_per_day"], detail["days_left"]) == (50, 53)
+    finally:
+        await client.close()
+
+
+async def test_calendar_shows_giveaway_auto_results(sessionmaker, seeded):
+    settings = Settings(bot_token=TOKEN, webapp_enabled=True, liqpay_enabled=False, _env_file=None)
+    client = await _client(settings, sessionmaker, InvoiceBot())
+    auth = {"Authorization": "tma " + init_data({"id": seeded.tg_id, "first_name": "Олена"})}
+    draw_at = utcnow() + timedelta(days=1)
+    async with sessionmaker() as session:
+        other = User(tg_id=999, trial_ends_at=utcnow())
+        session.add(other)
+        await session.flush()
+        foreign = Channel(owner_id=other.id, chat_id=-1005, kind="channel", title="Чужий", watermark={})
+        session.add(foreign)
+        await session.flush()
+        mine = Giveaway(channel_id=seeded.channel_id, post_id=seeded.post_id, button_text="Беру участь!",
+                        entries=51, shown=51, draw_at=draw_at, draw_winners=2)
+        theirs = Giveaway(channel_id=foreign.id, post_id=seeded.post_id, button_text="x", draw_at=draw_at)
+        undated = Giveaway(channel_id=seeded.channel_id, post_id=seeded.post_id, button_text="y")
+        session.add_all([mine, theirs, undated])
+        await session.commit()
+        mine_id = mine.id
+    try:
+        local = draw_at.astimezone(ZoneInfo("Europe/Kyiv"))
+        week = await (await client.get(f"/api/calendar?start={local.date().isoformat()}", headers=auth)).json()
+        assert week["draws"] == [{
+            "id": mine_id, "channel_id": seeded.channel_id, "date": local.date().isoformat(),
+            "time": local.strftime("%H:%M"), "entries": 51, "winners": 2, "text": "Новина дня", "link": None,
+        }]
     finally:
         await client.close()
 

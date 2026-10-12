@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpost.config import Settings
-from flowpost.db.models import Channel, Post, Publication, User
+from flowpost.db.models import Channel, Giveaway, Post, Publication, User
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
@@ -25,7 +25,7 @@ from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.repo import users as users_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import LANGS, t
-from flowpost.services import conflicts
+from flowpost.services import conflicts, giveaway
 from flowpost.services import ideas as ideas_service
 from flowpost.services.billing import channel_subs, entitlements, limits, plans
 from flowpost.services.billing.stars import create_topup_link
@@ -427,6 +427,9 @@ async def calendar(request: web.Request, session: AsyncSession, user: User) -> w
     if post_ids:
         posts = {p.id: p for p in (await session.scalars(select(Post).where(Post.id.in_(post_ids)))).all()}
     zone = tz_of(user.tz)
+    draws = (await session.scalars(
+        select(Giveaway).where(Giveaway.channel_id.in_(channel_ids), Giveaway.draw_at >= first, Giveaway.draw_at < last)
+    )).all() if channel_ids else []
     # Ideas belong to one channel: the selected one, or the only one the user has.
     selected = by_id.get(int(channel_id)) or (channels[0] if len(channels) == 1 else None)
     ideas = [_idea_item(p) for p in await ideas_service.for_channel(session, selected)] if selected else None
@@ -440,7 +443,26 @@ async def calendar(request: web.Request, session: AsyncSession, user: User) -> w
         "now": now_local.hour * 60 + now_local.minute,
         "channels": [{"id": c.id, "title": c.title} for c in channels],
         "items": [_calendar_item(p, posts.get(p.post_id), by_id[p.channel_id], zone) for p in pubs],
+        "draws": [await _calendar_draw(session, gw, by_id[gw.channel_id], zone) for gw in draws],
     })
+
+
+async def _calendar_draw(session: AsyncSession, gw: Giveaway, channel: Channel, zone) -> dict:
+    """«Автопідсумки»: when the bot draws a button giveaway's winners and publishes the result."""
+    local = gw.draw_at.astimezone(zone)
+    post = await session.get(Post, gw.post_id) if gw.post_id else None
+    pub = await giveaway.publication(session, gw)
+    ids = publication_message_ids(pub) if pub is not None else []
+    return {
+        "id": gw.id,
+        "channel_id": gw.channel_id,
+        "date": local.date().isoformat(),
+        "time": local.strftime("%H:%M"),
+        "entries": gw.entries,
+        "winners": gw.draw_winners,
+        "text": snippet(part_preview_text(post.parts[0]), CALENDAR_SNIPPET) if post and post.parts else "",
+        "link": message_link(channel, ids[0]) if ids else None,
+    }
 
 
 # Telegram's popup takes at most 256 characters.

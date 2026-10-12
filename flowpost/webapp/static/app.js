@@ -181,6 +181,11 @@ const I18N = {
     cal_channels: "Канали",
     cal_status_pending: "Заплановано",
     cal_status_paused: "На паузі: у каналу немає тарифу",
+    cal_draw: "Автопідсумки розіграшу",
+    cal_draw_what: "Бот закриє прийом учасників, обере переможців і одразу опублікує результат",
+    cal_entrants: "Учасників зараз",
+    cal_winners: "Переможців",
+    cal_open_giveaway: "Відкрити пост розіграшу",
     cal_status_publishing: "Публікується",
     cal_status_published: "Опубліковано",
     cal_badge_paused: "Пауза",
@@ -374,6 +379,11 @@ const I18N = {
     cal_channels: "Channels",
     cal_status_pending: "Scheduled",
     cal_status_paused: "Paused: the channel has no plan",
+    cal_draw: "Giveaway auto results",
+    cal_draw_what: "The bot closes entries, draws the winners and publishes the result right away",
+    cal_entrants: "Entrants so far",
+    cal_winners: "Winners",
+    cal_open_giveaway: "Open the giveaway post",
     cal_status_publishing: "Publishing",
     cal_status_published: "Published",
     cal_badge_paused: "Paused",
@@ -1674,6 +1684,24 @@ function calGroups(items) {
     .sort((a, b) => a.date.localeCompare(b.date) || a.minutes - b.minutes);
 }
 
+// «Автопідсумки» of button giveaways: their own 🎁 cards, which can't be dragged (the time is changed in the bot).
+function calDraws(draws) {
+  return (draws || []).map((d) => ({
+    date: d.date,
+    minutes: toMinutes(d.time),
+    done: false,
+    draw: d,
+    status: "draw",
+    icon: "🎁",
+    text: `${t("cal_draw")}${d.text ? ` · ${d.text}` : ""}`,
+    link: d.link,
+    repeat: false,
+    items: [{ channel_id: d.channel_id }],
+    color: channelColor(d.channel_id),
+    movable: false,
+  }));
+}
+
 // Side-by-side lanes for posts whose cards would overlap in one day column.
 function layoutDay(groups) {
   const placed = [];
@@ -1739,7 +1767,7 @@ function renderCalendar() {
 }
 
 function calCard({ group: g, lane, lanes }) {
-  const classes = ["cal-card", g.done && "done", g.status === "paused" && "paused", g.movable && "movable"];
+  const classes = ["cal-card", g.done && "done", g.status === "paused" && "paused", g.movable && "movable", g.draw && "draw"];
   const card = h("button", {
     class: classes.filter(Boolean).join(" "),
     type: "button",
@@ -1751,12 +1779,13 @@ function calCard({ group: g, lane, lanes }) {
       else openCalSheet(g);
     },
     oncontextmenu: (event) => event.preventDefault(),
-  }, lanes === 1 ? hm(g.minutes) : g.icon);
+  }, lanes === 1 ? `${g.draw ? "🎁 " : ""}${hm(g.minutes)}` : g.icon);
   card.addEventListener("pointerdown", (event) => startCalPress(event, card, g));
   return card;
 }
 
 function calBadge(g) {
+  if (g.draw) return h("span", { class: "cal-badge" }, `👥 ${g.draw.entries}`);
   if (g.status === "paused") return h("span", { class: "cal-badge warn" }, t("cal_badge_paused"));
   if (g.done) return h("span", { class: "cal-badge" }, icon("check"));
   if (g.repeat) return h("span", { class: "cal-badge" }, "↻");
@@ -1767,7 +1796,8 @@ function paintCalendar(root) {
   const cal = state.cal;
   const data = cal.data;
   const days = Array.from({ length: 7 }, (_, i) => isoAddDays(data.start, i));
-  const groups = calGroups(data.items);
+  const groups = [...calGroups(data.items), ...calDraws(data.draws)]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.minutes - b.minutes);
   const [today, now] = calNow();
   const thisWeek = days.includes(today);
 
@@ -2083,7 +2113,35 @@ function whenFields(date, minutes, label, onPick) {
   ];
 }
 
+function openDrawSheet(g) {
+  const d = g.draw;
+  const channel = state.cal.data.channels.find((c) => c.id === d.channel_id)?.title ?? "—";
+  const content = [
+    h("div", { class: "sheet-grip" }),
+    h("div", { class: "sheet-head" },
+      h("span", { class: "avatar", style: `color:${g.color}` }, "🎁"),
+      h("div", { class: "grow" },
+        h("div", { class: "sheet-title" }, t("cal_draw")),
+        h("div", { class: "sheet-sub" }, `${calDate(g.date, { weekday: "long", day: "numeric", month: "long" })}, ${hm(g.minutes)}`))),
+    h("div", { class: "info-box sheet-text" }, d.text || t("cal_no_text")),
+    h("div", { class: "info" },
+      infoRow(t("cal_channel"), channel),
+      infoRow(t("cal_entrants"), number(d.entries)),
+      infoRow(t("cal_winners"), number(d.winners))),
+    h("p", { class: "fineprint" }, t("cal_draw_what")),
+  ];
+  if (d.link) {
+    content.push(h("button", { class: "btn btn-primary sheet-btn", type: "button", onclick: () => tg.openTelegramLink(d.link) },
+      t("cal_open_giveaway")));
+  }
+  showSheet(content);
+}
+
 function openCalSheet(g) {
+  if (g.draw) {
+    openDrawSheet(g);
+    return;
+  }
   const channels = g.items.map((i) => state.cal.data.channels.find((c) => c.id === i.channel_id)?.title ?? "—");
   const content = [
     h("div", { class: "sheet-grip" }),
