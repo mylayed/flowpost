@@ -182,35 +182,33 @@ def sig_menu(
     chosen = options_of(post)["signature_tpl"] if post is not None else 0
     chosen = chosen if chosen in ids else 0
     lines = [t("sig.title", title=html.escape(channel.title)), ""]
-    if len(templates) == 1:
-        lines += [t("sig.preview"), render_signature(channel), "", t("sig.template", template=html.escape(templates[0][1]))]
-    else:
-        for n, (tid, template) in enumerate(templates, 1):
-            head = t("sig.item_main", n=n) if tid == 0 else t("sig.item", n=n)
-            if post is not None and tid == chosen:
-                head += " ✅"
-            lines += [head, render_signature(channel, tid)]
-            if post is None:  # the raw template is for the channel card; the post editor shows just the signatures
-                lines.append(f"<code>{html.escape(template)}</code>")
-            lines.append("")
-        lines.pop()
+    # Always a list, even of one template, so it looks (and is deleted) the same however many there are.
+    for n, (tid, template) in enumerate(templates, 1):
+        head = t("sig.item_main", n=n) if tid == 0 else t("sig.item", n=n)
+        if post is not None and tid == chosen:
+            head += " ✅"
+        lines += [head, render_signature(channel, tid)]
+        if post is None:  # the raw template is for the channel card; the post editor shows just the signatures
+            lines.append(f"<code>{html.escape(template)}</code>")
+        lines.append("")
+    lines.pop()
     if post is None:
         lines += ["", t("sig.help")]
     rows = []
     if post is not None:
         rows.append([btn(on(options_of(post)["signature"]) + t("sig.apply_post"), Cs(a="sig_post", c=c, p=p))])
-        if len(templates) > 1:
-            rows += [[btn(("✅ " if tid == chosen else "") + sig_label(channel, tid, n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))]
-                     for n, (tid, _) in enumerate(templates, 1)]
+        rows += [[btn(("✅ " if tid == chosen else "") + sig_label(channel, tid, n), Cs(a="sig_pick", c=c, p=p, v=str(tid)))]
+                 for n, (tid, _) in enumerate(templates, 1)]
     if post is None:  # managing the templates is for the channel card; the post editor only picks one
         rights = {"can_settings": can_settings, "can_templates": can_templates}
         if sig_editable(templates, rights):
             rows.append([btn(t("sig.edit"), Cs(a="sig_edit", c=c, p=p))])
-        if can_settings and channel.signature_template:
+        # with a single own template its 🗑 does just this
+        if can_settings and channel.signature_template and len(templates) > 1:
             rows.append([btn(t("sig.reset"), Cs(a="sig_reset", c=c, p=p))])
         if can_templates and len(templates) < MAX_SIGNATURE_TEMPLATES:
             rows.append([btn(t("sig.add"), Cs(a="sig_add", c=c, p=p))])
-        deletable = sig_deletable(templates, rights)
+        deletable = sig_deletable(channel, templates, rights)
         rows += [[btn("🗑 " + sig_label(channel, tid, n), Cs(a="sig_del", c=c, p=p, v=str(tid)))]
                  for n, (tid, _) in enumerate(templates, 1) if tid in deletable]
         if can_settings:
@@ -231,9 +229,11 @@ def sig_editable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
     return [tid for tid, _ in templates if rights["can_settings" if tid == 0 else "can_templates"]]
 
 
-def sig_deletable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
-    """Like sig_editable, but there is always one template left: the main one goes only while there are others."""
-    return [tid for tid in sig_editable(templates, rights) if tid != 0 or len(templates) > 1]
+def sig_deletable(channel: Channel, templates: list[tuple[int, str]], rights: dict) -> list[int]:
+    """Like sig_editable, but there is always a signature left: the main one goes while there are others (the next
+    one takes its place), or, alone, when it's the owner's own text (the standard one takes its place)."""
+    return [tid for tid in sig_editable(templates, rights)
+            if tid != 0 or len(templates) > 1 or channel.signature_template]
 
 
 async def sig_rights(session: AsyncSession, channel: Channel, user: User) -> dict:
@@ -505,7 +505,7 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
     rights = await sig_rights(session, channel, user)
     cleaned = dedupe_signatures(channel)  # copies of another template, left from before they were refused
     if a == "sig_del" and not (
-        callback_data.v.isdigit() and int(callback_data.v) in sig_deletable(signature_templates(channel), rights)
+        callback_data.v.isdigit() and int(callback_data.v) in sig_deletable(channel, signature_templates(channel), rights)
     ):
         if cleaned:  # the one tapped was such a copy, and it's gone now
             await session.flush()
@@ -520,6 +520,8 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
         post.options = {**(post.options or {}), "signature": not options_of(post)["signature"]}
     elif a == "sig_pick" and post is not None and callback_data.v.isdigit():
         post.options = {**(post.options or {}), "signature": True, "signature_tpl": int(callback_data.v)}
+    elif a == "sig_del" and callback_data.v == "0" and not channel.signature_extra:
+        channel.signature_template = None  # the only template, the owner's own: back to the standard one
     elif a == "sig_del" and callback_data.v == "0":
         # The next template becomes the main one; posts that picked it fall back to the main one — the same text.
         first, *rest = channel.signature_extra

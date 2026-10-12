@@ -335,8 +335,6 @@ TEXTS: dict[str, str] = {
 
     # ---- Auto-signature ----------------------------------------------------------------------
     "sig.title": "✍️ <b>Auto-signature</b> · {title}",
-    "sig.preview": "It will look like this:",
-    "sig.template": "Template: <code>{template}</code>",
     "sig.help": (
         "The signature is added under every post. The template can use "
         "<code>{{title}}</code> — channel name, <code>{{link}}</code> — link, <code>{{username}}</code> — @username."

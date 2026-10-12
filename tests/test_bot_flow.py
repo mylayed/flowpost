@@ -307,6 +307,14 @@ async def test_full_editor_flow(h: Harness):
     await h.click(Cs(a="sig_del", c=c, v="2"))
     channel = await h.db(lambda s: s.get(Channel, c))
     assert channel.signature_template == "👉 {username}" and channel.signature_extra == []
+    # one own template is still listed and can be deleted — the standard one takes its place, and that one can't be
+    menu = h.session.calls[-1][1]
+    labels = [b.text for row in menu.reply_markup.inline_keyboard for b in row]
+    assert "Шаблон 1" in menu.text and "🗑 1. 👉 @testchan" in labels
+    assert not any("Стандартний" in x for x in labels)  # the 🗑 does just that
+    await h.click(Cs(a="sig_del", c=c, v="0"))
+    assert (await h.db(lambda s: s.get(Channel, c))).signature_template is None
+    assert not any(b.text.startswith("🗑") for row in h.session.calls[-1][1].reply_markup.inline_keyboard for b in row)
     await h.click(Ed(a="wm", p=p))
     await h.click(Cs(a="wm_text", c=c, p=p))
     await h.text("@testchan")
