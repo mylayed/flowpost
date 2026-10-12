@@ -163,6 +163,13 @@ async def button_entrants(session: AsyncSession, gw_id: int) -> list[GiveawayEnt
     ))
 
 
+async def result_out(session: AsyncSession, gw: Giveaway) -> bool:
+    """The giveaway's result is published or scheduled — no drawing it again automatically. A result left as a
+    draft, or deleted, doesn't count."""
+    post = await session.get(Post, gw.result_post_id) if gw.result_post_id else None
+    return post is not None and post.status in ("published", "scheduled")
+
+
 async def publication(session: AsyncSession, gw: Giveaway) -> Publication | None:
     """The giveaway post as it went out in the giveaway's channel."""
     pubs = await pubs_repo.published_for_post(session, gw.post_id) if gw.post_id else []
@@ -215,6 +222,7 @@ async def auto_draw(bot: Bot, session: AsyncSession, gw: Giveaway, now: datetime
     )
     await pubs_repo.create_publications(session, post, now)
     await pubs_repo.refresh_post_status(session, post)
+    gw.result_post_id = post.id
     return AutoDraw("drawn", recipient, channel, result, len(winners))
 
 

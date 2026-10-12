@@ -894,6 +894,8 @@ async def button_giveaway_view(
     if gw.draw_at:
         rows.append([btn(t("gwa.change_btn"), Px(a="gb_auto", c=c, id=gw.id)),
                      btn(t("gwa.off_btn"), Px(a="gb_auto_off", c=c, id=gw.id))])
+    elif await giveaway.result_out(session, gw):
+        lines.append(t("gwa.result_out"))
     else:
         rows.append([btn(t("gwa.btn"), Px(a="gb_auto", c=c, id=gw.id))])
     rows += [
@@ -1026,6 +1028,9 @@ async def px_button_giveaway_auto(cb: CallbackQuery, callback_data: Px, session:
         await cb.answer(t("gwa.cancelled"))
         await _edit(cb, *await button_giveaway_view(session, channel, gw, user.tz))
         return
+    if await giveaway.result_out(session, gw):
+        await cb.answer(t("gwa.already_drawn"), show_alert=True)
+        return
     await cb.answer()
     if callback_data.a == "gb_auto":
         await state.set_state(None)
@@ -1051,6 +1056,10 @@ async def in_giveaway_draw_at(message: Message, session: AsyncSession, state: FS
     if gw is None or gw.channel_id != channel.id or gw.post_id is None:
         await state.set_state(None)
         await message.answer(t("gwb.gone"))
+        return
+    if await giveaway.result_out(session, gw):
+        await state.set_state(None)
+        await message.answer(t("gwa.already_drawn"))
         return
     draw_at = parse_when(message.text, user.tz, utcnow())
     if draw_at is None:
@@ -1219,13 +1228,15 @@ async def _giveaway_post(cb: CallbackQuery, session: AsyncSession, state: FSMCon
         return None
     await state.update_data(gw_text=None, gw_close=None)
     gw = await session.get(Giveaway, int(data["gw_close"])) if data.get("gw_close") else None
-    if gw is not None and gw.channel_id == channel.id:
-        gw.is_open = False
-        gw.draw_at = None  # drawn by hand: no second result at the auto time
-    return await posts_repo.create_post(
+    post = await posts_repo.create_post(
         session, channel.owner_id, [channel.id], options={**initial_options(channel, False), "link_preview": False},
         text=text,
     )
+    if gw is not None and gw.channel_id == channel.id:
+        gw.is_open = False
+        gw.draw_at = None  # drawn by hand: no second result at the auto time
+        gw.result_post_id = post.id
+    return post
 
 
 async def _drop_buttons(cb: CallbackQuery) -> None:

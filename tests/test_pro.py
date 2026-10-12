@@ -1304,6 +1304,14 @@ async def test_button_giveaway_is_written_published_entered_and_drawn(h: Harness
     assert not (await h.db(lambda s: s.get(Giveaway, gw.id))).is_open
     h.session.member_status[3] = "member"
     assert "завершено" in await tap(3)
+    # the winners are announced: no auto results for it any more
+    h.session.clear()
+    await h.click(Px(a="gb", c=c, id=gw.id))
+    view = h.session.calls[-1][1]
+    assert "вже опубліковано" in view.text and Px(a="gb_auto", c=c, id=gw.id).pack() not in str(view.reply_markup)
+    h.session.clear()
+    await h.click(Px(a="gb_auto", c=c, id=gw.id))
+    assert "вже опубліковано" in _sent(h, "AnswerCallbackQuery")[0].text
 
 
 async def test_button_giveaway_is_drawn_and_announced_automatically_at_the_set_time(h: Harness):
@@ -1355,7 +1363,10 @@ async def test_button_giveaway_is_drawn_and_announced_automatically_at_the_set_t
     report = [m for m in _sent(h, "SendMessage", USER_ID) if "завершено автоматично" in m.text]
     assert len(report) == 1 and "Переможців: 2" in report[0].text
     gw = await h.db(lambda s: s.get(Giveaway, gw.id))
-    assert gw.draw_at is None and not gw.is_open
+    assert gw.draw_at is None and not gw.is_open and gw.result_post_id
+    h.session.clear()
+    await h.click(Px(a="gb_auto_n", c=c, id=gw.id, v="1"))
+    assert "вже опубліковано" in _sent(h, "AnswerCallbackQuery")[0].text
 
 
 async def test_button_giveaway_auto_results_can_be_cancelled_and_skip_an_unpublished_post(h: Harness):

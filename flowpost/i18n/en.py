@@ -1337,6 +1337,8 @@ TEXTS: dict[str, str] = {
     "gwa.when_bad": "Couldn't read the time, or it has already passed. Examples: <code>20:00</code>, <code>{example} 20:00</code>.",
     "gwa.saved": "✅ Auto results scheduled for {when}, winners: {n}.",
     "gwa.cancelled": "Auto results cancelled",
+    "gwa.result_out": "🏆 The giveaway's result is already published or scheduled.",
+    "gwa.already_drawn": "This giveaway's result is already published or scheduled, so no auto results are needed.",
     "gwa.report_drawn": "🎁 <b>The giveaway in «{title}» was drawn automatically</b>\nWinners: {n}. The result is being published:",
     "gwa.report_none": (
         "🎁 Auto results of the giveaway in «{title}»: none of the entrants can win, so no result was published. "

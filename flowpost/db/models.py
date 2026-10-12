@@ -190,6 +190,8 @@ class Giveaway(Base):
     draw_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     draw_winners: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     draw_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    # the post announcing the winners (drawn by hand or automatically): once it's out, no auto results
+    result_post_id: Mapped[int | None] = mapped_column(ForeignKey("posts.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
