@@ -18,7 +18,7 @@ from flowpost.bot.callbacks import Cp
 from flowpost.bot.handlers.editor.publish import publish_now
 from flowpost.bot.handlers.editor.schedule import show_schedule
 from flowpost.bot.handlers.editor.view import NO_PREVIEW, fmt_interval, open_editor
-from flowpost.bot.keyboards.common import btn, markup, page_nav, paged
+from flowpost.bot.keyboards.common import btn, kind_tabs, markup, page_nav, paged
 from flowpost.config import Settings
 from flowpost.db.models import Channel, Giveaway, Post, User
 from flowpost.db.repo import channels as channels_repo
@@ -36,15 +36,17 @@ router = Router(name="content_plan")
 
 
 async def channel_picker_view(
-    channels: list[Channel], per_page: int = 20, page: int = 0
+    channels: list[Channel], per_page: int = 20, page: int = 0, kind: str = "",
 ) -> tuple[str, InlineKeyboardMarkup]:
+    channels, tabs = kind_tabs(channels, kind, lambda k: Cp(a="channels", k=k))
     page, pages = paged(page, len(channels), per_page)
-    rows = [
+    rows = [tabs] if tabs else []
+    rows += [
         [btn(("📢 " if c.kind == "channel" else "👥 ") + c.title, Cp(a="day", c=c.id))]
         for c in channels[page * per_page:(page + 1) * per_page]
     ]
     if pages > 1:
-        rows.append(page_nav(page, pages, lambda n: Cp(a="channels", pg=n), Cp(a="noop")))
+        rows.append(page_nav(page, pages, lambda n: Cp(a="channels", pg=n, k=kind), Cp(a="noop")))
     rows.append([btn(t("plan.all_channels"), Cp(a="day", c=0))])
     return t("plan.pick_channel"), markup(rows)
 
@@ -112,10 +114,11 @@ async def plan_view(
             btn(("• " if published else "") + t("plan.tab_published"), Cp(a="day", d=ordinal, m="p", c=c)),
         ],
     ]
-    if multi:
-        rows.append([btn(t("plan.channels_btn"), Cp(a="channels", d=ordinal, m=mode))])
-
     channel = await session.get(Channel, channel_id) if channel_id else None
+    if multi:  # back to the picker on the tab of the channel being looked at
+        kind = "" if channel is None else ("c" if channel.kind == "channel" else "g")
+        rows.append([btn(t("plan.channels_btn"), Cp(a="channels", d=ordinal, m=mode, k=kind))])
+
     header = f"📢 <i>{channel_link_html(channel)}</i>" if channel is not None else t("plan.all_channels")
     parts = [f"<p>{header}<br>{t('cp.title')}</p>"]
 
@@ -236,7 +239,7 @@ async def cp_day(
 async def cp_channels(cb: CallbackQuery, callback_data: Cp, session: AsyncSession, user: User) -> None:
     channels = await channels_repo.list_channels(session, user.id, perm="posts")
     await cb.answer()
-    await _edit(cb, *await channel_picker_view(channels, user.channels_per_page, callback_data.pg))
+    await _edit(cb, *await channel_picker_view(channels, user.channels_per_page, callback_data.pg, callback_data.k))
 
 
 PREVIEWABLE = {"photo", "video", "animation", "document", "audio"}

@@ -26,7 +26,8 @@ class Nc(CallbackData, prefix="nc"):
 
 
 class Cp(CallbackData, prefix="cp"):
-    """Content plan. `d` — date ordinal, `id` — post id, `m` — tab: s(cheduled)|p(ublished), `c` — channel filter (0 = all)."""
+    """Content plan. `d` — date ordinal, `id` — post id, `m` — tab: s(cheduled)|p(ublished), `c` — channel filter (0 = all),
+    `k` — channel picker tab: c(hannels)|g(roups)."""
 
     a: str
     d: int = 0
@@ -34,6 +35,7 @@ class Cp(CallbackData, prefix="cp"):
     m: str = "s"
     c: int = 0
     pg: int = 0
+    k: str = ""
 
 
 class Pj(CallbackData, prefix="pj"):
