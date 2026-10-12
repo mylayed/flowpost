@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, Sequence
 
@@ -18,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flowpost.db.models import Channel, Commenter, Giveaway, GiveawayEntry, Post, Publication, User
 from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
-from flowpost.i18n import t
+from flowpost.i18n import get_locale, set_locale, t
 from flowpost.services.billing import entitlements
 from flowpost.services.posts import GIVEAWAY_PREFIX, build_markup, comment_url, part_buttons
 from flowpost.services.slots import fmt_hm, tz_of
@@ -160,6 +161,61 @@ async def button_entrants(session: AsyncSession, gw_id: int) -> list[GiveawayEnt
         select(GiveawayEntry).where(GiveawayEntry.giveaway_id == gw_id)
         .order_by(GiveawayEntry.first_at, GiveawayEntry.id)
     ))
+
+
+async def publication(session: AsyncSession, gw: Giveaway) -> Publication | None:
+    """The giveaway post as it went out in the giveaway's channel."""
+    pubs = await pubs_repo.published_for_post(session, gw.post_id) if gw.post_id else []
+    return next((p for p in pubs if p.channel_id == gw.channel_id), None)
+
+
+@dataclass
+class AutoDraw:
+    """What «Автопідсумки» did: "drawn" (the result post is queued to publish now), "none" (no one eligible) or
+    "unpublished" (the giveaway post never went out). `recipient` — who gets the report."""
+
+    outcome: str
+    recipient: User | None
+    channel: Channel | None
+    result: str = ""
+    winners: int = 0
+
+
+async def auto_draw(bot: Bot, session: AsyncSession, gw: Giveaway, now: datetime) -> AutoDraw:
+    """The draw at `gw.draw_at`: entries close, the winners are drawn among everyone who entered and the result
+    is queued as a post publishing right away (the worker's next pass delivers it)."""
+    from flowpost.db.repo import posts as posts_repo
+    from flowpost.services.delivery import publication_message_ids
+    from flowpost.services.posts import initial_options, message_link
+
+    gw.draw_at = None
+    gw.is_open = False
+    channel = await session.get(Channel, gw.channel_id)
+    owner = await session.get(User, channel.owner_id) if channel else None
+    recipient = (await session.get(User, gw.draw_user_id) if gw.draw_user_id else None) or owner
+    pub = await publication(session, gw)
+    if channel is None or pub is None:
+        return AutoDraw("unpublished", recipient, channel)
+    pool = await button_entrants(session, gw.id)
+    winners = await draw(bot, channel, pool, gw.draw_winners, subscribers_only=gw.subscribers_only,
+                         exclude={owner.tg_id} if owner else set())
+    if not winners:
+        return AutoDraw("none", recipient, channel)
+    ids = publication_message_ids(pub)
+    previous = get_locale()
+    set_locale(recipient.lang if recipient else "uk")  # the announcement is in the language of whoever set it up
+    try:
+        result = result_html(winners, len(pool), message_link(channel, ids[0]) if ids else None, now,
+                             recipient.tz if recipient else "Europe/Kyiv")
+    finally:
+        set_locale(previous)
+    post = await posts_repo.create_post(
+        session, channel.owner_id, [channel.id], options={**initial_options(channel, False), "link_preview": False},
+        text=result,
+    )
+    await pubs_repo.create_publications(session, post, now)
+    await pubs_repo.refresh_post_status(session, post)
+    return AutoDraw("drawn", recipient, channel, result, len(winners))
 
 
 def counted(rows: list[list[dict]], gw: Giveaway) -> list[list[dict]]:

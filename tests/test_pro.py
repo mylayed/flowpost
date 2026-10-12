@@ -1306,6 +1306,82 @@ async def test_button_giveaway_is_written_published_entered_and_drawn(h: Harness
     assert "завершено" in await tap(3)
 
 
+async def test_button_giveaway_is_drawn_and_announced_automatically_at_the_set_time(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    await h.click(Px(a="gb_new", c=c))
+    await h.click(Px(a="gb_mk", c=c, v="0"))
+    post = await _post(h)
+    gw = await h.db(lambda s: s.scalar(select(Giveaway)))
+    await h.click(Ed(a="pub", p=post.id))
+    await h.click(Ed(a="pubok", p=post.id))
+
+    async def enter(s):
+        g = await s.get(Giveaway, gw.id)
+        g.subscribers_only = False
+        for uid in range(1, 6):
+            s.add(GiveawayEntry(giveaway_id=g.id, user_tg_id=uid, name=f"Читач{uid}"))
+        g.entries = 5
+        await s.commit()
+    await h.db(enter)
+
+    # how many winners, then the time
+    await h.click(Px(a="gb", c=c, id=gw.id))
+    assert Px(a="gb_auto", c=c, id=gw.id).pack() in str(h.session.calls[-1][1].reply_markup)
+    await h.click(Px(a="gb_auto", c=c, id=gw.id))
+    await h.click(Px(a="gb_auto_n", c=c, id=gw.id, v="2"))
+    h.session.clear()
+    await h.text("вчора")
+    assert "Не вдалося розпізнати" in h.session.calls[-1][1].text
+    await h.text("10:00")
+    shown = h.session.calls[-1][1]
+    assert "Автопідсумки заплановано" in shown.text and "переможців: 2" in shown.text
+    assert Px(a="gb_auto_off", c=c, id=gw.id).pack() in str(shown.reply_markup)
+    gw = await h.db(lambda s: s.get(Giveaway, gw.id))
+    assert gw.draw_at is not None and gw.draw_winners == 2 and gw.is_open
+
+    # not yet: nothing happens
+    worker = h.dp.workflow_data["worker"]
+    h.session.clear()
+    await worker.tick(gw.draw_at - timedelta(minutes=1))
+    assert not _sent(h, "SendMessage", CHANNEL_CHAT)
+
+    # at the time: entries close, the result goes out in the channel, the owner gets a report — once
+    await worker.tick(gw.draw_at + timedelta(seconds=5))
+    await worker.tick(gw.draw_at + timedelta(minutes=1))
+    published = _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert len(published) == 1 and "Результати розіграшу" in published[0].text
+    assert "🥇" in published[0].text and "🥈" in published[0].text and "🥉" not in published[0].text
+    report = [m for m in _sent(h, "SendMessage", USER_ID) if "завершено автоматично" in m.text]
+    assert len(report) == 1 and "Переможців: 2" in report[0].text
+    gw = await h.db(lambda s: s.get(Giveaway, gw.id))
+    assert gw.draw_at is None and not gw.is_open
+
+
+async def test_button_giveaway_auto_results_can_be_cancelled_and_skip_an_unpublished_post(h: Harness):
+    await h.text("/start")
+    c = await _connect(h)
+    await h.click(Px(a="gb_new", c=c))
+    await h.click(Px(a="gb_mk", c=c, v="0"))
+    gw = await h.db(lambda s: s.scalar(select(Giveaway)))
+    await h.click(Px(a="gb_auto", c=c, id=gw.id))
+    await h.click(Px(a="gb_auto_n", c=c, id=gw.id, v="1"))
+    await h.text("10:00")
+    await h.click(Px(a="gb_auto_off", c=c, id=gw.id))
+    assert (await h.db(lambda s: s.get(Giveaway, gw.id))).draw_at is None
+
+    # set again, but the giveaway post is never published: no result, just a report
+    await h.click(Px(a="gb_auto", c=c, id=gw.id))
+    await h.click(Px(a="gb_auto_n", c=c, id=gw.id, v="1"))
+    await h.text("10:00")
+    gw = await h.db(lambda s: s.get(Giveaway, gw.id))
+    h.session.clear()
+    await h.dp.workflow_data["worker"].tick(gw.draw_at + timedelta(seconds=5))
+    assert not _sent(h, "SendMessage", CHANNEL_CHAT)
+    assert any("так і не опублікували" in m.text for m in _sent(h, "SendMessage", USER_ID))
+    assert (await h.db(lambda s: s.get(Giveaway, gw.id))).draw_at is None
+
+
 async def test_button_giveaway_text_can_be_typed_and_number_of_winners_too(h: Harness):
     await h.text("/start")
     c = await _connect(h)

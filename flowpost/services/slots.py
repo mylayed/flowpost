@@ -1,9 +1,12 @@
 """Date formatting and time-slot generation for the scheduling screen."""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from flowpost.services.parsing import ParseError, parse_time
 
 WEEKDAYS = {
     "uk": ["пн", "вт", "ср", "чт", "пт", "сб", "нд"],
@@ -55,6 +58,35 @@ def local_now(tz_name: str) -> datetime:
 
 def to_utc(day: date, t: time, tz_name: str) -> datetime:
     return datetime.combine(day, t, tzinfo=tz_of(tz_name)).astimezone(timezone.utc)
+
+
+_WHEN_RE = re.compile(r"^\s*(?:(\d{1,2})\.(\d{1,2})(?:\.(\d{2}|\d{4}))?\s+)?(\d{1,2}\s*[:.]\s*\d{2})\s*$")
+
+
+def parse_when(raw: str, tz_name: str, now: datetime) -> datetime | None:
+    """"ГГ:ХХ" (today, or tomorrow once that time has passed), "ДД.ММ ГГ:ХХ" or "ДД.ММ.РРРР ГГ:ХХ" in the user's
+    time zone → UTC; None if it doesn't parse or is already in the past."""
+    m = _WHEN_RE.match(raw or "")
+    if not m:
+        return None
+    try:
+        at = parse_time(m.group(4))
+    except ParseError:
+        return None
+    today = now.astimezone(tz_of(tz_name)).date()
+    if m.group(1) is None:
+        run_at = to_utc(today, at, tz_name)
+        if run_at <= now:
+            run_at = to_utc(date.fromordinal(today.toordinal() + 1), at, tz_name)
+        return run_at
+    year = int(m.group(3)) if m.group(3) else today.year
+    year += 2000 if year < 100 else 0
+    try:
+        day = date(year, int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+    run_at = to_utc(day, at, tz_name)
+    return run_at if run_at > now else None
 
 
 def day_bounds_utc(day: date, tz_name: str) -> tuple[datetime, datetime]:

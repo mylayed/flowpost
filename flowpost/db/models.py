@@ -185,6 +185,11 @@ class Giveaway(Base):
     is_open: Mapped[bool] = mapped_column(Boolean, default=True)
     entries: Mapped[int] = mapped_column(Integer, default=0)
     shown: Mapped[int] = mapped_column(Integer, default=0)  # the count last written onto the button in the channel
+    # «Автопідсумки»: at `draw_at` the worker closes entries, draws `draw_winners` and publishes the result;
+    # `draw_user_id` — who set it up (gets the report, and the result is dated in their time zone).
+    draw_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    draw_winners: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    draw_user_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

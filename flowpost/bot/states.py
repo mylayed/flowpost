@@ -62,6 +62,7 @@ class ProInput(StatesGroup):
     feed_url = State()    # address of a new RSS source
     gw_count = State()    # how many winners a giveaway draws
     gw_button = State()   # what the «Беру участь» button of a new giveaway says
+    gw_draw_at = State()  # when «Автопідсумки» draws a button giveaway's winners
     ad_brief = State()    # an advertiser's brief for «Рекламний пост»
     niche_channels = State()  # competitors' channels for «Дослідження ніші»
     answer_kb = State()   # knowledge base of the AI answerer

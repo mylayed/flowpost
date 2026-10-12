@@ -24,7 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from flowpost.bot.callbacks import Ad, Cp, Cs, Px
 from flowpost.bot.keyboards.common import btn, markup, pay_btn
 from flowpost.config import Settings
-from flowpost.db.models import Broadcast, Channel, Commenter, Feed, JoinRequest, MemberCount, Post, Publication, Subscription, User
+from flowpost.db.models import (
+    Broadcast, Channel, Commenter, Feed, Giveaway, JoinRequest, MemberCount, Post, Publication, Subscription, User,
+)
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
@@ -110,6 +112,7 @@ class Worker:
         now = now or utcnow()
         await self.recover_stale()
         await self.booking_reminders(now)
+        await self.giveaway_draws(now)  # before publishing: the result post it queues goes out in this same pass
         await self.process_due(now)
         await self.process_broadcasts(now)
         await self.process_unpins(now)
@@ -480,6 +483,43 @@ class Worker:
                 await self._mark_blocked(owner)
             except TelegramAPIError as e:
                 log.info("booking reminder for %s not delivered: %s", owner.tg_id, e)
+
+    async def giveaway_draws(self, now: datetime) -> None:
+        """«Автопідсумки»: button giveaways whose time has come — draw the winners, queue the result post and
+        tell whoever set it up how it went."""
+        outbox: list[tuple[User, str, Px]] = []
+        async with self.sessionmaker() as session:
+            due = (await session.scalars(
+                select(Giveaway).where(Giveaway.draw_at.is_not(None), Giveaway.draw_at <= now)
+                .order_by(Giveaway.draw_at).limit(BATCH).with_for_update(skip_locked=True)
+            )).all()
+            for gw in due:
+                gw_id = gw.id
+                try:
+                    async with session.begin_nested():
+                        done = await giveaway.auto_draw(self.bot, session, gw, now)
+                except Exception:  # noqa: BLE001 - one broken giveaway must not hold up the others
+                    log.exception("auto-draw of giveaway %s failed", gw_id)
+                    gw.draw_at = None  # not again every few seconds; the owner can still draw by hand
+                    continue
+                who, channel = done.recipient, done.channel
+                if who is None or channel is None or who.is_blocked:
+                    continue
+                title = html.escape(channel.title)
+                if done.outcome == "drawn":
+                    text = t("gwa.report_drawn", locale=who.lang, title=title, n=done.winners) + "\n\n" + done.result
+                else:
+                    text = t(f"gwa.report_{done.outcome}", locale=who.lang, title=title)
+                outbox.append((who, text, Px(a="gb", c=channel.id, id=gw.id)))
+            await session.commit()
+        for who, text, open_cb in outbox:
+            kb = markup([[btn(t("gwa.report_btn", locale=who.lang), open_cb)]])
+            try:
+                await self.bot.send_message(who.tg_id, text, reply_markup=kb, disable_web_page_preview=True)
+            except TelegramForbiddenError:
+                await self._mark_blocked(who)
+            except TelegramAPIError as e:
+                log.info("giveaway report for %s not delivered: %s", who.tg_id, e)
 
     async def process_unpins(self, now: datetime) -> None:
         async with self.sessionmaker() as session:

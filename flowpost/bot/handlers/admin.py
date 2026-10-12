@@ -4,8 +4,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-import re
-from datetime import date, datetime
+from datetime import datetime
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -27,8 +26,8 @@ from flowpost.db.types import utcnow
 from flowpost.services.billing.subscriptions import get_subscription
 from flowpost.i18n import t
 from flowpost.services.broadcast import AUDIENCES, audience_label, build_markup
-from flowpost.services.parsing import ParseError, parse_buttons, parse_time
-from flowpost.services.slots import fmt_hm, local_now, to_utc, tz_of
+from flowpost.services.parsing import ParseError, parse_buttons
+from flowpost.services.slots import fmt_hm, local_now, parse_when, tz_of
 from flowpost.services.worker import Worker
 
 
@@ -205,35 +204,6 @@ async def cmd_trial(message: Message, command: CommandObject, session: AsyncSess
 
 
 # ---- /broadcast: a message to many users at once, now or later -----------------------------------
-
-_WHEN_RE = re.compile(r"^\s*(?:(\d{1,2})\.(\d{1,2})(?:\.(\d{2}|\d{4}))?\s+)?(\d{1,2}\s*[:.]\s*\d{2})\s*$")
-
-
-def parse_when(raw: str, tz_name: str, now: datetime) -> datetime | None:
-    """"ГГ:ХХ" (today, or tomorrow once that time has passed), "ДД.ММ ГГ:ХХ" or "ДД.ММ.РРРР ГГ:ХХ" in the admin's
-    time zone → UTC; None if it doesn't parse or is already in the past."""
-    m = _WHEN_RE.match(raw or "")
-    if not m:
-        return None
-    try:
-        at = parse_time(m.group(4))
-    except ParseError:
-        return None
-    today = now.astimezone(tz_of(tz_name)).date()
-    if m.group(1) is None:
-        run_at = to_utc(today, at, tz_name)
-        if run_at <= now:
-            run_at = to_utc(date.fromordinal(today.toordinal() + 1), at, tz_name)
-        return run_at
-    year = int(m.group(3)) if m.group(3) else today.year
-    year += 2000 if year < 100 else 0
-    try:
-        day = date(year, int(m.group(2)), int(m.group(1)))
-    except ValueError:
-        return None
-    run_at = to_utc(day, at, tz_name)
-    return run_at if run_at > now else None
-
 
 def _when_text(send_at: datetime, tz_name: str) -> str:
     local = send_at.astimezone(tz_of(tz_name))

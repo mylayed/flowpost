@@ -25,7 +25,6 @@ from flowpost.db.models import Channel, Commenter, Feed, Giveaway, InviteLink, P
 from flowpost.db.repo import channel_admins as channel_admins_repo
 from flowpost.db.repo import channels as channels_repo
 from flowpost.db.repo import posts as posts_repo
-from flowpost.db.repo import publications as pubs_repo
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import giveaway, growth, pro_ai, rss
@@ -37,7 +36,7 @@ from flowpost.services.html_sanitize import snippet
 from flowpost.services.moderation import moderation_settings
 from flowpost.services.posts import initial_options, message_link, part_preview_text
 from flowpost.services.publisher import Publisher
-from flowpost.services.slots import tz_of
+from flowpost.services.slots import fmt_hm, local_now, parse_when, tz_of
 from flowpost.services.worker import Worker
 
 router = Router(name="pro")
@@ -784,17 +783,11 @@ async def _post_title(post: Post | None, limit: int) -> str:
     return text or t("parts.no_text")
 
 
-async def _giveaway_publication(session: AsyncSession, gw: Giveaway) -> Publication | None:
-    """The giveaway post as it went out in the giveaway's channel."""
-    pubs = await pubs_repo.published_for_post(session, gw.post_id) if gw.post_id else []
-    return next((p for p in pubs if p.channel_id == gw.channel_id), None)
-
-
 async def giveaway_view(session: AsyncSession, user: User, channel: Channel) -> tuple[str, InlineKeyboardMarkup]:
     lines = [t("gw.title", title=html.escape(channel.title)), "", t("gw.help")]
     c = channel.id
     zone = tz_of(user.tz)
-    rows = [[btn(t("gwb.new"), Px(a="gb_new", c=c), style="success")]]
+    rows = [[btn(t("gwb.new"), Px(a="gb_new", c=c), style="primary")]]
     giveaways = (await session.scalars(
         select(Giveaway)
         .where(Giveaway.channel_id == c, Giveaway.post_id.is_not(None))
@@ -865,7 +858,14 @@ async def giveaway_post_view(
     return "\n".join(lines), markup(rows)
 
 
-async def button_giveaway_view(session: AsyncSession, channel: Channel, gw: Giveaway) -> tuple[str, InlineKeyboardMarkup]:
+def _draw_when(at, tz: str) -> str:
+    local = at.astimezone(tz_of(tz))
+    return t("gwa.when", date=local.strftime("%d.%m.%Y"), time=fmt_hm(local))
+
+
+async def button_giveaway_view(
+    session: AsyncSession, channel: Channel, gw: Giveaway, tz: str,
+) -> tuple[str, InlineKeyboardMarkup]:
     post = await session.get(Post, gw.post_id) if gw.post_id else None
     published = post is not None and post.status == "published"
     status = "gwb.st_published" if published else ("gwb.st_scheduled" if post and post.status == "scheduled" else "gwb.st_draft")
@@ -878,6 +878,8 @@ async def button_giveaway_view(session: AsyncSession, channel: Channel, gw: Give
         t("gwb.open") if gw.is_open else t("gwb.closed"),
         t("gwb.subs_on") if gw.subscribers_only else t("gwb.subs_off"),
     ]
+    if gw.draw_at:
+        lines.append(t("gwa.set", when=_draw_when(gw.draw_at, tz), n=gw.draw_winners))
     c, mode = channel.id, "s" if gw.subscribers_only else "a"
     rows = []
     if gw.entries:
@@ -889,6 +891,11 @@ async def button_giveaway_view(session: AsyncSession, channel: Channel, gw: Give
         lines += ["", t("gwb.no_entrants")]
     if not published and post is not None:
         rows.append([btn(t("gwb.open_post"), Px(a="gb_post", c=c, id=gw.id))])
+    if gw.draw_at:
+        rows.append([btn(t("gwa.change_btn"), Px(a="gb_auto", c=c, id=gw.id)),
+                     btn(t("gwa.off_btn"), Px(a="gb_auto_off", c=c, id=gw.id))])
+    else:
+        rows.append([btn(t("gwa.btn"), Px(a="gb_auto", c=c, id=gw.id))])
     rows += [
         [btn(on(gw.subscribers_only) + t("gw.subs_btn"), Px(a="gb_subs", c=c, id=gw.id))],
         [btn(t("gwb.close_btn") if gw.is_open else t("gwb.reopen_btn"), Px(a="gb_open", c=c, id=gw.id))],
@@ -996,7 +1003,65 @@ async def px_button_giveaway(cb: CallbackQuery, callback_data: Px, session: Asyn
     await session.flush()
     await state.set_state(None)
     await cb.answer()
-    await _edit(cb, *await button_giveaway_view(session, channel, gw))
+    await _edit(cb, *await button_giveaway_view(session, channel, gw, user.tz))
+
+
+AUTO_WINNERS = (1, 2, 3, 5, 10)
+
+
+@router.callback_query(Px.filter(F.a.in_({"gb_auto", "gb_auto_n", "gb_auto_off"})))
+async def px_button_giveaway_auto(cb: CallbackQuery, callback_data: Px, session: AsyncSession, state: FSMContext,
+                                  user: User, settings: Settings) -> None:
+    """«Автопідсумки»: how many winners (`gb_auto`), then the time is typed in (`gb_auto_n`, `v` — the count);
+    `gb_auto_off` cancels them."""
+    channel = await _channel(cb, callback_data, session, user, settings, paid=False)
+    gw = await _button_giveaway(cb, session, channel, callback_data.id) if channel else None
+    if gw is None:
+        return
+    c, back = channel.id, Px(a="gb", c=channel.id, id=gw.id)
+    if callback_data.a == "gb_auto_off":
+        gw.draw_at = None
+        await session.flush()
+        await state.set_state(None)
+        await cb.answer(t("gwa.cancelled"))
+        await _edit(cb, *await button_giveaway_view(session, channel, gw, user.tz))
+        return
+    await cb.answer()
+    if callback_data.a == "gb_auto":
+        await state.set_state(None)
+        counts = [btn(str(n), Px(a="gb_auto_n", c=c, id=gw.id, v=str(n))) for n in AUTO_WINNERS]
+        await _edit(cb, t("gwa.count_title"), markup([counts, [btn(t("btn.back"), back)]]))
+        return
+    n = int(callback_data.v) if callback_data.v.isdigit() else 1
+    n = min(max(n, 1), giveaway.MAX_WINNERS)
+    await state.set_state(ProInput.gw_draw_at)
+    await state.update_data(px_channel=c, gw_auto=gw.id, gw_auto_n=n)
+    now = local_now(user.tz)
+    await _edit(cb, t("gwa.when_prompt", n=n, example=f"{now:%d.%m}", tz=html.escape(user.tz), now=fmt_hm(now)),
+                markup([[btn(t("btn.back"), Px(a="gb_auto", c=c, id=gw.id))]]))
+
+
+@router.message(ProInput.gw_draw_at, F.text)
+async def in_giveaway_draw_at(message: Message, session: AsyncSession, state: FSMContext, user: User) -> None:
+    channel = await _input_channel(message, session, state, user)
+    if channel is None:
+        return
+    data = await state.get_data()
+    gw = await session.get(Giveaway, int(data.get("gw_auto") or 0))
+    if gw is None or gw.channel_id != channel.id or gw.post_id is None:
+        await state.set_state(None)
+        await message.answer(t("gwb.gone"))
+        return
+    draw_at = parse_when(message.text, user.tz, utcnow())
+    if draw_at is None:
+        await message.answer(t("gwa.when_bad", example=f"{local_now(user.tz):%d.%m}"))
+        return
+    gw.draw_at, gw.draw_winners, gw.draw_user_id = draw_at, int(data.get("gw_auto_n") or 1), user.id
+    await session.flush()
+    await state.set_state(None)
+    text, kb = await button_giveaway_view(session, channel, gw, user.tz)
+    note = t("gwa.saved", when=_draw_when(draw_at, user.tz), n=gw.draw_winners)
+    await message.answer(note + "\n\n" + text, reply_markup=kb, disable_web_page_preview=True)
 
 
 @router.callback_query(Px.filter(F.a == "gb_post"))
@@ -1083,7 +1148,7 @@ async def _button_draw(bot: Bot, session: AsyncSession, state: FSMContext, user:
                        gw: Giveaway, count: int, mode: str) -> tuple[str, InlineKeyboardMarkup]:
     return await _draw_view(
         bot, session, state, user, channel, await giveaway.button_entrants(session, gw.id),
-        await _giveaway_publication(session, gw), count, mode,
+        await giveaway.publication(session, gw), count, mode,
         Px(a="gb", c=channel.id, id=gw.id), Px(a="gb_run", c=channel.id, id=gw.id, v=f"{count}{mode}"), close=gw.id,
     )
 
@@ -1156,6 +1221,7 @@ async def _giveaway_post(cb: CallbackQuery, session: AsyncSession, state: FSMCon
     gw = await session.get(Giveaway, int(data["gw_close"])) if data.get("gw_close") else None
     if gw is not None and gw.channel_id == channel.id:
         gw.is_open = False
+        gw.draw_at = None  # drawn by hand: no second result at the auto time
     return await posts_repo.create_post(
         session, channel.owner_id, [channel.id], options={**initial_options(channel, False), "link_preview": False},
         text=text,
@@ -1223,5 +1289,6 @@ async def px_translate(cb: CallbackQuery, callback_data: Px, session: AsyncSessi
 @router.message(ProInput.feed_url)
 @router.message(ProInput.gw_count)
 @router.message(ProInput.gw_button)
+@router.message(ProInput.gw_draw_at)
 async def in_wrong(message: Message) -> None:
     await message.answer(t("err.expected_input"))

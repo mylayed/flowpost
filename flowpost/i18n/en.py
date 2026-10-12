@@ -1317,6 +1317,33 @@ TEXTS: dict[str, str] = {
     "gwb.already_published": "The post is already published — change it with «✏️ Edit post».",
     "gwb.close_btn": "🔒 Close entries",
     "gwb.reopen_btn": "🔓 Reopen entries",
+    "gwa.btn": "⏰ Auto results",
+    "gwa.change_btn": "⏰ Change auto results",
+    "gwa.off_btn": "✖️ Cancel auto results",
+    "gwa.when": "{date} at {time}",
+    "gwa.set": "⏰ Auto results: {when} · winners: {n}",
+    "gwa.count_title": (
+        "⏰ <b>Auto results</b>\n\n"
+        "At the set time the bot closes entries, draws the winners among everyone who tapped the button "
+        "and publishes the result in the channel right away. You'll get a report.\n\n"
+        "How many winners?"
+    ),
+    "gwa.when_prompt": (
+        "⏰ Winners: <b>{n}</b>. When should the results go out? Send the time:\n\n"
+        "• <code>20:00</code> — today (or tomorrow if that time has passed)\n"
+        "• <code>{example} 20:00</code> — on a given day\n\n"
+        "Time zone: {tz}, now {now}."
+    ),
+    "gwa.when_bad": "Couldn't read the time, or it has already passed. Examples: <code>20:00</code>, <code>{example} 20:00</code>.",
+    "gwa.saved": "✅ Auto results scheduled for {when}, winners: {n}.",
+    "gwa.cancelled": "Auto results cancelled",
+    "gwa.report_drawn": "🎁 <b>The giveaway in «{title}» was drawn automatically</b>\nWinners: {n}. The result is being published:",
+    "gwa.report_none": (
+        "🎁 Auto results of the giveaway in «{title}»: none of the entrants can win, so no result was published. "
+        "Entries are closed."
+    ),
+    "gwa.report_unpublished": "🎁 Auto results of the giveaway in «{title}» cancelled: the giveaway post was never published.",
+    "gwa.report_btn": "🎁 Open the giveaway",
     "gwb.app_joined": "🎉 You're in the giveaway now!",
     "gwb.app_already": "✅ You're already in the giveaway. Good luck!",
     "gwb.app_subscribe": "📢 To enter, subscribe to the channel, then tap the button again.",
