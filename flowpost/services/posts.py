@@ -298,6 +298,25 @@ def signature_templates(channel: Channel) -> list[tuple[int, str]]:
     return [(0, main)] + [(int(x["id"]), x["html"]) for x in (channel.signature_extra or [])]
 
 
+def dedupe_signatures(channel: Channel) -> bool:
+    """Drop the added templates that repeat another one (same text, or an id already taken) — two identical
+    templates can't be told apart in the menu. True if anything was dropped."""
+    seen_html = {(channel.signature_template or default_signature_template(channel)).strip()}
+    seen_ids = {0}
+    kept = []
+    for x in channel.signature_extra or []:
+        text, tid = (x.get("html") or "").strip(), int(x["id"])
+        if not text or text in seen_html or tid in seen_ids:
+            continue
+        seen_html.add(text)
+        seen_ids.add(tid)
+        kept.append(x)
+    if len(kept) == len(channel.signature_extra or []):
+        return False
+    channel.signature_extra = kept
+    return True
+
+
 def render_signature(channel: Channel, template_id: int = 0) -> str:
     """The signature from template `template_id`; the main one when that template is gone (or the channel never had it)."""
     templates = dict(signature_templates(channel))

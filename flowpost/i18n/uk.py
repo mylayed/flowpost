@@ -362,6 +362,8 @@ TEXTS: dict[str, str] = {
         "<code>👉 &lt;a href=\"{{link}}\"&gt;{{title}}&lt;/a&gt;</code>"
     ),
     "sig.added": "✅ Шаблон додано",
+    "sig.exists": "ℹ️ Такий шаблон уже є, другий такий самий не додано.",
+    "sig.exists_edit": "ℹ️ Такий текст уже має інший шаблон. Надішліть інший текст.",
     "sig.edit_pick": "✏️ Який шаблон змінити?",
     "sig.edit_current": "<b>Шаблон {n}</b> зараз: <code>{template}</code>",
     "sig.too_many": "Можна мати до {max} шаблонів. Видаліть зайвий, щоб додати новий.",

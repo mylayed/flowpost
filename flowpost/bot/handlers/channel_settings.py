@@ -38,7 +38,7 @@ from flowpost.services.html_sanitize import sanitize_html, snippet, visible_len
 from flowpost.services.moderation import MAX_BANNED_WORDS, moderation_settings
 from flowpost.services.parsing import ParseError, parse_topic
 from flowpost.services.posts import (
-    message_link, options_of, part_preview_text, render_signature, signature_templates,
+    dedupe_signatures, message_link, options_of, part_preview_text, render_signature, signature_templates,
 )
 from flowpost.services.publisher import Publisher
 from flowpost.services.watermark import POSITIONS, wm_configured, wm_settings
@@ -220,8 +220,10 @@ def sig_menu(
 
 
 def sig_label(channel: Channel, template_id: int, n: int) -> str:
-    """A button label for a template: the signature itself as plain text, so it's clear which one it is."""
-    return snippet(render_signature(channel, template_id), 50) or t("sig.pick", n=n)
+    """A button label for a template: its number (as in «Шаблон 2» above the buttons) and the signature itself as
+    plain text, so it's clear which one it is."""
+    text = snippet(render_signature(channel, template_id), 50)
+    return f"{n}. {text}" if text else t("sig.pick", n=n)
 
 
 def sig_editable(templates: list[tuple[int, str]], rights: dict) -> list[int]:
@@ -501,9 +503,15 @@ async def cs_signature(cb: CallbackQuery, callback_data: Cs, session: AsyncSessi
     if channel is None:
         return
     rights = await sig_rights(session, channel, user)
+    cleaned = dedupe_signatures(channel)  # copies of another template, left from before they were refused
     if a == "sig_del" and not (
         callback_data.v.isdigit() and int(callback_data.v) in sig_deletable(signature_templates(channel), rights)
     ):
+        if cleaned:  # the one tapped was such a copy, and it's gone now
+            await session.flush()
+            await cb.answer(t("sig.deleted"))
+            await _edit(cb, *sig_menu(channel, post, **rights), no_preview=post is not None)
+            return
         await cb.answer(t("err.not_found"), show_alert=True)
         return
     if post is not None and cb.message is not None:
@@ -770,6 +778,9 @@ async def in_signature(message: Message, bot: Bot, session: AsyncSession, state:
     if not template or visible_len(template) > MAX_SIGNATURE:
         await message.answer(t("sig.prompt"))
         return
+    if template in {tpl.strip() for i, tpl in signature_templates(channel) if i != tid}:
+        await message.answer(t("sig.exists_edit"))
+        return
     old_main, old_extra = channel.signature_template, list(channel.signature_extra or [])
     if tid == 0:
         channel.signature_template = template
@@ -811,17 +822,19 @@ async def in_signature_add(message: Message, bot: Bot, session: AsyncSession, st
     if not template or visible_len(template) > MAX_SIGNATURE:
         await message.answer(t("sig.add_prompt"))
         return
+    dedupe_signatures(channel)
     templates = signature_templates(channel)
     if len(templates) >= MAX_SIGNATURE_TEMPLATES:
         await state.set_state(None)
         await message.answer(t("sig.too_many", max=MAX_SIGNATURE_TEMPLATES))
         return
-    extra = list(channel.signature_extra or [])
-    if any(x["html"] == template for x in extra[-1:]):  # the same message handled twice (retry / double delivery)
-        await _after_sig_input(message, bot, session, state, user, publisher, settings, channel, t("sig.added"))
+    # The same text again (typed twice, or the message handled twice) would be a copy nobody can tell apart.
+    if template in {tpl.strip() for _, tpl in templates}:
+        await session.flush()
+        await _after_sig_input(message, bot, session, state, user, publisher, settings, channel, t("sig.exists"))
         return
     new_id = max(tid for tid, _ in templates) + 1
-    channel.signature_extra = [*extra, {"id": new_id, "html": template}]
+    channel.signature_extra = [*(channel.signature_extra or []), {"id": new_id, "html": template}]
     if not sanitize_html(render_signature(channel, new_id)):
         channel.signature_extra = channel.signature_extra[:-1]
         await message.answer(t("sig.invalid"))

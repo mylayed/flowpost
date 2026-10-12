@@ -287,6 +287,26 @@ async def test_full_editor_flow(h: Harness):
     await h.click(Cs(a="sig_del", c=c, p=p, v="0"))
     channel = await h.db(lambda s: s.get(Channel, c))
     assert channel.signature_template == "👉 {username}" and channel.signature_extra == []
+    # The same text can't be added twice — two identical templates can't be told apart
+    h.session.clear()
+    await h.click(Cs(a="sig_add", c=c, p=p))
+    await h.text("👉 {username}")
+    assert "Такий шаблон уже є" in h.session.texts()
+    assert (await h.db(lambda s: s.get(Channel, c))).signature_extra == []
+    # copies left from before are dropped as soon as the menu opens, and deleting one leaves the other
+    async def copies(s):
+        ch = await s.get(Channel, c)
+        ch.signature_extra = [{"id": 1, "html": "👉 {username}"}, {"id": 2, "html": "🍳 {title}"},
+                              {"id": 3, "html": "🍳 {title}"}]
+        await s.commit()
+    await h.db(copies)
+    await h.click(Cs(a="sig", c=c))
+    assert (await h.db(lambda s: s.get(Channel, c))).signature_extra == [{"id": 2, "html": "🍳 {title}"}]
+    labels = [b.text for row in h.session.calls[-1][1].reply_markup.inline_keyboard for b in row]
+    assert [x for x in labels if x.startswith("🗑")] == ["🗑 1. 👉 @testchan", "🗑 2. 🍳 Test Channel"]
+    await h.click(Cs(a="sig_del", c=c, v="2"))
+    channel = await h.db(lambda s: s.get(Channel, c))
+    assert channel.signature_template == "👉 {username}" and channel.signature_extra == []
     await h.click(Ed(a="wm", p=p))
     await h.click(Cs(a="wm_text", c=c, p=p))
     await h.text("@testchan")
