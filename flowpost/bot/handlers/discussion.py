@@ -146,6 +146,14 @@ async def on_discussion_comment(
     if channel is None:
         return
     mod = moderation_settings(channel.moderation)
+    if worker is not None and mod["enabled"] and mod["ai"] and message.from_user.id in worker.porn_authors:
+        # AI already caught this account with porn, here or in another channel: no need to ask it again.
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except TelegramAPIError as e:
+            log.info("moderation delete failed in chat %s: %s", message.chat.id, e)
+        await worker.ban_comment_author(message.chat.id, message.from_user.id)
+        return
     if mod["enabled"]:
         text = message.text or message.caption or ""
         thread_id = message.message_thread_id or 0
@@ -175,10 +183,12 @@ async def on_discussion_comment(
     text = (message.text or message.caption or "").strip()
     if worker is not None and mod["enabled"] and mod["ai"]:
         # Every comment goes, even a bare sticker or GIF: AI also checks the picture and the author's profile photo.
+        media_file_id = ai_moderation.media_file_id(message)
         full = worker.ai_moderation.add(channel.id, ai_moderation.Pending(
             chat_id=message.chat.id, message_id=message.message_id, user_tg_id=message.from_user.id, text=text,
             publication_id=pub.id if pub is not None else None, author=message.from_user.full_name,
-            media_file_id=ai_moderation.media_file_id(message),
+            media_file_id=media_file_id,
+            urgent=media_file_id is not None or message.from_user.id not in worker.checked_authors,
         ))
         if full:
             worker.wake()

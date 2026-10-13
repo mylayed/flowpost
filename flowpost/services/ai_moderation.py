@@ -15,12 +15,14 @@ class Pending:
     publication_id: int | None  # the post it was counted as a comment on, if any
     author: str = ""  # the author's display name
     media_file_id: str | None = None  # a small image of the attached photo/GIF/video/sticker, checked for sexual content
+    urgent: bool = False  # has a picture or an author not yet checked: a likely porn bot, so checked without waiting
 
 
 @dataclass
 class _Batch:
     since: float
     items: list[Pending] = field(default_factory=list)
+    urgent: bool = False
 
 
 def media_file_id(message) -> str | None:
@@ -63,20 +65,22 @@ class Queue:
         self._pending: dict[int, _Batch] = {}
 
     def add(self, channel_id: int, item: Pending, *, now: float | None = None) -> bool:
-        """Queue a comment; True once the channel has a full batch waiting, so it can be checked right away."""
+        """Queue a comment; True once the channel has a full or urgent batch waiting, so it can be checked right away."""
         now = time.monotonic() if now is None else now
         pending = self._pending.setdefault(channel_id, _Batch(since=now))
         if len(pending.items) < self.MAX_PER_CHANNEL:
             pending.items.append(item)
-        return len(pending.items) >= self.batch
+            pending.urgent = pending.urgent or item.urgent
+        return pending.urgent or len(pending.items) >= self.batch
 
     def due(self, *, now: float | None = None, flush: bool = False) -> list[tuple[int, list[Pending]]]:
-        """Take the batches ready to be checked: full ones, ones whose oldest comment waited long enough, or all."""
+        """Take the batches ready to be checked: full or urgent ones, ones whose oldest comment waited long enough,
+        or all."""
         now = time.monotonic() if now is None else now
         ready: list[tuple[int, list[Pending]]] = []
         for channel_id in list(self._pending):
             pending = self._pending[channel_id]
-            if flush or now - pending.since >= self.wait_seconds:
+            if flush or pending.urgent or now - pending.since >= self.wait_seconds:
                 del self._pending[channel_id]
                 items = pending.items
             elif len(pending.items) >= self.batch:

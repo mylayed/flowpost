@@ -90,6 +90,8 @@ class Worker:
         self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
         self.ai_moderation = ai_moderation.Queue(settings.ai_mod_batch, settings.ai_mod_wait_seconds)
         self._avatars_sexual: dict[str, bool] = {}  # profile photo file_unique_id -> AI found it sexual
+        self.checked_authors: set[int] = set()  # comment authors whose profile photo AI has seen
+        self.porn_authors: set[int] = set()  # authors AI caught with porn: their comments go at once, in any channel
         self.questions: list[pro_ai.Question] = []  # comments waiting for the AI answerer
 
     def wake(self) -> None:
@@ -661,7 +663,10 @@ class Worker:
                 await session.commit()
             return
         deleted: list[ai_moderation.Pending] = []
+        if len(self.checked_authors) > self.MAX_AVATARS:
+            self.checked_authors.clear()
         for item, (comment, avatar_id), verdict in zip(items, comments, verdicts):
+            self.checked_authors.add(item.user_tg_id)
             if avatar_id is not None:
                 if len(self._avatars_sexual) > self.MAX_AVATARS:
                     self._avatars_sexual.clear()
@@ -679,11 +684,8 @@ class Worker:
                 log.info("AI moderation delete failed in chat %s: %s", item.chat_id, e)
             if verdict in ("sexual", "sexual_profile"):
                 # Porn accounts are bots that come back with the next post: keep them out of the group for good.
-                try:
-                    await self.bot.ban_chat_member(item.chat_id, item.user_tg_id)
-                    log.info("AI moderation banned a %s author in chat %s", verdict, item.chat_id)
-                except TelegramAPIError as e:
-                    log.info("AI moderation ban failed in chat %s: %s", item.chat_id, e)
+                self.porn_authors.add(item.user_tg_id)
+                await self.ban_comment_author(item.chat_id, item.user_tg_id)
         if not deleted:
             return
         async with self.sessionmaker() as session:
@@ -698,6 +700,13 @@ class Worker:
             await session.commit()
 
     MAX_AVATARS = 20000
+
+    async def ban_comment_author(self, chat_id: int, user_tg_id: int) -> None:
+        try:
+            await self.bot.ban_chat_member(chat_id, user_tg_id)
+            log.info("AI moderation banned a porn author in chat %s", chat_id)
+        except TelegramAPIError as e:
+            log.info("AI moderation ban failed in chat %s: %s", chat_id, e)
 
     async def _image(self, file_id: str) -> tuple[bytes, str] | None:
         try:

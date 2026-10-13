@@ -1124,6 +1124,11 @@ def test_ai_moderation_queue_sends_full_or_waited_batches():
     assert [i.message_id for _, items in queue.due(now=95) for i in items] == [3]
     queue.add(6, item(4), now=100)
     assert [c for c, _ in queue.due(now=100, flush=True)] == [6]
+    # a likely porn bot (a picture, or an author not checked yet) doesn't wait for the batch to fill
+    queue.add(7, item(5), now=200)
+    assert queue.add(7, Pending(chat_id=1, message_id=6, user_tg_id=6, text="", publication_id=None, urgent=True),
+                     now=201) is True
+    assert [i.message_id for _, items in queue.due(now=201) for i in items] == [5, 6]
 
 
 class _FakeModerator:
@@ -1234,23 +1239,25 @@ async def test_ai_moderation_checks_profile_photos_and_gifs_once(h: Harness):
     await _comment(h, 602, "Оля", text="Гарний пост")
     gif = {"animation": {"file_id": "gif", "file_unique_id": "gif", "width": 1, "height": 1, "duration": 1,
                          "thumbnail": {"file_id": "gif-thumb", "file_unique_id": "gt", "width": 1, "height": 1}}}
-    await _comment(h, 602, "Оля", media=gif)  # a bare GIF with no text is checked too
+    await _comment(h, 603, "Bot", media=gif)  # a bare GIF with no text is checked too
     h.session.clear()
     await worker.process_ai_moderation(flush=True)
     (batch,) = fake.batches
-    assert [c.author for c in batch] == ["Калина", "Оля", "Оля"]
+    assert [c.author for c in batch] == ["Калина", "Оля", "Bot"]
     assert batch[0].avatar == (JPEG + b"nude", "image/jpeg")
     assert batch[2].media == (JPEG + b"porn", "image/jpeg") and batch[2].text == ""
     assert len(_sent(h, "DeleteMessage")) == 2
-    assert sorted(b.user_id for b in _sent(h, "BanChatMember")) == [601, 602]  # porn authors are banned too
+    assert sorted(b.user_id for b in _sent(h, "BanChatMember")) == [601, 603]  # porn authors are banned too
     assert (await h.db(lambda s: s.get(Publication, pub_id))).comments_count == 1
 
-    # the avatars were judged already: they aren't sent again, and the porn bot's next comment still goes
-    await _comment(h, 601, "Калина", text="Привіт")
-    await _comment(h, 602, "Оля", text="Дякую")
+    # the porn bot's next comment goes at once without AI; a checked author's text waits for the batch
     h.session.clear()
+    await _comment(h, 601, "Калина", text="Привіт")
+    assert len(_sent(h, "DeleteMessage")) == 1 and len(_sent(h, "BanChatMember")) == 1
+    await _comment(h, 602, "Оля", text="Дякую")
+    assert worker.ai_moderation.due() == []
     await worker.process_ai_moderation(flush=True)
-    assert [c.avatar for c in fake.batches[1]] == [None, None]
+    assert [(c.text, c.avatar) for c in fake.batches[1]] == [("Дякую", None)]
     assert len(_sent(h, "DeleteMessage")) == 1
     assert (await h.db(lambda s: s.get(Publication, pub_id))).comments_count == 2
 
