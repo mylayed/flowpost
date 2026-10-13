@@ -71,7 +71,7 @@ TEXTS: dict[str, str] = {
         "(My Projects → channel → “🚪 Join requests & welcome”)\n\n"
         "<b>⭐ PRO tools</b> (My projects → channel → «⭐ PRO tools»; paid plan or trial):\n"
         "🔗 ad links — a link per ad: how many came, how many left, and the cost per subscriber\n"
-        "🧠 AI comment moderation — AI removes insults, ads and scams the regular filter misses\n"
+        "🧠 AI comment moderation — AI removes insults, ads, scams and porn (including GIFs and porn-bot avatars, banning those accounts) the regular filter misses\n"
         "📰 RSS autoposting — new items from sites become posts, rewritten by AI in the channel's style\n"
         "🧠 AI content plan — 7 ready posts for the week, each opens in the editor\n"
         "🌐 auto-translation — in multiposting a post comes out in each channel's language\n"
@@ -397,7 +397,7 @@ TEXTS: dict[str, str] = {
     "cm.aimod_paused": "⏸ AI checks have run out — only the regular filter works. Buy more in Billing → «Top up limits».",
     "cm.aimod_btn": "🧠 AI moderation ⭐",
     "aimod.on_done": (
-        "🧠 AI moderation is on. Besides profanity and links, AI will remove insults, ads and scams.\n\n"
+        "🧠 AI moderation is on. Besides profanity and links, AI will remove insults, ads, scams and porn: it also checks photos, GIFs and stickers in comments and the authors' profile photos, and bans porn accounts.\n\n"
         "Comments are checked in batches of up to {batch}: one batch uses 1 AI check of the channel's limits."
     ),
     "aimod.out": (

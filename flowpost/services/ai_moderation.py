@@ -13,12 +13,43 @@ class Pending:
     user_tg_id: int
     text: str
     publication_id: int | None  # the post it was counted as a comment on, if any
+    author: str = ""  # the author's display name
+    media_file_id: str | None = None  # a small image of the attached photo/GIF/video/sticker, checked for sexual content
 
 
 @dataclass
 class _Batch:
     since: float
     items: list[Pending] = field(default_factory=list)
+
+
+def media_file_id(message) -> str | None:
+    """A small still image of what's attached to `message` (a photo, or a GIF/video/sticker frame), if anything."""
+    if message.photo:
+        fitting = [p for p in message.photo if max(p.width, p.height) <= 800]
+        return (fitting[-1] if fitting else message.photo[0]).file_id
+    sticker = message.sticker
+    if sticker is not None:
+        if not sticker.is_animated and not sticker.is_video:
+            return sticker.file_id  # a static sticker is itself a .webp image
+        return sticker.thumbnail.file_id if sticker.thumbnail else None
+    for media in (message.animation, message.video, message.video_note, message.document):
+        if media is not None and media.thumbnail is not None:
+            return media.thumbnail.file_id
+    return None
+
+
+def image_type(data: bytes) -> str | None:
+    """The media type of an image Claude accepts, by its magic bytes; None for anything else."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return None
 
 
 class Queue:

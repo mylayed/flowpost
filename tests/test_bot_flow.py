@@ -50,6 +50,8 @@ class MockSession(BaseSession):
         self.errors: dict[str, list[Exception]] = {}  # method name -> errors to raise on its next calls
         self.member_status: dict[int, str] = {}  # user id -> their status in any chat (default: creator)
         self.boosters: set[int] = set()  # user ids that boost every chat
+        self.avatars: dict[int, str] = {}  # user id -> file_id of their profile photo
+        self.files: dict[str, bytes] = {}  # file_id -> its content, for downloads
 
     def _message(self, chat_id, **extra) -> Message:
         return Message(
@@ -100,12 +102,18 @@ class MockSession(BaseSession):
             return SimpleNamespace(message_thread_id=next(self._ids), name=method.name, icon_color=0)
         if name == "CopyMessage":
             return SimpleNamespace(message_id=next(self._ids))
+        if name == "GetUserProfilePhotos":
+            file_id = self.avatars.get(method.user_id)
+            sizes = [PhotoSize(file_id=file_id, file_unique_id=f"u-{file_id}", width=320, height=320)] if file_id else []
+            return SimpleNamespace(total_count=len(sizes), photos=[sizes] if sizes else [])
+        if name == "GetFile":
+            return SimpleNamespace(file_id=method.file_id, file_path=method.file_id)
         if name == "CreateInvoiceLink":
             return "https://t.me/$invoice"
         return True
 
-    async def stream_content(self, *args, **kwargs):  # pragma: no cover - not used
-        yield b""
+    async def stream_content(self, url, *args, **kwargs):
+        yield self.files.get(url.rsplit("/", 1)[-1], b"")
 
     async def close(self):
         pass

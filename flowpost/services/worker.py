@@ -35,7 +35,7 @@ from flowpost.db.repo.publications import refresh_post_status
 from flowpost.db.types import utcnow
 from flowpost.i18n import t
 from flowpost.services import ads, ai_moderation, analytics, broadcast, gaps, giveaway, growth, pro_ai, rss
-from flowpost.services.ai import AIError, AIService
+from flowpost.services.ai import AIError, AIService, ModComment
 from flowpost.services.billing import limits
 from flowpost.services.billing import entitlements
 from flowpost.services.delivery import (
@@ -89,6 +89,7 @@ class Worker:
         self._gaps_checked: dict[int, date] = {}  # channel id -> the owner's local day it was last checked
         self._broadcasts: dict[int, asyncio.Task] = {}  # broadcasts being sent by this process
         self.ai_moderation = ai_moderation.Queue(settings.ai_mod_batch, settings.ai_mod_wait_seconds)
+        self._avatars_sexual: dict[str, bool] = {}  # profile photo file_unique_id -> AI found it sexual
         self.questions: list[pro_ai.Question] = []  # comments waiting for the AI answerer
 
     def wake(self) -> None:
@@ -650,8 +651,9 @@ class Worker:
             except TelegramAPIError as e:
                 log.info("AI moderation pause notice not delivered: %s", e)
             return
+        comments = [await self._mod_comment(item) for item in items]
         try:
-            verdicts = await self.ai.moderate([item.text for item in items], channel_title=title)  # type: ignore[union-attr]
+            verdicts = await self.ai.moderate([c for c, _ in comments], channel_title=title)  # type: ignore[union-attr]
         except AIError as e:
             log.info("AI moderation for channel %s failed: %s", channel_id, e.key)
             async with self.sessionmaker() as session:
@@ -659,7 +661,14 @@ class Worker:
                 await session.commit()
             return
         deleted: list[ai_moderation.Pending] = []
-        for item, verdict in zip(items, verdicts):
+        for item, (comment, avatar_id), verdict in zip(items, comments, verdicts):
+            if avatar_id is not None:
+                if len(self._avatars_sexual) > self.MAX_AVATARS:
+                    self._avatars_sexual.clear()
+                if comment.avatar is not None and verdict in ("ok", "sexual_profile"):
+                    self._avatars_sexual[avatar_id] = verdict == "sexual_profile"
+                if self._avatars_sexual.get(avatar_id):
+                    verdict = "sexual_profile"
             if verdict == "ok":
                 continue
             try:
@@ -668,6 +677,13 @@ class Worker:
                 log.info("AI moderation deleted a %s comment in chat %s", verdict, item.chat_id)
             except TelegramAPIError as e:
                 log.info("AI moderation delete failed in chat %s: %s", item.chat_id, e)
+            if verdict in ("sexual", "sexual_profile"):
+                # Porn accounts are bots that come back with the next post: keep them out of the group for good.
+                try:
+                    await self.bot.ban_chat_member(item.chat_id, item.user_tg_id)
+                    log.info("AI moderation banned a %s author in chat %s", verdict, item.chat_id)
+                except TelegramAPIError as e:
+                    log.info("AI moderation ban failed in chat %s: %s", item.chat_id, e)
         if not deleted:
             return
         async with self.sessionmaker() as session:
@@ -680,6 +696,37 @@ class Worker:
                     delete(Commenter).where(Commenter.publication_id == pub.id, Commenter.user_tg_id == item.user_tg_id)
                 )
             await session.commit()
+
+    MAX_AVATARS = 20000
+
+    async def _image(self, file_id: str) -> tuple[bytes, str] | None:
+        try:
+            buf = await self.bot.download(file_id, timeout=20)
+        except Exception as e:  # noqa: BLE001 - a picture that can't be fetched is just left out of the check
+            log.info("AI moderation image download failed: %s", e)
+            return None
+        data = buf.getvalue() if buf is not None else b""
+        media_type = ai_moderation.image_type(data)
+        return (data, media_type) if media_type and len(data) <= 4_000_000 else None
+
+    async def _mod_comment(self, item: ai_moderation.Pending) -> tuple[ModComment, str | None]:
+        """The comment as AI sees it, with its picture and, unless already checked, the author's profile photo;
+        and that photo's file_unique_id, to remember the verdict on it."""
+        comment = ModComment(text=item.text, author=item.author)
+        if item.media_file_id:
+            comment.media = await self._image(item.media_file_id)
+        try:
+            photos = await self.bot.get_user_profile_photos(item.user_tg_id, limit=1)
+        except TelegramAPIError as e:
+            log.info("AI moderation profile photo lookup failed: %s", e)
+            return comment, None
+        if not photos.photos or not photos.photos[0]:
+            return comment, None
+        sizes = photos.photos[0]
+        photo = next((p for p in sizes if min(p.width, p.height) >= 300), sizes[-1])
+        if photo.file_unique_id not in self._avatars_sexual:
+            comment.avatar = await self._image(photo.file_id)
+        return comment, photo.file_unique_id
 
     MAX_QUESTIONS = 500  # a runaway flood can't grow memory without bound; the extra comments go unanswered
 
