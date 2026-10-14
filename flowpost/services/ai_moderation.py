@@ -41,6 +41,17 @@ def media_file_id(message) -> str | None:
     return None
 
 
+def buttons_text(message) -> str:
+    """The inline buttons a comment carries (a forwarded ad keeps them), as «label url» lines: spam hides its links there."""
+    markup = message.reply_markup
+    if markup is None or not getattr(markup, "inline_keyboard", None):
+        return ""
+    return "\n".join(
+        " ".join(part for part in (b.text, b.url or "") if part)
+        for row in markup.inline_keyboard for b in row
+    )
+
+
 def image_type(data: bytes) -> str | None:
     """The media type of an image Claude accepts, by its magic bytes; None for anything else."""
     if data[:3] == b"\xff\xd8\xff":

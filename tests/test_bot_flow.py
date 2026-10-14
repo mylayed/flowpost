@@ -1047,6 +1047,32 @@ async def test_moderation_deletes_spam_comment_and_skips_the_count(h: Harness):
     assert pub.comments_count == 0
 
 
+async def test_moderation_deletes_forwarded_ad_whose_link_is_in_a_button(h: Harness):
+    _, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "message_thread_id": 9001, "from": {"id": 999, "is_bot": False, "first_name": "Spammer"},
+        "forward_origin": {"type": "channel", "date": 1, "message_id": 5,
+                           "chat": {"id": -100777, "type": "channel", "title": "Members Room"}},
+        "text": "XXX EXCLUSIVE 2026",
+        "reply_markup": {"inline_keyboard": [[{"text": "OPEN NOW", "url": "https://example.org/x"}]]},
+    })
+    assert "DeleteMessage" in h.session.names()
+    assert (await h.db(lambda s: s.get(Publication, pub_id))).comments_count == 0
+
+
+async def test_moderation_covers_messages_outside_comment_threads(h: Harness):
+    await _seed_published(h, message_id=4242, discussion_thread_id=9001)
+    await h.feed(message={
+        "message_id": next(h._msg_ids), "date": int(datetime.now().timestamp()),
+        "chat": {"id": DISCUSSION_CHAT, "type": "supergroup", "title": "Discuss"},
+        "from": {"id": 999, "is_bot": False, "first_name": "Spammer"},
+        "text": "Заходь на t.me/some_scam, там круто!",
+    })
+    assert "DeleteMessage" in h.session.names()
+
+
 async def test_moderation_can_be_disabled_per_channel(h: Harness):
     channel_id, pub_id = await _seed_published(h, message_id=4242, discussion_thread_id=9001)
 

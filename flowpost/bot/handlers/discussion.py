@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot, F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -132,18 +133,19 @@ async def on_channel_autopost(message: Message, bot: Bot, session: AsyncSession)
         log.info("close_forum_topic failed for channel %s: %s", channel.id, e)
 
 
-@router.message(
-    F.chat.type.in_({"group", "supergroup"}), F.message_thread_id, ~F.is_automatic_forward,
-)
+@router.message(F.chat.type.in_({"group", "supergroup"}), ~F.is_automatic_forward)
 async def on_discussion_comment(
     message: Message, bot: Bot, session: AsyncSession, worker: Worker | None = None,
 ) -> None:
     """Moderate and count a reply in a linked discussion thread as a comment on the post that opened it,
-    entering its author into that post's giveaway."""
-    if message.from_user is None or message.from_user.is_bot:
-        return
+    entering its author into that post's giveaway. A message posted to the linked group outside any thread
+    (where spam bots like to drop their ads) is moderated too."""
     channel = await session.scalar(select(Channel).where(Channel.discussion_chat_id == message.chat.id))
     if channel is None:
+        if message.message_thread_id is None:
+            raise SkipHandler  # some other group: not ours to handle
+        return
+    if message.from_user is None or message.from_user.is_bot:
         return
     mod = moderation_settings(channel.moderation)
     if worker is not None and mod["enabled"] and mod["ai"] and message.from_user.id in worker.porn_authors:
@@ -154,8 +156,13 @@ async def on_discussion_comment(
             log.info("moderation delete failed in chat %s: %s", message.chat.id, e)
         await worker.ban_comment_author(message.chat.id, message.from_user.id)
         return
+    # Forwarded ads keep their inline buttons, and their links live there rather than in the text.
+    buttons = ai_moderation.buttons_text(message)
+    checked_text = "\n".join(part for part in ((message.text or message.caption or "").strip(), buttons) if part)
+    if message.message_thread_id is None and not checked_text and ai_moderation.media_file_id(message) is None:
+        return  # a service message (someone joined, a pin…) outside the threads: nothing to moderate
     if mod["enabled"]:
-        text = message.text or message.caption or ""
+        text = checked_text
         thread_id = message.message_thread_id or 0
         if len(_flood_cache) > _FLOOD_CACHE_MAX:
             _flood_cache.clear()
@@ -167,14 +174,17 @@ async def on_discussion_comment(
             except TelegramAPIError as e:
                 log.info("moderation delete failed in chat %s: %s", message.chat.id, e)
             return
-    pub = await session.scalar(
-        select(Publication).where(
-            Publication.channel_id == channel.id,
-            Publication.discussion_thread_id == message.message_thread_id,
-            Publication.status == "published",
+    if message.message_thread_id is None:
+        pub = None
+    else:
+        pub = await session.scalar(
+            select(Publication).where(
+                Publication.channel_id == channel.id,
+                Publication.discussion_thread_id == message.message_thread_id,
+                Publication.status == "published",
+            )
         )
-    )
-    if pub is None and message.reply_to_message is not None:
+    if pub is None and message.message_thread_id is not None and message.reply_to_message is not None:
         # A post whose thread wasn't linked when it was forwarded: the comment replies to that forwarded copy.
         found = await _pub_of_autopost(session, message.reply_to_message)
         if found is not None and found[0].id == channel.id:
@@ -185,14 +195,15 @@ async def on_discussion_comment(
         # Every comment goes, even a bare sticker or GIF: AI also checks the picture and the author's profile photo.
         media_file_id = ai_moderation.media_file_id(message)
         full = worker.ai_moderation.add(channel.id, ai_moderation.Pending(
-            chat_id=message.chat.id, message_id=message.message_id, user_tg_id=message.from_user.id, text=text,
-            publication_id=pub.id if pub is not None else None, author=message.from_user.full_name,
+            chat_id=message.chat.id, message_id=message.message_id, user_tg_id=message.from_user.id,
+            text=checked_text, publication_id=pub.id if pub is not None else None, author=message.from_user.full_name,
             media_file_id=media_file_id,
-            urgent=media_file_id is not None or message.from_user.id not in worker.checked_authors,
+            urgent=media_file_id is not None or bool(buttons) or message.forward_origin is not None
+            or message.from_user.id not in worker.checked_authors,
         ))
         if full:
             worker.wake()
-    if worker is not None and text and pro_ai.tools_settings(channel.ai_tools)["answer"] and pro_ai.looks_like_question(text):
+    if worker is not None and text and message.message_thread_id is not None and pro_ai.tools_settings(channel.ai_tools)["answer"] and pro_ai.looks_like_question(text):
         worker.add_question(pro_ai.Question(
             channel_id=channel.id, chat_id=message.chat.id, message_id=message.message_id,
             thread_id=message.message_thread_id if message.is_topic_message else None, text=text,
