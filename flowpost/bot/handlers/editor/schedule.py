@@ -65,10 +65,13 @@ async def favorite_times(session: AsyncSession, user_id: int) -> list[time]:
     ]
 
 
-async def day_overview(session: AsyncSession, user: User, day: date, current_post_id: int | None = None) -> list[str]:
-    """Lines like '10:30 🖼 Початок тексту…' for everything scheduled on `day`."""
+async def day_overview(
+    session: AsyncSession, user: User, day: date, current_post_id: int | None = None,
+    channel_ids: list[int] | None = None,
+) -> list[str]:
+    """Lines like '10:30 🖼 Початок тексту…' for everything scheduled on `day` in `channel_ids`."""
     start, end = day_bounds_utc(day, user.tz)
-    pubs = await pubs_repo.pending_between(session, user.id, start, end)
+    pubs = await pubs_repo.pending_between(session, user.id, start, end, channel_ids)
     seen: set[tuple[int, str]] = set()
     lines: list[str] = []
     zone = tz_of(user.tz)
@@ -103,7 +106,7 @@ async def show_schedule(
     day = max(day or today, today)
     await state.set_state(Editor.schedule)
     await state.update_data(sch_day=day.toordinal())
-    overview = await day_overview(session, user, day, post.id)
+    overview = await day_overview(session, user, day, post.id, list(post.channel_ids or []))
     slots, has_more = generate_slots(day, now_local, page, extra=await favorite_times(session, user.id))
     busy = {line.split(" ", 1)[0] for line in overview}
     suggestions = await best_slots(session, user.id, post.channel_ids, user.tz)
